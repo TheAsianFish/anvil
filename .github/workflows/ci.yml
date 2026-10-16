@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -73,18 +73,25 @@ jobs:
   live:
     name: live teacher tests
     runs-on: ubuntu-latest
-    env:
-      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    timeout-minutes: 15
     steps:
+      # `secrets` is not available in step `if:`, so one probe step with the key in its own
+      # env reports whether it exists; only that step and pytest ever see the secret.
+      - id: key
+        run: echo "present=$([ -n "$ANTHROPIC_API_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       - uses: actions/checkout@v5
-        if: env.ANTHROPIC_API_KEY != ''
+        if: steps.key.outputs.present == 'true'
       - uses: astral-sh/setup-uv@v6
-        if: env.ANTHROPIC_API_KEY != ''
+        if: steps.key.outputs.present == 'true'
         with:
           enable-cache: true
       - run: uv sync --all-extras --locked
-        if: env.ANTHROPIC_API_KEY != ''
+        if: steps.key.outputs.present == 'true'
       - run: uv run pytest -q -m live
-        if: env.ANTHROPIC_API_KEY != ''
+        if: steps.key.outputs.present == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       - run: echo "ANTHROPIC_API_KEY secret not set; live tests skipped"
-        if: env.ANTHROPIC_API_KEY == ''
+        if: steps.key.outputs.present != 'true'

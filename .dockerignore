@@ -1,8 +1,12 @@
 .git
 .venv
-.anvil
+**/.anvil
+**/.env
+**/.env.*
 .agent
 .claude
+CLAUDE.md
+AGENTS.md
 .mypy_cache
 .ruff_cache
 .pytest_cache

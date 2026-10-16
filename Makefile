@@ -10,11 +10,14 @@ help:
 sync: ## install the locked environment (CPU torch, all extras, dev tools)
 	$(UV) sync --all-extras --locked
 
-check: ## the quality gate: format check, lint, mypy strict, offline tests
+check: lint typecheck test ## the quality gate: format check, lint, mypy strict, offline tests
+
+lint: ## ruff format check and lint
 	$(RUN) ruff format --check .
 	$(RUN) ruff check .
+
+typecheck: ## mypy strict
 	$(RUN) mypy
-	$(RUN) pytest -q
 
 fmt: ## format and autofix
 	$(RUN) ruff format .
@@ -38,5 +41,5 @@ docker: ## build the CLI image
 spike-onnx: ## M1 spike: export ModernBERT-base to ONNX and check parity (downloads ~600 MB)
 	$(RUN) python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export
 
-clean:
+clean: ## remove the demo workspace and tool caches
 	rm -rf .anvil/demo .pytest_cache .mypy_cache .ruff_cache dist

@@ -7,6 +7,10 @@ home="${1:-.anvil/demo}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 toy="$here/examples/toy"
 
+case "$home" in
+  */.anvil/*|*/.anvil) ;;
+  *) echo "demo home must be under a .anvil directory, got: $home" >&2; exit 2 ;;
+esac
 rm -rf "$home"
 export ANVIL_HOME="$home"
 export ANVIL_LOG_LEVEL="${ANVIL_LOG_LEVEL:-WARNING}"
