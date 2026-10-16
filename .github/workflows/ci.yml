@@ -49,3 +49,42 @@ jobs:
           enable-cache: true
       - run: uv sync --all-extras --locked
       - run: uv run pytest -q
+
+  demo:
+    name: demo (offline slice)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - name: make demo (must finish in under two minutes)
+        run: timeout 120 make demo
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t anvil:ci .
+      - run: docker run --rm anvil:ci --help
+
+  live:
+    name: live teacher tests
+    runs-on: ubuntu-latest
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v5
+        if: env.ANTHROPIC_API_KEY != ''
+      - uses: astral-sh/setup-uv@v6
+        if: env.ANTHROPIC_API_KEY != ''
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+        if: env.ANTHROPIC_API_KEY != ''
+      - run: uv run pytest -q -m live
+        if: env.ANTHROPIC_API_KEY != ''
+      - run: echo "ANTHROPIC_API_KEY secret not set; live tests skipped"
+        if: env.ANTHROPIC_API_KEY == ''

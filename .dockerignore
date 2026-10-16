@@ -1,0 +1,14 @@
+.git
+.venv
+.anvil
+.agent
+.claude
+.mypy_cache
+.ruff_cache
+.pytest_cache
+**/__pycache__
+eval/results
+tests
+notebooks
+docs
+dist
