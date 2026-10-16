@@ -25,17 +25,18 @@ Status: **M1 of 7** (scaffold, Claude teacher, label store, and the
 ```console
 $ make demo
 == anvil label (fake teacher, offline)
-labelled 98 held-out + 200 pool inputs with fake-rules (0 from cache, $0.0000 spent); 298 labels in store worth $0.0000
+labelled 91 held-out + 200 pool inputs with fake-rules (0 from cache, $0.0000 spent); 291 labels in store worth $0.0000
 == anvil train (tiny random-init ModernBERT)
-trained 20261016-163655-n200 on 200 fake-rules labels: 10 epochs, loss 2.377 -> 0.119, 2.5s
+trained 20261016-170315-n200 on 200 fake-rules labels: 10 epochs, loss 2.441 -> 0.173, 0.9s
 == anvil eval (held-out agreement with the teacher)
-student 20261016-163655-n200 vs fake-rules on 98 held-out inputs: kappa 0.918, accuracy 0.939 (majority 'feature_request' accuracy 0.245); report .anvil/demo/ticket-triage/reports/eval-20261016-163655-n200.json
+student 20261016-170315-n200 vs fake-rules on 91 held-out inputs: kappa 0.896, accuracy 0.923 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261016-170315-n200.json
+== demo finished in 17s
 ```
 
 The demo runs offline: the teacher is a keyword-rule `FakeTeacher` with 5%
 injected label noise and the student is a two-layer random-init ModernBERT
-with a vocabulary built from the pool, so it finishes in about 25 seconds on
-a laptop CPU. Its kappa is a smoke check of the pipeline, not a result.
+with a vocabulary built from the pool, so it finishes quickly on
+a laptop CPU (17 s here, most of it Python start-up across three commands). Its kappa is a smoke check of the pipeline, not a result.
 
 <!-- GIF placeholder: record `anvil label/train/eval` against Claude with
 `vhs docs/demo.tape` (or asciinema + agg) once real labels exist, save it as
@@ -125,9 +126,15 @@ item, and every label carries its cost so a curve can be drawn in dollars.
 - **No server-side model fallback on refusal.** A fallback would answer with
   a different model under the same key and silently mix two teachers in one
   agreement measurement. A refused input is reported and retried next run.
-- **Hash-based splits and an append-only store.** Held-out membership is
-  `sha256(seed, id) < fraction`, so adding inputs never moves an item.
-  Labels are never overwritten; a prompt change creates a new key.
+- **Hash-based splits and an append-only store.** Held-out membership is a
+  seeded hash of the input *text*, so adding inputs never moves an item and
+  two copies of the same text can never sit on both sides. Labels and failed
+  calls are never overwritten; a change to the instructions, labels or
+  teacher effort creates a new key, and a student trained under other split
+  settings is refused at eval time.
+- **Every billed call is accounted, including failures.** A refused or
+  truncated response still costs its input and thinking tokens, so failures
+  are stored with their cost and count toward the dollars spent.
 - **A deterministic tiny student.** `tiny` uses a word-level vocabulary built
   by hand: the `tokenizers` WordPiece trainer breaks frequency ties in
   hash-map order, which gave a different vocabulary, and a different trained

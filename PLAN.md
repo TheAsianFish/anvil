@@ -276,7 +276,11 @@ Batches halve the cost of large pools and are used when a batch exceeds
   a hand-built word-level vocabulary because the `tokenizers` trainers are not
   deterministic across processes. The RESULTS.md renderer moves to M2, where
   the first eval produces numbers to render; until then RESULTS.md cites its
-  raw files table by table.
+  raw files table by table. Recorded fixtures: the recording and replay
+  transports and the replay test are in place, but no real Claude recording
+  is committed yet because the build environment has no key; `make record`
+  creates them (under $0.01). Held-out membership hashes the input text
+  rather than its id, so duplicate texts cannot leak across the split.
 
 ## Milestones
 
