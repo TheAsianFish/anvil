@@ -96,22 +96,50 @@ def test_build_claude_with_explicit_transport(
     assert list((settings.home / "cache" / "teacher").rglob("*.json"))
 
 
-def test_bad_request_is_a_config_error(monkeypatch: pytest.MonkeyPatch) -> None:
+def _sdk_error(name: str, status: int, text: str = "boom") -> Exception:
     import anthropic
     import httpx2 as httpx
 
+    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+    if name == "APIConnectionError":
+        return anthropic.APIConnectionError(request=request)
+    if name == "TypeError":
+        return TypeError("Could not resolve authentication method. Expected one of api_key ...")
+    cls = getattr(anthropic, name)
+    response = httpx.Response(status, request=request, json={"error": {"message": text}})
+    return cls(text, response=response, body={"error": {"message": text}})  # type: ignore[no-any-return]
+
+
+@pytest.mark.parametrize(
+    ("name", "status", "text", "error", "fragment"),
+    [
+        ("AuthenticationError", 401, "bad key", ConfigError, "ANTHROPIC_API_KEY"),
+        ("PermissionDeniedError", 403, "no access", ConfigError, "cannot use claude-opus-5-5"),
+        ("NotFoundError", 404, "no model", ConfigError, "unknown model"),
+        ("BadRequestError", 400, "bad effort", ConfigError, "check the teacher spec"),
+        ("InternalServerError", 500, "down", TeacherError, "API error 500"),
+        ("RateLimitError", 429, "slow down", TeacherError, "API error 429"),
+        ("APIConnectionError", 0, "", TeacherError, "could not reach"),
+        ("TypeError", 0, "", ConfigError, "--teacher fake"),
+    ],
+)
+def test_sdk_errors_map_to_anvil_errors(
+    monkeypatch: pytest.MonkeyPatch,
+    name: str,
+    status: int,
+    text: str,
+    error: type[Exception],
+    fragment: str,
+) -> None:
     from anvil.teacher.transport import AnthropicTransport
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "test-key")
     transport = AnthropicTransport()
-    request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
-    error = anthropic.BadRequestError(
-        "bad effort", response=httpx.Response(400, request=request), body=None
-    )
+    exc = _sdk_error(name, status, text)
 
     def reject(**kwargs: object) -> None:
-        raise error
+        raise exc
 
     monkeypatch.setattr(transport._client.messages, "create", reject)
-    with pytest.raises(ConfigError, match="check the teacher spec"):
+    with pytest.raises(error, match=fragment):
         transport(PARAMS)

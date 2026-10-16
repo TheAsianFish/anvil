@@ -24,7 +24,8 @@ WORDS = {
     "account": ["password", "login", "email"],
 }
 FILLER = ["please", "help", "today", "my", "the", "app", "again", "now"]
-SPEC = StudentSpec(model="tiny", max_length=16, epochs=8, batch_size=8, learning_rate=3e-3)
+# 48 examples in batches of 7 leave a partial last batch, so the loss weighting is exercised.
+SPEC = StudentSpec(model="tiny", max_length=16, epochs=8, batch_size=7, learning_rate=3e-3)
 
 
 def _toy_set() -> tuple[list[str], list[int]]:
@@ -74,6 +75,21 @@ def test_tiny_tokenizer_adds_cls_and_sep() -> None:
     assert tok.convert_ids_to_tokens(tok("hello zebra")["input_ids"])[2] == "[UNK]"
 
 
+def test_encode_truncates_to_max_length() -> None:
+    texts, _ = _toy_set()
+    student = EncoderClassifier.build(SPEC, LABELS, texts)
+    assert student.encode([" ".join(["help"] * 100)])["input_ids"].shape[1] == SPEC.max_length
+
+
+def test_pretrained_student_that_cannot_load_is_a_student_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
+    spec = StudentSpec(model="nonexistent/model")
+    with pytest.raises(StudentError, match=r"student\.model: tiny"):
+        EncoderClassifier.build(spec, LABELS, [])
+
+
 def test_predict_proba_shape() -> None:
     texts, _ = _toy_set()
     student = EncoderClassifier.build(SPEC, LABELS, texts)
@@ -100,7 +116,7 @@ def test_training_learns_a_separable_task(tmp_path: Path) -> None:
     assert len(losses) == SPEC.epochs == result.epochs
     assert losses[-1] < losses[0] / 2
     assert result.examples == len(texts)
-    assert result.steps == SPEC.epochs * 6
+    assert result.steps == SPEC.epochs * 7  # ceil(48 / 7) batches per epoch
     predicted = student.predict(texts)
     acc = np.mean([p == LABELS[t] for p, t in zip(predicted, targets, strict=True)])
     assert acc >= 0.9

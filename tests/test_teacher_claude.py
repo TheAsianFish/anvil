@@ -75,6 +75,24 @@ def test_bad_answers_become_failures(
     assert batch.spent_usd == pytest.approx(0.010)
 
 
+def test_only_text_blocks_are_parsed(toy_spec: TaskSpec, fake_transport: FakeTransport) -> None:
+    # Opus 5.5 always thinks, so a thinking block precedes the answer in real responses.
+    thought = {"type": "thinking", "thinking": "A crash is a bug.", "signature": "sig"}
+    two_texts = {**message(""), "content": [thought, {"type": "text", "text": '{"label"'}]}
+    two_texts["content"].append({"type": "text", "text": ': "bug"}'})
+    fake_transport.program(ITEM.text, two_texts)
+    (lb,) = ClaudeTeacher(toy_spec, fake_transport).label([ITEM]).labels
+    assert lb.label == "bug"
+
+
+def test_response_without_usage_costs_nothing(
+    toy_spec: TaskSpec, fake_transport: FakeTransport
+) -> None:
+    fake_transport.program(ITEM.text, {k: v for k, v in message().items() if k != "usage"})
+    (lb,) = ClaudeTeacher(toy_spec, fake_transport).label([ITEM]).labels
+    assert (lb.input_tokens, lb.output_tokens, lb.cost_usd) == (0, 0, 0.0)
+
+
 def test_cache_makes_reruns_free(
     toy_spec: TaskSpec, fake_transport: FakeTransport, tmp_path: Path
 ) -> None:
@@ -133,6 +151,7 @@ def test_concurrent_labels_keep_input_order(
     for i, it in enumerate(items):
         name = toy_spec.label_names[i % 4]
         fake_transport.program(it.text, message(f'{{"label": "{name}"}}'))
+        fake_transport.delays[it.text] = (20 - i) * 0.002  # the last submitted finishes first
     batch = ClaudeTeacher(toy_spec, fake_transport, workers=4).label(items)
     assert [lb.input_id for lb in batch.labels] == [it.id for it in items]
     assert [lb.label for lb in batch.labels] == [toy_spec.label_names[i % 4] for i in range(20)]

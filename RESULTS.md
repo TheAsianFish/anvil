@@ -10,9 +10,11 @@ environment yet.
 ### ONNX export spike: ModernBERT-base on CPU (M1)
 
 - Command: `make spike-onnx` (`uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export`)
-- Raw output: `eval/results/spike-onnx-export/results.json`, `meta.json`, `run.log`
+- Raw output: `eval/results/spike-onnx-export/results.json`, `meta.json`, `run.log`. `meta.json` names
+  the SHA the tree was checked out at (`94389b5`); the script itself landed in the next commit
+  (`11d3def`), and the line numbers in `run.log` match that committed version.
 - Setup: `answerdotai/ModernBERT-base` with a random-init 4-class head (seed 0), torch 2.14.1+cpu,
-  transformers 5.20.1, onnxruntime 1.31.0, 4 vCPU (AMD EPYC 7763). Parity over 32 sentences
+  transformers 5.20.1, onnxruntime 1.31.0, onnxscript 0.7.2 (locked), 4 vCPU x86_64 GitHub-hosted runner. Parity over 32 sentences
   (3 to 108 tokens), as one padded batch and one by one (64 comparisons). Latency: one
   23-token sentence, batch 1, median of 20 runs after 5 warm-ups. Wall time 309.8 s, $0.
 - Write-up: [docs/notes/onnx-export-spike.md](docs/notes/onnx-export-spike.md)

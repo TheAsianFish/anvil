@@ -11,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import json
 import logging
 import os
@@ -482,13 +483,27 @@ def strip_initializer_value_info(src: Path, out_dir: Path) -> Path:
 
 
 def git_sha() -> str:
+    """HEAD's SHA, with `-dirty` appended when the tree has uncommitted changes."""
     try:
         out = subprocess.run(
             ["git", "rev-parse", "HEAD"], capture_output=True, text=True, check=True
         )
-        return out.stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], capture_output=True, text=True, check=True
+        )
     except (OSError, subprocess.CalledProcessError):
         return "unknown"
+    return out.stdout.strip() + ("-dirty" if status.stdout.strip() else "")
+
+
+def cpu_model() -> str:
+    try:
+        for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+            if line.startswith("model name"):
+                return line.split(":", 1)[1].strip()
+    except OSError:
+        pass
+    return "unknown"
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -535,9 +550,11 @@ def main(argv: list[str] | None = None) -> int:
             "transformers": transformers.__version__,
             "onnx": onnx.__version__,
             "onnxruntime": ort.__version__,
+            "onnxscript": importlib.metadata.version("onnxscript"),
         },
         "machine": {
             "cpu_count": os.cpu_count(),
+            "cpu_model": cpu_model(),
             "processor": platform.processor() or platform.machine(),
             "platform": platform.platform(),
         },

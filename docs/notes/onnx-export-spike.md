@@ -14,9 +14,10 @@ The plan assumed optimum-onnx would do the export. That is not possible next to 
 
 ## Setup
 
-- torch 2.14.1+cpu, transformers 5.20.1, onnx 1.23.2, onnxruntime 1.31.0, onnxscript 0.7.2,
-  Python 3.12.3.
-- 4 vCPU (AMD EPYC 7763), Linux, no GPU. `torch.set_num_threads(4)`, ORT
+- torch 2.14.1+cpu, transformers 5.20.1, onnx 1.23.2, onnxruntime 1.31.0 (from `meta.json`),
+  onnxscript 0.7.2 (from `uv.lock`), Python 3.12.3.
+- 4 vCPU x86_64 GitHub-hosted runner, Linux, no GPU (`meta.json` records the vCPU count and
+  platform string; the CPU model was not captured). `torch.set_num_threads(4)`, ORT
   `intra_op_num_threads=4`, CPUExecutionProvider.
 - Classification head is random-init with `torch.manual_seed(0)`, so it is identical across
   configurations. Its logits are small (largest |logit| over the test set: 1.84).
@@ -76,7 +77,7 @@ model):
 | torchscript-eager | per-channel | 151.4 | 3.589 | 0.748 | 0.078 | 23.81 |
 | torchscript-eager | per-tensor, mlp.Wo fp32 | 209.1 | 1.060 | 0.119 | 0.969 | 25.14 |
 
-The refcompile-config-true int8 rows match dynamo-sdpa exactly. Total run: 309.8 s, $0.
+The refcompile-config-true int8 rows match dynamo-sdpa exactly on parity and size (latency differs by under 1 ms). Total run: 309.8 s, $0.
 
 ## What failed and why
 
@@ -112,8 +113,9 @@ the scale too coarse; I did not measure the activation range. The committed vari
 measured, not remembered.
 
 **Per-channel int8 is broken here.** It agrees with PyTorch on 6 to 9% of inputs, worse than
-chance with 4 labels, and the result is the same whether or not the classifier head is
-quantized. I did not find the root cause in the timebox. For now, don't use it.
+chance with 4 labels. A one-off probe that left the classifier head in fp32 (not kept, so
+not quoted) looked the same, and I did not find the root cause in the timebox. For now,
+don't use it.
 
 Caveats: the head is untrained, so the margins between classes are small and argmax agreement
 is a pessimistic proxy. Max tested length is 108 tokens. Latency is one 23-token input on a

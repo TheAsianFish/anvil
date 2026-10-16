@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -100,6 +101,7 @@ class FakeTransport:
         self.default = default if default is not None else message()
         self.responses: dict[str, JSONDict] = {}
         self.errors: dict[str, Exception] = {}
+        self.delays: dict[str, float] = {}
         self.calls: list[JSONDict] = []
         self._lock = threading.Lock()
 
@@ -110,6 +112,8 @@ class FakeTransport:
         with self._lock:
             self.calls.append(params)
         text = params["messages"][0]["content"]
+        if text in self.delays:
+            time.sleep(self.delays[text])
         if text in self.errors:
             raise self.errors[text]
         return self.responses.get(text, self.default)
