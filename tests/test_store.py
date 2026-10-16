@@ -141,6 +141,25 @@ def test_failures_are_stored_and_counted_as_spend(store: Store) -> None:
         store._db.execute("DELETE FROM failures")
 
 
+def test_labels_need_a_known_input(store: Store) -> None:
+    store.add_inputs(_items(1))
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+        store.append_labels([_label("ghost", "a")])
+    with pytest.raises(sqlite3.IntegrityError, match="FOREIGN KEY"):
+        store.append_failures([Failure("ghost", "refusal")], "m", "p")
+    assert store.stats("m", "p").labels == 0
+
+
+def test_teacher_models_under_a_prompt_hash(store: Store) -> None:
+    store.add_inputs(_items(2))
+    store.append_labels(
+        [_label("i0", "a"), _label("i1", "b", model="other"), _label("i0", "a", ph="q")]
+    )
+    assert store.teacher_models("p") == ["m", "other"]
+    assert store.teacher_models("q") == ["m"]
+    assert store.teacher_models("none") == []
+
+
 def test_duplicate_texts_never_straddle_the_split(store: Store) -> None:
     store.add_inputs([Item(f"dup{k}", "the app crashes on login") for k in range(40)])
     store.add_inputs(_items(200))
@@ -176,6 +195,9 @@ def test_read_inputs_ids_from_field_or_content_hash(tmp_path: Path) -> None:
         (['"just a string"'], ":1", '"text"'),
         (['{"id": "a", "text": "x"}', '{"id": "a", "text": "y"}'], ":2", "repeats id"),
         (['{"text": "same"}', '{"text": "same"}'], ":2", "repeats id"),
+        (['{"id": "", "text": "x"}'], ":1", "must not be empty"),
+        (['{"id": 1.5, "text": "x"}'], ":1", "string or an integer"),
+        (['{"id": true, "text": "x"}'], ":1", "string or an integer"),
     ],
 )
 def test_read_inputs_errors_name_the_line(

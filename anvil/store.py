@@ -108,7 +108,11 @@ def read_inputs(path: Path) -> list[Item]:
         if not isinstance(text, str) or not text.strip():
             raise ConfigError(f'{path}:{n} needs a non-empty "text" string')
         raw_id = obj.get("id")
+        if raw_id is not None and (isinstance(raw_id, bool) or not isinstance(raw_id, str | int)):
+            raise ConfigError(f'{path}:{n} "id" must be a string or an integer')
         item_id = str(raw_id) if raw_id is not None else text_id(text)
+        if not item_id:
+            raise ConfigError(f'{path}:{n} "id" must not be empty')
         if item_id in seen:
             raise ConfigError(f"{path}:{n} repeats id {item_id!r}; ids must be unique")
         seen.add(item_id)
@@ -135,6 +139,7 @@ class Store:
         self.heldout_fraction = heldout_fraction
         path.parent.mkdir(parents=True, exist_ok=True)
         self._db = sqlite3.connect(path)
+        self._db.execute("PRAGMA foreign_keys = ON")  # per connection; labels need their input
         self._db.executescript(SCHEMA)
 
     def close(self) -> None:
@@ -235,6 +240,14 @@ class Store:
             (teacher_model, prompt_hash),
         ).fetchall()
         return {input_id: label for input_id, label in rows}
+
+    def teacher_models(self, prompt_hash: str) -> list[str]:
+        """Every teacher model that has labelled inputs under this prompt hash."""
+        rows = self._db.execute(
+            "SELECT DISTINCT teacher_model FROM labels WHERE prompt_hash = ? ORDER BY 1",
+            (prompt_hash,),
+        ).fetchall()
+        return [row[0] for row in rows]
 
     def labelled(
         self, teacher_model: str, prompt_hash: str, split: Split

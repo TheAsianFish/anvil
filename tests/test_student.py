@@ -148,6 +148,9 @@ def test_training_is_reproducible_and_saves_roundtrip(tmp_path: Path) -> None:
 def test_load_rejects_non_student_dir(tmp_path: Path) -> None:
     with pytest.raises(StudentError, match="not a saved Anvil student"):
         EncoderClassifier.load(tmp_path)
+    (tmp_path / "anvil_student.json").write_text('{"labels": ["a"]}', encoding="utf-8")
+    with pytest.raises(StudentError, match="not a complete Anvil student"):
+        EncoderClassifier.load(tmp_path)
 
 
 def test_train_rejects_bad_inputs() -> None:

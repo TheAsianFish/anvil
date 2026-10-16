@@ -173,8 +173,13 @@ class EncoderClassifier:
         if not meta_path.exists():
             raise StudentError(f"{path} is not a saved Anvil student (no {META_FILE})")
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        model = AutoModelForSequenceClassification.from_pretrained(path)
-        tokenizer = AutoTokenizer.from_pretrained(path)
-        labels = list(meta.pop("labels"))
-        max_length = int(meta.pop("max_length"))
+        try:
+            labels = list(meta.pop("labels"))
+            max_length = int(meta.pop("max_length"))
+            model = AutoModelForSequenceClassification.from_pretrained(path)
+            tokenizer = AutoTokenizer.from_pretrained(path)
+        except (KeyError, OSError, ValueError) as exc:
+            raise StudentError(
+                f"{path} is not a complete Anvil student ({exc}); train one with `anvil train`"
+            ) from exc
         return cls(model, tokenizer, labels, max_length, extra_meta=meta)

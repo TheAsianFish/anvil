@@ -7,7 +7,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from anvil.errors import StoreError
+from anvil.errors import StoreError, StudentError
 from anvil.evaluate.metrics import Agreement, agreement
 from anvil.log import get_logger
 from anvil.spec import TaskSpec
@@ -129,11 +129,16 @@ def train(spec: TaskSpec, ws: Workspace, teacher_model: str) -> TrainReport:
     """Train a fresh student on every labelled pool input under (teacher model, prompt hash)."""
     with ws.open_store(spec) as store:
         pairs = store.labelled(teacher_model, spec.prompt_hash, Split.POOL)
+        labelled_by = store.teacher_models(spec.prompt_hash)
         corpus = [it.text for it in store.inputs(Split.POOL)]
     if not pairs:
-        raise StoreError(
-            f"no pool labels from {teacher_model} for this prompt; run `anvil label` first"
+        others = sorted(set(labelled_by) - {teacher_model})
+        hint = (
+            f"; the store has labels from {', '.join(others)} (pass --teacher to use them)"
+            if others
+            else "; run `anvil label` first"
         )
+        raise StoreError(f"no pool labels from {teacher_model} for this prompt{hint}")
     texts = [it.text for it, _ in pairs]
     index = {name: i for i, name in enumerate(spec.label_names)}
     targets = [index[lab] for _, lab in pairs]
@@ -176,8 +181,19 @@ def evaluate(spec: TaskSpec, ws: Workspace, student_dir: Path | None = None) -> 
     """Agreement of a trained student with the teacher on the teacher-labelled held-out split."""
     path = student_dir or ws.latest_student()
     student = EncoderClassifier.load(path)
-    teacher_model = str(student.meta["teacher_model"])
-    prompt_hash = str(student.meta["prompt_hash"])
+    try:
+        task = str(student.meta["task"])
+        teacher_model = str(student.meta["teacher_model"])
+        prompt_hash = str(student.meta["prompt_hash"])
+    except KeyError as exc:
+        raise StudentError(
+            f"student {path} has no {exc} in its metadata; it was not trained by `anvil train`"
+        ) from None
+    if task != spec.name:
+        raise StoreError(
+            f"student {path.name} was trained for task {task!r}, the spec is {spec.name!r};"
+            " pass the matching --spec or train a student for this task"
+        )
     if prompt_hash != spec.prompt_hash:
         raise StoreError(
             f"student {path.name} was trained for prompt {prompt_hash}, the spec is now"

@@ -62,6 +62,22 @@ def test_prompt_hash_tracks_what_changes_answers(toy_spec: TaskSpec) -> None:
     assert toy_spec.model_copy(update={"teacher": effort}).prompt_hash != h
 
 
+def test_prompt_hash_covers_the_request_format(
+    toy_spec: TaskSpec, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import anvil.spec
+
+    before = toy_spec.prompt_hash
+    monkeypatch.setattr(anvil.spec, "PROMPT_FORMAT_VERSION", 2)
+    assert toy_spec.prompt_hash != before
+
+
+@pytest.mark.parametrize("name", ["t\n", "a b", "../x", "", "x/y"])
+def test_names_must_match_in_full(tmp_path: Path, name: str) -> None:
+    _config_error(tmp_path, {**BASE, "name": name})
+    _config_error(tmp_path, {**BASE, "labels": ["a", name]})
+
+
 def test_missing_file(tmp_path: Path) -> None:
     with pytest.raises(ConfigError, match="not found") as info:
         load_spec(tmp_path / "nope.yaml")

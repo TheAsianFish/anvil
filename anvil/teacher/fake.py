@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Sequence
 
@@ -26,8 +27,6 @@ class FakeTeacher:
     a real one is.
     """
 
-    model_id = "fake-rules"
-
     def __init__(self, spec: TaskSpec) -> None:
         if spec.fake is None:
             raise ConfigError(
@@ -35,12 +34,25 @@ class FakeTeacher:
             )
         self._spec = spec
         self._fake = spec.fake
+        self.model_id = self.model_id_for(spec)
         self._patterns = [
             (label, re.compile(r"\b(" + "|".join(map(re.escape, words)) + r")\b", re.IGNORECASE))
             for label in spec.label_names
             if (words := self._fake.rules.get(label))
         ]
         self._default = self._fake.default or spec.label_names[0]
+
+    @staticmethod
+    def model_id_for(spec: TaskSpec) -> str:
+        """`fake-rules-<hash of the fake section>`: labels are keyed by teacher model, and the
+        rules, default, noise and seed are this teacher's whole behaviour, so editing them
+        must start a new key just as a prompt edit does for Claude."""
+        if spec.fake is None:
+            raise ConfigError(
+                "--teacher fake needs a `fake:` section with keyword rules in the spec"
+            )
+        blob = json.dumps(spec.fake.model_dump(), sort_keys=True, separators=(",", ":"))
+        return "fake-rules-" + hashlib.sha256(blob.encode()).hexdigest()[:8]
 
     def rule_label(self, text: str) -> str:
         for label, pattern in self._patterns:

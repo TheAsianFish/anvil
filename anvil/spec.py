@@ -20,7 +20,12 @@ from pydantic import (
 
 from anvil.errors import ConfigError
 
-_LABEL_RE = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_\-]*$")
+_LABEL_RE = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_\-]*")
+
+PROMPT_FORMAT_VERSION = 1
+"""Bump when the way a spec is rendered into the teacher request changes (the system prompt
+layout in `teacher/claude.py` or the output schema), so labels made under the old rendering
+are never mixed with new ones."""
 
 
 class _Strict(BaseModel):
@@ -34,7 +39,7 @@ class LabelDef(_Strict):
     @field_validator("name")
     @classmethod
     def _valid_name(cls, v: str) -> str:
-        if not _LABEL_RE.match(v):
+        if not _LABEL_RE.fullmatch(v):
             raise ValueError(f"label {v!r} must be letters, digits, '_' or '-'")
         return v
 
@@ -92,7 +97,7 @@ class TaskSpec(_Strict):
     @field_validator("name")
     @classmethod
     def _valid_task_name(cls, v: str) -> str:
-        if not _LABEL_RE.match(v):
+        if not _LABEL_RE.fullmatch(v):
             raise ValueError("task name must be letters, digits, '_' or '-' (it names a folder)")
         return v
 
@@ -125,9 +130,11 @@ class TaskSpec(_Strict):
         Labels are keyed by (teacher model, prompt hash), so editing the instructions, the label
         set or the teacher's effort produces new labels instead of silently mixing old and new
         ones. `max_tokens` is left out: it decides whether an answer is truncated (a failure),
-        not which label a completed answer has.
+        not which label a completed answer has. `PROMPT_FORMAT_VERSION` is in, so a change to
+        how the spec is rendered into the request also starts a new key.
         """
         payload = {
+            "format": PROMPT_FORMAT_VERSION,
             "kind": self.kind,
             "instructions": self.instructions.strip(),
             "labels": [label.model_dump() for label in self.labels],

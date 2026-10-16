@@ -37,7 +37,8 @@ def test_noise_zero_equals_rules_and_labels_carry_provenance(toy_spec: TaskSpec)
     items = [Item(f"x{i}", t) for i, t in enumerate(["refund me", "it crashes", "hi"])]
     batch = teacher.label(items)
     assert [lb.label for lb in batch.labels] == ["billing", "bug", "account"]
-    assert all(lb.teacher_model == "fake-rules" for lb in batch.labels)
+    assert all(lb.teacher_model == teacher.model_id for lb in batch.labels)
+    assert teacher.model_id.startswith("fake-rules-")
     assert all(lb.prompt_hash == spec.prompt_hash for lb in batch.labels)
     assert batch.failures == []
     assert batch.spent_usd == 0.0
@@ -72,6 +73,18 @@ def test_flipped_labels_always_differ(toy_spec: TaskSpec) -> None:
     labels = [lb.label for lb in FakeTeacher(_with_noise(toy_spec, 1.0)).label(items).labels]
     assert "bug" not in labels
     assert set(labels) == {"billing", "feature_request", "account"}
+
+
+def test_model_id_changes_with_the_rules(toy_spec: TaskSpec) -> None:
+    base = FakeTeacher.model_id_for(toy_spec)
+    assert FakeTeacher(toy_spec).model_id == base
+    assert FakeTeacher.model_id_for(_with_noise(toy_spec, 0.2)) != base
+    assert FakeTeacher.model_id_for(_with_noise(toy_spec, 0.05, seed=1)) != base
+    assert toy_spec.fake is not None
+    rules = toy_spec.fake.model_copy(update={"rules": {**toy_spec.fake.rules, "bug": ["boom"]}})
+    assert FakeTeacher.model_id_for(toy_spec.model_copy(update={"fake": rules})) != base
+    # The spec's prompt hash is the teacher's prompt, not the fake rules.
+    assert toy_spec.model_copy(update={"fake": rules}).prompt_hash == toy_spec.prompt_hash
 
 
 def test_needs_fake_section(toy_spec: TaskSpec) -> None:

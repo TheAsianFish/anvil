@@ -55,7 +55,7 @@ def _teacher_model(spec: TaskSpec, teacher: TeacherChoice | None) -> str:
     from anvil.teacher.fake import FakeTeacher
 
     provider = teacher.value if teacher else spec.teacher.provider
-    return FakeTeacher.model_id if provider == "fake" else spec.teacher.model
+    return FakeTeacher.model_id_for(spec) if provider == "fake" else spec.teacher.model
 
 
 @app.callback(invoke_without_command=True)

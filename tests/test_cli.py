@@ -57,7 +57,8 @@ def test_label_train_eval(toy_copy: tuple[Path, Path], home: Path) -> None:
 
     trained = runner.invoke(app, ["train", "-s", str(spec), "--teacher", "fake"])
     assert trained.exit_code == 0, trained.output
-    assert "on 80 fake-rules labels: 3 epochs" in trained.stdout
+    assert "on 80 fake-rules-" in trained.stdout
+    assert " labels: 3 epochs" in trained.stdout
 
     evaluated = runner.invoke(app, ["eval", "-s", str(spec)])
     assert evaluated.exit_code == 0, evaluated.output
@@ -66,7 +67,7 @@ def test_label_train_eval(toy_copy: tuple[Path, Path], home: Path) -> None:
     report = json.loads(report_path.read_text(encoding="utf-8"))
     assert report["n"] == heldout
     assert -1.0 <= report["kappa"] <= 1.0
-    assert report["teacher_model"] == "fake-rules"
+    assert report["teacher_model"] == FakeTeacher.model_id_for(load_spec(spec))
     assert report["train_examples"] == 80
 
     again = runner.invoke(app, label_args)
@@ -154,6 +155,36 @@ def test_pipeline_library(toy_copy: tuple[Path, Path], tmp_path: Path) -> None:
     assert report.agreement.n == 15
     assert report.report_path.exists()
     assert report.student == trained.run_id
+
+
+def test_train_names_the_teachers_that_have_labels(
+    toy_copy: tuple[Path, Path], home: Path
+) -> None:
+    spec_path, inputs = toy_copy
+    runner = CliRunner()
+    args = ["-s", str(spec_path), "--teacher", "fake"]
+    assert runner.invoke(app, ["label", "-i", str(inputs), "-n", "20", *args]).exit_code == 0
+    result = runner.invoke(app, ["train", "-s", str(spec_path)])
+    assert result.exit_code == 1
+    assert "no pool labels from claude-opus-5-5" in result.stderr
+    assert "labels from fake-rules-" in result.stderr
+    assert "--teacher" in result.stderr
+
+
+def test_eval_refuses_a_student_from_another_task(toy_copy: tuple[Path, Path], home: Path) -> None:
+    spec_path, inputs = toy_copy
+    runner = CliRunner()
+    args = ["-s", str(spec_path), "--teacher", "fake"]
+    assert runner.invoke(app, ["label", "-i", str(inputs), "-n", "20", *args]).exit_code == 0
+    assert runner.invoke(app, ["train", *args]).exit_code == 0
+    doc = yaml.safe_load(spec_path.read_text(encoding="utf-8"))
+    doc["name"] = "other-task"
+    spec_path.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    student = home / "ticket-triage" / "students" / "LATEST"
+    student_dir = home / "ticket-triage" / "students" / student.read_text().strip()
+    result = runner.invoke(app, ["eval", "-s", str(spec_path), "--student", str(student_dir)])
+    assert result.exit_code == 1
+    assert "trained for task 'ticket-triage'" in result.stderr
 
 
 def test_eval_before_train_fails(toy_copy: tuple[Path, Path], home: Path) -> None:
@@ -271,7 +302,7 @@ def test_tiny_vocabulary_never_sees_heldout_text(small_spec: TaskSpec, tmp_path:
     inputs.write_text("".join(json.dumps({"text": t}) + "\n" for t in heldout + pool))
     ws = Workspace.for_task(tmp_path / "lib", small_spec)
     label(small_spec, ws, FakeTeacher(small_spec), inputs, pool_n=6)
-    trained = train(small_spec, ws, FakeTeacher.model_id)
+    trained = train(small_spec, ws, FakeTeacher.model_id_for(small_spec))
     vocab = AutoTokenizer.from_pretrained(trained.path).get_vocab()
     assert "yak" in vocab
     assert "zebra" not in vocab
