@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from anvil.errors import ConfigError
+from anvil.settings import Settings
+
+
+def test_defaults() -> None:
+    s = Settings.from_env({})
+    assert s == Settings(
+        home=Path(".anvil"),
+        teacher_workers=4,
+        record_dir=None,
+        log_level="INFO",
+        has_api_key=False,
+    )
+
+
+def test_env_parsing() -> None:
+    s = Settings.from_env(
+        {
+            "ANVIL_HOME": "/tmp/h",
+            "ANVIL_TEACHER_WORKERS": "9",
+            "ANVIL_RECORD_DIR": "/tmp/rec",
+            "ANVIL_LOG_LEVEL": "debug",
+        }
+    )
+    assert s.home == Path("/tmp/h")
+    assert s.teacher_workers == 9
+    assert s.record_dir == Path("/tmp/rec")
+    assert s.log_level == "DEBUG"
+    assert Settings.from_env({"ANVIL_TEACHER_WORKERS": ""}).teacher_workers == 4
+
+
+@pytest.mark.parametrize("value", ["four", "0"])
+def test_bad_worker_count(value: str) -> None:
+    with pytest.raises(ConfigError, match="ANVIL_TEACHER_WORKERS"):
+        Settings.from_env({"ANVIL_TEACHER_WORKERS": value})
+
+
+def test_bad_log_level() -> None:
+    with pytest.raises(ConfigError, match="ANVIL_LOG_LEVEL"):
+        Settings.from_env({"ANVIL_LOG_LEVEL": "LOUD"})
+
+
+@pytest.mark.parametrize(
+    ("env", "expected"),
+    [
+        ({}, False),
+        ({"ANTHROPIC_API_KEY": ""}, False),
+        ({"ANTHROPIC_API_KEY": "sk-test"}, True),
+        ({"ANTHROPIC_AUTH_TOKEN": "tok"}, True),
+    ],
+)
+def test_has_api_key(env: dict[str, str], expected: bool) -> None:
+    assert Settings.from_env(env).has_api_key is expected
+
+
+def test_reads_process_environment_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ANVIL_TEACHER_WORKERS", "3")
+    assert Settings.from_env().teacher_workers == 3

@@ -5,14 +5,47 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  UV_PYTHON: "3.12"
+
 jobs:
-  plan:
-    name: plan is present
+  lint:
+    name: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Check planning documents
-        run: |
-          test -f PLAN.md && test -f CONTRIBUTING.md && test -f LICENSE
-          grep -q '^## Milestones' PLAN.md
-  # M1 replaces this job with lint, type-check and test jobs (see CONTRIBUTING.md).
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+
+  typecheck:
+    name: type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - run: uv run mypy
+
+  test:
+    name: test (3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - run: uv run pytest -q
