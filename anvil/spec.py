@@ -43,7 +43,8 @@ class TeacherSpec(_Strict):
     provider: Literal["claude", "fake"] = "claude"
     model: str = "claude-opus-5-5"
     effort: Literal["low", "medium", "high"] = "low"
-    max_tokens: int = Field(default=1024, ge=64, le=16000)
+    max_tokens: int = Field(default=4096, ge=512, le=16000)
+    """Thinking tokens count toward this and Opus 5.5 always thinks; unused tokens are free."""
 
 
 class StudentSpec(_Strict):
@@ -119,15 +120,18 @@ class TaskSpec(_Strict):
 
     @property
     def prompt_hash(self) -> str:
-        """Hash of everything that changes what the teacher is asked (not which teacher).
+        """Hash of everything that changes the teacher's answers, except the model id.
 
-        Labels are keyed by (teacher model, prompt hash), so editing the instructions or the
-        label set produces new labels instead of silently mixing old and new ones.
+        Labels are keyed by (teacher model, prompt hash), so editing the instructions, the label
+        set or the teacher's effort produces new labels instead of silently mixing old and new
+        ones. `max_tokens` is left out: it decides whether an answer is truncated (a failure),
+        not which label a completed answer has.
         """
         payload = {
             "kind": self.kind,
             "instructions": self.instructions.strip(),
             "labels": [label.model_dump() for label in self.labels],
+            "effort": self.teacher.effort,
         }
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(blob).hexdigest()[:16]

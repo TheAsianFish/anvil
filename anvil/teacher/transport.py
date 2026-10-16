@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -43,7 +44,11 @@ class AnthropicTransport:
         except anthropic.NotFoundError as exc:
             raise ConfigError(f"unknown model {params.get('model')!r}; fix teacher.model") from exc
         except anthropic.BadRequestError as exc:
-            raise TeacherError(f"the API rejected the request: {exc}") from exc
+            # A 400 is the same for every input (bad model settings, schema, effort), so it
+            # stops the run instead of failing each input and suggesting a retry.
+            raise ConfigError(
+                f"the API rejected the request; check the teacher spec: {exc}"
+            ) from exc
         except anthropic.APIStatusError as exc:
             raise TeacherError(
                 f"API error {exc.status_code} after retries (request id {exc.request_id})"
@@ -73,13 +78,11 @@ class RecordingTransport:
         response = self._inner(params)
         self._dir.mkdir(parents=True, exist_ok=True)
         path = self._dir / f"{request_key(params)[:16]}.json"
-        tmp = path.with_suffix(f".{os.getpid()}.tmp")
-        tmp.write_text(
-            json.dumps({"request": params, "response": response}, indent=2, ensure_ascii=False)
-            + "\n",
-            encoding="utf-8",
-        )
-        tmp.replace(path)
+        fd, tmp = tempfile.mkstemp(dir=self._dir, suffix=".tmp")
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump({"request": params, "response": response}, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        os.replace(tmp, path)
         return response
 
 

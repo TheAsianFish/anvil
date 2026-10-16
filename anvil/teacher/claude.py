@@ -120,12 +120,20 @@ class ClaudeTeacher:
         return outcome
 
     def _parse(self, item: Item, response: JSONDict, cached: bool) -> Label | Failure:
+        usage = Usage.from_response(response.get("usage") or {})
+        cost = cost_usd(self.model_id, usage)
+
+        def fail(reason: str) -> Failure:
+            return Failure(item.id, reason, usage.input_tokens, usage.output_tokens, cost)
+
         stop = response.get("stop_reason")
         if stop == "refusal":
             details = response.get("stop_details") or {}
-            return Failure(item.id, f"refusal ({details.get('category') or 'no category'})")
+            return fail(f"refusal ({details.get('category') or 'no category'})")
         if stop == "max_tokens":
-            return Failure(item.id, "hit max_tokens before answering; raise teacher.max_tokens")
+            return fail(
+                "hit max_tokens before answering (thinking counts); raise teacher.max_tokens"
+            )
         text = "".join(
             block.get("text", "")
             for block in response.get("content", [])
@@ -134,11 +142,10 @@ class ClaudeTeacher:
         try:
             answer = json.loads(text)
         except json.JSONDecodeError:
-            return Failure(item.id, f"output is not JSON: {text[:80]!r}")
+            return fail(f"output is not JSON: {text[:80]!r}")
         value = answer.get("label") if isinstance(answer, dict) else None
         if value not in self._spec.label_names:
-            return Failure(item.id, f"label {value!r} is not in the label set")
-        usage = Usage.from_response(response.get("usage") or {})
+            return fail(f"label {value!r} is not in the label set")
         return Label(
             input_id=item.id,
             label=value,
@@ -146,6 +153,6 @@ class ClaudeTeacher:
             prompt_hash=self._spec.prompt_hash,
             input_tokens=usage.input_tokens,
             output_tokens=usage.output_tokens,
-            cost_usd=cost_usd(self.model_id, usage),
+            cost_usd=cost,
             cached=cached,
         )

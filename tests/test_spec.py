@@ -44,7 +44,7 @@ def test_labels_accept_plain_strings(tmp_path: Path) -> None:
     assert all(label.description == "" for label in spec.labels)
 
 
-def test_prompt_hash_tracks_the_question_not_the_teacher(toy_spec: TaskSpec) -> None:
+def test_prompt_hash_tracks_what_changes_answers(toy_spec: TaskSpec) -> None:
     h = toy_spec.prompt_hash
     assert h == load_spec(Path(__file__).parent.parent / "examples/toy/anvil.yaml").prompt_hash
     assert toy_spec.model_copy(update={"instructions": "Something else."}).prompt_hash != h
@@ -54,8 +54,12 @@ def test_prompt_hash_tracks_the_question_not_the_teacher(toy_spec: TaskSpec) -> 
     assert toy_spec.model_copy(update={"labels": reworded + toy_spec.labels[1:]}).prompt_hash != h
     other_teacher = toy_spec.teacher.model_copy(update={"model": "claude-haiku-5-5"})
     other_student = toy_spec.student.model_copy(update={"epochs": 1, "seed": 7})
-    same = toy_spec.model_copy(update={"teacher": other_teacher, "student": other_student})
+    more_tokens = other_teacher.model_copy(update={"max_tokens": 8000})
+    same = toy_spec.model_copy(update={"teacher": more_tokens, "student": other_student})
     assert same.prompt_hash == h
+    # Effort changes how the teacher answers, so it must change the label key.
+    effort = toy_spec.teacher.model_copy(update={"effort": "high"})
+    assert toy_spec.model_copy(update={"teacher": effort}).prompt_hash != h
 
 
 def test_missing_file(tmp_path: Path) -> None:

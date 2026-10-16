@@ -70,6 +70,9 @@ def test_bad_answers_become_failures(
     assert isinstance(batch.failures[0], Failure)
     assert batch.failures[0].input_id == "t1"
     assert reason in batch.failures[0].reason
+    # A failed response is still billed (1000 in / 50 out on Opus 5.5 = $0.005).
+    assert batch.failures[0].cost_usd == pytest.approx(0.005)
+    assert batch.spent_usd == pytest.approx(0.010)
 
 
 def test_cache_makes_reruns_free(

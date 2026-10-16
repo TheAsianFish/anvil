@@ -33,10 +33,16 @@ class Label:
 
 @dataclass(frozen=True)
 class Failure:
-    """An input the teacher could not label (refusal, truncated or invalid output)."""
+    """An input the teacher could not label (refusal, truncated or invalid output).
+
+    A refused or truncated response is still billed, so failures carry their cost too.
+    """
 
     input_id: str
     reason: str
+    input_tokens: int = 0
+    output_tokens: int = 0
+    cost_usd: float = 0.0
 
 
 @dataclass
@@ -46,8 +52,10 @@ class LabelBatch:
 
     @property
     def spent_usd(self) -> float:
-        """Dollars actually spent by this call (cache hits are free)."""
-        return sum(lb.cost_usd for lb in self.labels if not lb.cached)
+        """Dollars actually spent by this call: new labels plus billed failures."""
+        return sum(lb.cost_usd for lb in self.labels if not lb.cached) + sum(
+            f.cost_usd for f in self.failures
+        )
 
     @property
     def cache_hits(self) -> int:

@@ -53,7 +53,7 @@ def small_spec() -> TaskSpec:
                 {"name": "billing", "description": "money matters"},
                 "other",
             ],
-            "teacher": {"model": "claude-opus-5-5", "effort": "low", "max_tokens": 256},
+            "teacher": {"model": "claude-opus-5-5", "effort": "low", "max_tokens": 1024},
             "student": {"model": "tiny", "max_length": 32, "epochs": 2, "seed": 0},
             "fake": {"rules": {"bug": ["crash"], "billing": ["refund"]}, "default": "other"},
         }
