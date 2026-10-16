@@ -1,7 +1,8 @@
 """The label store: inputs, append-only teacher labels and fixed hash-based splits (SQLite).
 
-Split membership is a pure function of (split seed, input id), so adding inputs, re-running a
-command or labelling in a different order never moves an item between held-out and pool.
+Split membership is a pure function of (split seed, input text), so adding inputs, re-running a
+command or labelling in a different order never moves an item between held-out and pool, and
+two copies of the same text under different ids always land on the same side.
 Labels are never updated or deleted (triggers enforce it); each one carries the teacher model
 and prompt hash, and reads always ask for one (model, prompt hash) pair.
 """
@@ -19,7 +20,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from anvil.errors import ConfigError, StoreError
-from anvil.teacher.base import Item, Label
+from anvil.teacher.base import Failure, Item, Label
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS inputs (
@@ -39,11 +40,26 @@ CREATE TABLE IF NOT EXISTS labels (
     cached INTEGER NOT NULL,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS failures (
+    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+    input_id TEXT NOT NULL REFERENCES inputs(id),
+    reason TEXT NOT NULL,
+    teacher_model TEXT NOT NULL,
+    prompt_hash TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    created_at REAL NOT NULL
+);
 CREATE INDEX IF NOT EXISTS labels_key ON labels (teacher_model, prompt_hash, input_id);
 CREATE TRIGGER IF NOT EXISTS labels_no_update BEFORE UPDATE ON labels
 BEGIN SELECT RAISE(ABORT, 'labels are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS labels_no_delete BEFORE DELETE ON labels
 BEGIN SELECT RAISE(ABORT, 'labels are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS failures_no_update BEFORE UPDATE ON failures
+BEGIN SELECT RAISE(ABORT, 'failures are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS failures_no_delete BEFORE DELETE ON failures
+BEGIN SELECT RAISE(ABORT, 'failures are append-only'); END;
 """
 
 
@@ -54,8 +70,9 @@ class Split(StrEnum):
     """Everything else: labelled pool items are the training set."""
 
 
-def split_of(input_id: str, seed: int, heldout_fraction: float) -> Split:
-    digest = hashlib.sha256(f"anvil-split:{seed}:{input_id}".encode()).digest()
+def split_of(text: str, seed: int, heldout_fraction: float) -> Split:
+    """Held-out or pool, from a hash of the text (not the id, so duplicates cannot straddle)."""
+    digest = hashlib.sha256(f"anvil-split:{seed}:{text_id(text)}".encode()).digest()
     u = int.from_bytes(digest[:8], "big") / 2**64
     return Split.HELDOUT if u < heldout_fraction else Split.POOL
 
@@ -104,8 +121,11 @@ def read_inputs(path: Path) -> list[Item]:
 @dataclass(frozen=True)
 class LabelStats:
     labels: int
+    """Distinct inputs with a label under the key."""
     cost_usd: float
+    """Price of producing those labels plus every billed failure (what the labels cost)."""
     spent_usd: float
+    """What was actually paid: cache hits excluded, failures included."""
 
 
 class Store:
@@ -131,8 +151,8 @@ class Store:
         with self._db:
             yield self._db
 
-    def split(self, input_id: str) -> Split:
-        return split_of(input_id, self.split_seed, self.heldout_fraction)
+    def split(self, item: Item) -> Split:
+        return split_of(item.text, self.split_seed, self.heldout_fraction)
 
     def add_inputs(self, items: Iterable[Item]) -> int:
         """Insert new inputs; returns how many were new. A known id with new text is an error."""
@@ -158,7 +178,7 @@ class Store:
         rows = self._db.execute("SELECT id, text FROM inputs").fetchall()
         items = [Item(id=r[0], text=r[1]) for r in rows]
         if split is not None:
-            items = [it for it in items if self.split(it.id) == split]
+            items = [it for it in items if self.split(it) == split]
         return sorted(items, key=lambda it: order_key(it.id, self.split_seed))
 
     def append_labels(self, labels: Sequence[Label]) -> None:
@@ -180,6 +200,30 @@ class Store:
                         now,
                     )
                     for lb in labels
+                ],
+            )
+
+    def append_failures(
+        self, failures: Sequence[Failure], teacher_model: str, prompt_hash: str
+    ) -> None:
+        """Failed teacher calls are kept for their cost and for diagnosing the prompt."""
+        now = time.time()
+        with self._tx() as db:
+            db.executemany(
+                "INSERT INTO failures (input_id, reason, teacher_model, prompt_hash,"
+                " input_tokens, output_tokens, cost_usd, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                [
+                    (
+                        f.input_id,
+                        f.reason,
+                        teacher_model,
+                        prompt_hash,
+                        f.input_tokens,
+                        f.output_tokens,
+                        f.cost_usd,
+                        now,
+                    )
+                    for f in failures
                 ],
             )
 
@@ -206,4 +250,13 @@ class Store:
             " FROM labels WHERE teacher_model = ? AND prompt_hash = ?",
             (teacher_model, prompt_hash),
         ).fetchone()
-        return LabelStats(labels=int(row[0]), cost_usd=float(row[1]), spent_usd=float(row[2]))
+        failed = self._db.execute(
+            "SELECT COALESCE(SUM(cost_usd), 0) FROM failures"
+            " WHERE teacher_model = ? AND prompt_hash = ?",
+            (teacher_model, prompt_hash),
+        ).fetchone()
+        return LabelStats(
+            labels=int(row[0]),
+            cost_usd=float(row[1]) + float(failed[0]),
+            spent_usd=float(row[2]) + float(failed[0]),
+        )

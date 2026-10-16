@@ -40,7 +40,7 @@ def home(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
 
 
 def _heldout_count(inputs: Path) -> int:
-    return sum(split_of(it.id, 0, 0.25) == Split.HELDOUT for it in read_inputs(inputs))
+    return sum(split_of(it.text, 0, 0.25) == Split.HELDOUT for it in read_inputs(inputs))
 
 
 def test_label_train_eval(toy_copy: tuple[Path, Path], home: Path) -> None:
@@ -109,6 +109,20 @@ def test_eval_after_prompt_edit_fails(toy_copy: tuple[Path, Path], home: Path) -
     result = runner.invoke(app, ["eval", "-s", str(spec)])
     assert result.exit_code == 1
     assert "relabel and retrain" in result.stderr
+
+
+def test_eval_after_split_change_fails(toy_copy: tuple[Path, Path], home: Path) -> None:
+    spec, inputs = toy_copy
+    runner = CliRunner()
+    args = ["-s", str(spec), "--teacher", "fake"]
+    assert runner.invoke(app, ["label", "-i", str(inputs), "-n", "20", *args]).exit_code == 0
+    assert runner.invoke(app, ["train", *args]).exit_code == 0
+    doc = yaml.safe_load(spec.read_text(encoding="utf-8"))
+    doc["splits"]["heldout_fraction"] = 0.75
+    spec.write_text(yaml.safe_dump(doc), encoding="utf-8")
+    result = runner.invoke(app, ["eval", "-s", str(spec)])
+    assert result.exit_code == 1
+    assert "retrain before evaluating" in result.stderr
 
 
 def test_pipeline_library(toy_copy: tuple[Path, Path], tmp_path: Path) -> None:

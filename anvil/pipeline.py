@@ -90,6 +90,7 @@ def label(
                 continue
             batch = teacher.label(items)
             store.append_labels(batch.labels)
+            store.append_failures(batch.failures, teacher.model_id, spec.prompt_hash)
             report.failures += batch.failures
             report.spent_usd += batch.spent_usd
             report.cache_hits += batch.cache_hits
@@ -139,6 +140,7 @@ def train(spec: TaskSpec, ws: Workspace, teacher_model: str) -> TrainReport:
             "task": spec.name,
             "teacher_model": teacher_model,
             "prompt_hash": spec.prompt_hash,
+            "splits": spec.splits.model_dump(),
             "student_model": spec.student.model,
             "train_labels": [lab for _, lab in pairs],
             "train": {k: v for k, v in asdict(result).items()},
@@ -167,6 +169,12 @@ def evaluate(spec: TaskSpec, ws: Workspace, student_dir: Path | None = None) -> 
         raise StoreError(
             f"student {path.name} was trained for prompt {prompt_hash}, the spec is now"
             f" {spec.prompt_hash}; relabel and retrain"
+        )
+    if student.meta.get("splits") != spec.splits.model_dump():
+        raise StoreError(
+            f"student {path.name} was trained with splits {student.meta.get('splits')}, the spec"
+            f" now has {spec.splits.model_dump()}; the held-out set would include training"
+            " inputs, so retrain before evaluating"
         )
     with ws.open_store(spec) as store:
         pairs = store.labelled(teacher_model, prompt_hash, Split.HELDOUT)

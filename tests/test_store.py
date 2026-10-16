@@ -9,7 +9,7 @@ import pytest
 
 from anvil.errors import ConfigError, StoreError
 from anvil.store import Split, Store, read_inputs, split_of, text_id
-from anvil.teacher.base import Item, Label
+from anvil.teacher.base import Failure, Item, Label
 
 
 @pytest.fixture
@@ -35,7 +35,7 @@ def _label(
 
 
 def test_split_is_deterministic_and_matches_fraction() -> None:
-    ids = [f"id-{k}" for k in range(5000)]
+    ids = [f"text {k}" for k in range(5000)]
     first = [split_of(i, 0, 0.25) for i in ids]
     assert first == [split_of(i, 0, 0.25) for i in ids]
     frac = sum(s == Split.HELDOUT for s in first) / len(ids)
@@ -45,10 +45,10 @@ def test_split_is_deterministic_and_matches_fraction() -> None:
 
 def test_adding_inputs_never_moves_existing_ids(store: Store) -> None:
     store.add_inputs(_items(200))
-    before = {it.id: store.split(it.id) for it in store.inputs()}
+    before = {it.id: store.split(it) for it in store.inputs()}
     heldout_before = [it.id for it in store.inputs(Split.HELDOUT)]
     store.add_inputs(_items(300, start=200))
-    assert {i: store.split(i) for i in before} == before
+    assert {it.id: store.split(it) for it in store.inputs() if it.id in before} == before
     heldout_after = [it.id for it in store.inputs(Split.HELDOUT)]
     assert [i for i in heldout_after if i in before] == heldout_before
 
@@ -107,7 +107,7 @@ def test_labelled_returns_split_members_in_stable_order(store: Store) -> None:
     store.append_labels([_label(it.id, "a") for it in _items(40)])
     pool = store.labelled("m", "p", Split.POOL)
     assert [it for it, _ in pool] == store.inputs(Split.POOL)
-    assert all(store.split(it.id) == Split.POOL for it, _ in pool)
+    assert all(store.split(it) == Split.POOL for it, _ in pool)
 
 
 def test_stats_counts_inputs_and_separates_cost_from_spend(store: Store) -> None:
@@ -126,6 +126,26 @@ def test_stats_counts_inputs_and_separates_cost_from_spend(store: Store) -> None
     assert stats.spent_usd == pytest.approx(0.05)
     empty = store.stats("none", "p")
     assert (empty.labels, empty.cost_usd, empty.spent_usd) == (0, 0.0, 0.0)
+
+
+def test_failures_are_stored_and_counted_as_spend(store: Store) -> None:
+    store.add_inputs(_items(2))
+    store.append_labels([_label("i0", "a", cost_usd=0.01)])
+    store.append_failures([Failure("i1", "hit max_tokens", 100, 1024, 0.02)], "m", "p")
+    store.append_failures([Failure("i1", "refusal", 10, 0, 0.5)], "other", "p")
+    stats = store.stats("m", "p")
+    assert stats.labels == 1
+    assert stats.cost_usd == pytest.approx(0.03)
+    assert stats.spent_usd == pytest.approx(0.03)
+    with store._db, pytest.raises(sqlite3.DatabaseError, match="append-only"):
+        store._db.execute("DELETE FROM failures")
+
+
+def test_duplicate_texts_never_straddle_the_split(store: Store) -> None:
+    store.add_inputs([Item(f"dup{k}", "the app crashes on login") for k in range(40)])
+    store.add_inputs(_items(200))
+    sides = {store.split(it) for it in store.inputs() if it.id.startswith("dup")}
+    assert len(sides) == 1
 
 
 def _jsonl(tmp_path: Path, *lines: str) -> Path:
