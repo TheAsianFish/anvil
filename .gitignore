@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Anvil working data (label cache, checkpoints, exports)
+.anvil/
+checkpoints/
+*.onnx
+*.safetensors
+eval/results/**/checkpoints/
+
+# Environment and secrets
+.env
+.env.*
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+
+# Session tooling (never tracked)
+CLAUDE.md
+AGENTS.md
+.claude/
+.agent/
