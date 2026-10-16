@@ -80,10 +80,28 @@ def test_build_fake_teacher(toy_spec: TaskSpec, settings: Settings) -> None:
     assert isinstance(build_teacher(fake_spec, settings), FakeTeacher)
 
 
-def test_build_claude_without_key(toy_spec: TaskSpec, settings: Settings) -> None:
+def test_build_claude_without_credentials(toy_spec: TaskSpec, settings: Settings) -> None:
     with pytest.raises(ConfigError, match="ANTHROPIC_API_KEY") as info:
         build_teacher(toy_spec, settings)
     assert "--teacher fake" in str(info.value)
+
+
+def test_build_claude_with_profile_credentials(
+    toy_spec: TaskSpec, settings: Settings, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """An `ant auth login` profile counts as credentials: the SDK resolves it, not Anvil."""
+    config = tmp_path / "anthropic-config"
+    (config / "configs").mkdir(parents=True)
+    (config / "credentials").mkdir()
+    profile = config / "configs" / "default.json"
+    profile.write_text(json.dumps({"authentication": {"type": "user_oauth"}}), encoding="utf-8")
+    token = config / "credentials" / "default.json"
+    token.write_text(
+        json.dumps({"access_token": "test-token", "expires_at": 4102444800}), encoding="utf-8"
+    )
+    token.chmod(0o600)
+    monkeypatch.setenv("ANTHROPIC_CONFIG_DIR", str(config))
+    assert isinstance(build_teacher(toy_spec, settings), ClaudeTeacher)
 
 
 def test_build_claude_with_explicit_transport(
@@ -117,6 +135,13 @@ def _sdk_error(name: str, status: int, text: str = "boom") -> Exception:
         ("PermissionDeniedError", 403, "no access", ConfigError, "cannot use claude-opus-5-5"),
         ("NotFoundError", 404, "no model", ConfigError, "unknown model"),
         ("BadRequestError", 400, "bad effort", ConfigError, "check the teacher spec"),
+        (
+            "BadRequestError",
+            400,
+            "prompt is too long: 213456 tokens > 200000 maximum",
+            TeacherError,
+            "too long",
+        ),
         ("InternalServerError", 500, "down", TeacherError, "API error 500"),
         ("RateLimitError", 429, "slow down", TeacherError, "API error 429"),
         ("APIConnectionError", 0, "", TeacherError, "could not reach"),

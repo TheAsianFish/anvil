@@ -24,7 +24,8 @@ def _int(env: dict[str, str], name: str, default: int, minimum: int = 1) -> int:
 
 @dataclass(frozen=True)
 class Settings:
-    """Runtime settings. Nothing here is a secret; the API key stays in the SDK's hands."""
+    """Runtime settings. Nothing here is a secret: the anthropic SDK resolves its own
+    credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or an `ant auth login` profile)."""
 
     home: Path
     """Working directory for the store, the teacher cache and trained students."""
@@ -33,7 +34,6 @@ class Settings:
     record_dir: Path | None
     """When set, every real teacher response is also written here as a replayable recording."""
     log_level: str
-    has_api_key: bool
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
@@ -47,5 +47,4 @@ class Settings:
             teacher_workers=_int(e, "ANVIL_TEACHER_WORKERS", 4),
             record_dir=Path(record) if record else None,
             log_level=level,
-            has_api_key=bool(e.get("ANTHROPIC_API_KEY") or e.get("ANTHROPIC_AUTH_TOKEN")),
         )

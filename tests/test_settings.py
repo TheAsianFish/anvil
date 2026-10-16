@@ -15,7 +15,6 @@ def test_defaults() -> None:
         teacher_workers=4,
         record_dir=None,
         log_level="INFO",
-        has_api_key=False,
     )
 
 
@@ -44,19 +43,6 @@ def test_bad_worker_count(value: str) -> None:
 def test_bad_log_level() -> None:
     with pytest.raises(ConfigError, match="ANVIL_LOG_LEVEL"):
         Settings.from_env({"ANVIL_LOG_LEVEL": "LOUD"})
-
-
-@pytest.mark.parametrize(
-    ("env", "expected"),
-    [
-        ({}, False),
-        ({"ANTHROPIC_API_KEY": ""}, False),
-        ({"ANTHROPIC_API_KEY": "sk-test"}, True),
-        ({"ANTHROPIC_AUTH_TOKEN": "tok"}, True),
-    ],
-)
-def test_has_api_key(env: dict[str, str], expected: bool) -> None:
-    assert Settings.from_env(env).has_api_key is expected
 
 
 def test_reads_process_environment_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
