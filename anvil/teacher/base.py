@@ -6,6 +6,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from anvil.errors import AnvilError
+
 
 @dataclass(frozen=True)
 class Item:
@@ -50,6 +52,12 @@ class LabelBatch:
     labels: list[Label] = field(default_factory=list)
     failures: list[Failure] = field(default_factory=list)
 
+    def add(self, outcome: Label | Failure) -> None:
+        if isinstance(outcome, Label):
+            self.labels.append(outcome)
+        else:
+            self.failures.append(outcome)
+
     @property
     def spent_usd(self) -> float:
         """Dollars actually spent by this call: new labels plus billed failures."""
@@ -60,6 +68,17 @@ class LabelBatch:
     @property
     def cache_hits(self) -> int:
         return sum(1 for lb in self.labels if lb.cached)
+
+
+class BatchAbortedError(AnvilError):
+    """A batch stopped before every input was answered (a configuration error from the API,
+    Ctrl-C, a crash). `batch` holds the answers that did complete, so the caller can persist
+    what was paid for before re-raising `cause`."""
+
+    def __init__(self, cause: BaseException, batch: LabelBatch) -> None:
+        super().__init__(f"teacher batch aborted: {cause}")
+        self.cause = cause
+        self.batch = batch
 
 
 class Teacher(Protocol):

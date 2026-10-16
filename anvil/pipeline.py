@@ -13,7 +13,7 @@ from anvil.log import get_logger
 from anvil.spec import TaskSpec
 from anvil.store import Split, Store, read_inputs
 from anvil.students.encoder import EncoderClassifier
-from anvil.teacher.base import Failure, Teacher
+from anvil.teacher.base import BatchAbortedError, Failure, LabelBatch, Teacher
 from anvil.train.loop import TrainResult, train_classifier
 
 log = get_logger(__name__)
@@ -85,12 +85,25 @@ def label(
         pool = [it for it in store.inputs(Split.POOL) if it.id not in done][:pool_n]
 
         report = LabelReport(teacher.model_id, added, 0, 0)
+
+        def persist(batch: LabelBatch) -> None:
+            store.append_labels(batch.labels)
+            store.append_failures(batch.failures, teacher.model_id, spec.prompt_hash)
+
         for name, items in (("heldout", heldout), ("pool", pool)):
             if not items:
                 continue
-            batch = teacher.label(items)
-            store.append_labels(batch.labels)
-            store.append_failures(batch.failures, teacher.model_id, spec.prompt_hash)
+            try:
+                batch = teacher.label(items)
+            except BatchAbortedError as exc:
+                # Keep every answer that was paid for before the run stopped.
+                persist(exc.batch)
+                log.warning(
+                    "label run aborted",
+                    extra={"kept": len(exc.batch.labels), "spent_usd": exc.batch.spent_usd},
+                )
+                raise exc.cause from None
+            persist(batch)
             report.failures += batch.failures
             report.spent_usd += batch.spent_usd
             report.cache_hits += batch.cache_hits

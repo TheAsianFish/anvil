@@ -6,7 +6,7 @@ import pytest
 
 from anvil.errors import ConfigError, TeacherError
 from anvil.spec import TaskSpec
-from anvil.teacher.base import Failure, Item
+from anvil.teacher.base import BatchAbortedError, Failure, Item
 from anvil.teacher.cache import DiskCache
 from anvil.teacher.claude import ClaudeTeacher
 from tests.conftest import FakeTransport, message
@@ -172,9 +172,49 @@ def test_transport_error_fails_one_input_only(
     assert [lb.cached for lb in retry.labels] == [False]
 
 
-def test_transport_config_error_propagates(
-    toy_spec: TaskSpec, fake_transport: FakeTransport
+def test_config_error_aborts_the_batch_but_keeps_completed_answers(
+    toy_spec: TaskSpec, fake_transport: FakeTransport, tmp_path: Path
 ) -> None:
     fake_transport.errors[ITEM.text] = ConfigError("the API rejected the key")
-    with pytest.raises(ConfigError, match="rejected the key"):
-        ClaudeTeacher(toy_spec, fake_transport).label([Item("a", "first"), ITEM])
+    teacher = ClaudeTeacher(toy_spec, fake_transport, cache=DiskCache(tmp_path), workers=1)
+    with pytest.raises(BatchAbortedError) as info:
+        teacher.label([Item("a", "first"), ITEM, Item("b", "never sent")])
+    assert isinstance(info.value.cause, ConfigError)
+    assert str(info.value.cause) == "the API rejected the key"
+    # "a" was answered and paid for before the abort, so it is kept. "b" is cancelled unless
+    # the worker had already picked it up; whatever was sent (and billed) is kept too.
+    sent = [c["messages"][0]["content"] for c in fake_transport.calls]
+    assert sent[:2] == ["first", ITEM.text]
+    kept = {lb.input_id for lb in info.value.batch.labels}
+    assert kept == {"a"} | ({"b"} if "never sent" in sent else set())
+    assert all(not lb.cached and lb.cost_usd == 0.005 for lb in info.value.batch.labels)
+
+
+def test_identical_texts_are_requested_once(
+    toy_spec: TaskSpec, fake_transport: FakeTransport, tmp_path: Path
+) -> None:
+    items = [Item("x1", "same ticket"), Item("other", "different"), Item("x2", "same ticket")]
+    items.append(Item("x3", "same ticket"))
+    batch = ClaudeTeacher(toy_spec, fake_transport, cache=DiskCache(tmp_path)).label(items)
+    assert len(fake_transport.calls) == 2
+    assert [(lb.input_id, lb.cached) for lb in batch.labels] == [
+        ("x1", False),
+        ("other", False),
+        ("x2", True),
+        ("x3", True),
+    ]
+    assert batch.spent_usd == pytest.approx(0.010)
+    assert batch.cache_hits == 2
+    # The shared answer is in the cache exactly once, under the shared request key.
+    assert len(list(tmp_path.rglob("*.json"))) == 2
+
+
+def test_identical_texts_share_a_failure(
+    toy_spec: TaskSpec, fake_transport: FakeTransport
+) -> None:
+    fake_transport.program("same ticket", message("nope"))
+    items = [Item("x1", "same ticket"), Item("x2", "same ticket")]
+    batch = ClaudeTeacher(toy_spec, fake_transport).label(items)
+    assert len(fake_transport.calls) == 1
+    assert [f.input_id for f in batch.failures] == ["x1", "x2"]
+    assert batch.spent_usd == pytest.approx(0.005)

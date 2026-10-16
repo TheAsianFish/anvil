@@ -12,7 +12,7 @@ from typer.testing import CliRunner
 
 from anvil import __version__
 from anvil.cli import app
-from anvil.errors import StoreError
+from anvil.errors import ConfigError, StoreError
 from anvil.pipeline import Workspace, evaluate, label, train
 from anvil.spec import TaskSpec, load_spec
 from anvil.store import Split, read_inputs, split_of
@@ -223,6 +223,34 @@ def test_cli_label_reports_failures_and_exits_1(
     assert "$0.0350 spent" in result.stdout
     assert "max_tokens" in result.stderr
     assert "7 inputs failed; re-run to retry them" in result.stderr
+
+
+def test_aborted_label_run_keeps_paid_answers(
+    toy_copy: tuple[Path, Path], home: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec_path, inputs = toy_copy
+    spec = load_spec(spec_path)
+    ws = Workspace.for_task(home, spec)
+    with ws.open_store(spec) as store:
+        store.add_inputs(read_inputs(inputs))
+        second = store.inputs(Split.POOL)[1]
+    transport = FakeTransport()
+    transport.errors[second.text] = ConfigError("the API key cannot use claude-opus-5-5")
+    teacher = ClaudeTeacher(spec, transport, cache=DiskCache(home / "cache"), workers=1)
+    monkeypatch.setattr("anvil.teacher.build_teacher", lambda *a, **k: teacher)
+    result = CliRunner().invoke(
+        app, ["label", "-s", str(spec_path), "-n", "4", "--heldout-max", "0"]
+    )
+    assert result.exit_code == 2
+    assert "cannot use claude-opus-5-5" in result.stderr
+    with ws.open_store(spec) as store:
+        stats = store.stats("claude-opus-5-5", spec.prompt_hash)
+    # Every input answered (and billed) before the run stopped is in the store: the first pool
+    # input for sure, plus any the worker picked up before the cancellation landed.
+    answered = len(transport.calls) - 1
+    assert answered >= 1
+    assert stats.labels == answered
+    assert stats.spent_usd == pytest.approx(0.005 * answered)
 
 
 def _texts_on(split: Split, n: int, prefix: str) -> list[str]:

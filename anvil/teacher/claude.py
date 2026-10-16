@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import json
 from collections.abc import Sequence
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 
 from anvil.errors import TeacherError
 from anvil.log import get_logger
 from anvil.spec import TaskSpec
-from anvil.teacher.base import Failure, Item, Label, LabelBatch
+from anvil.teacher.base import BatchAbortedError, Failure, Item, Label, LabelBatch
 from anvil.teacher.cache import DiskCache, request_key
 from anvil.teacher.pricing import Usage, cost_usd, price_for
 from anvil.teacher.transport import JSONDict, Transport
@@ -79,15 +79,39 @@ class ClaudeTeacher:
         }
 
     def label(self, items: Sequence[Item]) -> LabelBatch:
+        """Label every item, in input order.
+
+        Items with identical requests (the same text under different ids) are sent once and the
+        answer is shared, so a duplicate never costs a second call. If a request fails in a way
+        that stops the run (a configuration error, Ctrl-C), the answers that did complete are
+        handed back inside `BatchAbortedError` so the caller can persist what was paid for.
+        """
         batch = LabelBatch()
         if not items:
             return batch
+        params = [self.request_params(item) for item in items]
+        keys = [request_key(p) for p in params]
+        first: dict[str, int] = {}
+        for i, key in enumerate(keys):
+            first.setdefault(key, i)
         with ThreadPoolExecutor(max_workers=self._workers) as pool:
-            for result in pool.map(self._label_one, items):
-                if isinstance(result, Label):
-                    batch.labels.append(result)
-                else:
-                    batch.failures.append(result)
+            futures = {key: pool.submit(self._fetch, params[i], key) for key, i in first.items()}
+            try:
+                for i, item in enumerate(items):
+                    fetched = futures[keys[i]].result()
+                    batch.add(self._outcome(item, fetched, keys[i], shared=first[keys[i]] != i))
+            except BaseException as exc:
+                for future in futures.values():
+                    future.cancel()
+                wait(futures.values())
+                partial = LabelBatch()
+                for i, item in enumerate(items):
+                    future = futures[keys[i]]
+                    if future.cancelled() or future.exception() is not None:
+                        continue
+                    outcome = self._outcome(item, future.result(), keys[i], first[keys[i]] != i)
+                    partial.add(outcome)
+                raise BatchAbortedError(exc, partial) from exc
         log.info(
             "teacher batch",
             extra={
@@ -100,22 +124,30 @@ class ClaudeTeacher:
         )
         return batch
 
-    def _label_one(self, item: Item) -> Label | Failure:
-        params = self.request_params(item)
-        key = request_key(params)
+    def _fetch(self, params: JSONDict, key: str) -> tuple[JSONDict, bool] | TeacherError:
+        """The response for one request and whether it came from the cache. A per-request API
+        failure (5xx after retries, a dropped connection, an oversized input) is returned, not
+        raised, so it fails one input; configuration errors propagate and stop the run."""
         cached = self._cache.get(key) if self._cache else None
         if cached is not None:
-            response = cached
-        else:
-            try:
-                response = self._transport(params)
-            except TeacherError as exc:
-                # One input's API failure (5xx after retries, a dropped connection) must not
-                # throw away the rest of the batch; configuration errors still propagate.
-                return Failure(item.id, str(exc))
-        outcome = self._parse(item, response, cached=cached is not None)
+            return cached, True
+        try:
+            return self._transport(params), False
+        except TeacherError as exc:
+            return exc
+
+    def _outcome(
+        self, item: Item, fetched: tuple[JSONDict, bool] | TeacherError, key: str, shared: bool
+    ) -> Label | Failure:
+        if isinstance(fetched, TeacherError):
+            return Failure(item.id, str(fetched))
+        response, cached = fetched
+        outcome = self._parse(item, response, cached=cached or shared)
+        if shared and isinstance(outcome, Failure):
+            # The one request was billed on the first item that shares it.
+            outcome = Failure(item.id, outcome.reason)
         # Only valid answers are cached, so a refusal or truncation is retried next run.
-        if cached is None and self._cache is not None and isinstance(outcome, Label):
+        if not cached and not shared and self._cache is not None and isinstance(outcome, Label):
             self._cache.put(key, response)
         return outcome
 
