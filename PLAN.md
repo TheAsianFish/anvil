@@ -67,9 +67,9 @@ tool. Anvil is the open-source end-to-end CLI with the measurement built in.
 | Component | Module | Responsibility |
 |---|---|---|
 | Task spec | `anvil/spec.py` | Pydantic model of a task: `kind` (`classify`, `extract`, `generate`), instructions, labels / entity types / output JSON schema, teacher and student settings. Loaded from `anvil.yaml`. |
-| Teacher | `anvil/teacher/` | `Teacher` protocol with `label(batch) -> list[Label]`. `ClaudeTeacher` uses the `anthropic` SDK with structured outputs (`output_config.format`), low effort, optional Message Batches for large pools, a content-addressed on-disk cache (model + prompt hash + input hash), token and dollar accounting. `OllamaTeacher` is the offline fallback. `FakeTeacher` (deterministic rules) is for tests. |
-| Data store | `anvil/store.py` | JSONL + SQLite under `.anvil/`: inputs, labels (append-only, with teacher model and prompt hash), splits (pool / train / held-out are fixed by seeded hash so re-runs are stable), round records. |
-| Students | `anvil/students/` | `Student` protocol: `fit`, `predict_proba` / `predict_spans` / `generate`, `save`, `load`. `EncoderClassifier` and `EncoderTagger` wrap any Hugging Face encoder (default `answerdotai/ModernBERT-base`); `LoraGenerator` wraps Qwen2.5-0.5B-Instruct with PEFT LoRA. CI and unit tests use tiny random-init models built from a config, no download. |
+| Teacher | `anvil/teacher/` | `Teacher` protocol with `label(items) -> LabelBatch` (labels plus failures, each with its tokens and cost). `ClaudeTeacher` uses the `anthropic` SDK with structured outputs (`output_config.format`), low effort, optional Message Batches for large pools (M3), a content-addressed on-disk cache keyed by the hash of the full request, token and dollar accounting. `OllamaTeacher` is the offline fallback. `FakeTeacher` (deterministic rules) is for tests. |
+| Data store | `anvil/store.py` | SQLite under `.anvil/`: inputs, labels and failed calls (append-only, with teacher model and prompt hash), splits (held-out / pool are fixed by a seeded hash of the input text so re-runs are stable), round records (M3). |
+| Students | `anvil/students/` | `Student` protocol (M2; M1 has `Classifier` with `predict_proba` and `save`): `fit`, `predict_proba` / `predict_spans` / `generate`, `save`, `load`. `EncoderClassifier` and `EncoderTagger` wrap any Hugging Face encoder (default `answerdotai/ModernBERT-base`); `LoraGenerator` wraps Qwen2.5-0.5B-Instruct with PEFT LoRA. CI and unit tests use tiny random-init models built from a config, no download. |
 | Trainer | `anvil/train/loop.py` | One PyTorch training loop for all students: seeded, AMP when a GPU is present, gradient accumulation, linear warmup + decay, early stopping on held-out agreement, checkpointing, structured JSONL metrics per step. |
 | Alignment | `anvil/align.py` | Turns teacher outputs into training targets: label ids; character-offset spans to BIO tags over the student tokenizer's offsets (with a report of spans that could not be aligned); chat-template formatting for generation. |
 | Evaluation | `anvil/evaluate/` | Agreement metrics vs the teacher: Cohen's kappa with bootstrap CI, accuracy, macro F1, confusion matrix, majority baseline, teacher self-agreement ceiling; entity-level F1 for extraction; exact match / field match for generation plus an optional judge sample. Error slices by class, confidence bucket and length. |
@@ -123,10 +123,10 @@ flowchart LR
    `transformers.Trainer` (hides the mechanics the project exists to show,
    and its callback surface makes the frontier loop awkward); PyTorch
    Lightning (another dependency for the same lines of code).
-3. **Fixed, hash-based splits and an append-only label store.** Pool,
-   train and held-out membership is decided by a seeded hash of the input
-   id, so adding inputs or re-running a round never moves an item across
-   splits. Labels are never overwritten; each carries the teacher model and
+3. **Fixed, hash-based splits and an append-only label store.** Held-out
+   and pool membership is decided by a seeded hash of the input text, so
+   adding inputs or re-running a round never moves an item across splits
+   and two copies of the same text never sit on both sides. Labels are never overwritten; each carries the teacher model and
    prompt hash so a prompt change creates new labels rather than silently
    mixing. *Rejected:* random splits per run (irreproducible curves).
 4. **Active learning retrains from scratch each round.** Warm-starting
@@ -156,14 +156,15 @@ flowchart LR
    *Rejected:* TorchScript (deprecated path), serving PyTorch directly
    (slower on CPU, a heavier image).
 8. **Structured outputs for every teacher call.** The teacher returns a
-   JSON object validated against the task's schema (`messages.parse` with
-   a Pydantic model), never free text parsed by regex. For extraction the
+   JSON object constrained by the task's schema (`output_config.format`
+   with an enum over the label names) and re-validated on the client,
+   never free text parsed by regex. For extraction the
    schema carries character offsets, which `align.py` verifies against the
    input before accepting a span. *Rejected:* prompting for BIO tags
    directly (LLMs tokenise differently from the student).
 9. **Offline by default, live by flag.** Unit tests use `FakeTeacher` and
    tiny random-init students; integration tests replay committed Claude
-   recordings; live tests and evals run only with `ANTHROPIC_API_KEY` and
+   recordings (made by `make record`; none until a key is available); live tests and evals run only with `ANTHROPIC_API_KEY` and
    are marked. Teacher calls are cached on disk so a re-run of an eval
    costs nothing.
 10. **Students are pluggable.** `--student` accepts any Hugging Face

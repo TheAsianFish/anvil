@@ -23,7 +23,8 @@ class Transport(Protocol):
 
 
 class AnthropicTransport:
-    """Calls the Messages API through the official SDK (retries 429/5xx twice by default)."""
+    """Calls the Messages API through the official SDK (which retries 408/409/429/5xx and
+    connection errors `max_retries` times with backoff)."""
 
     def __init__(self, timeout_s: float = 60.0, max_retries: int = 3) -> None:
         import anthropic

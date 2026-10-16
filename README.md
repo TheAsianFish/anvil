@@ -78,7 +78,14 @@ Inputs are JSONL, one `{"text": ..., "id": optional}` per line. State lives
 under `ANVIL_HOME` (default `.anvil/`): the SQLite label store, the teacher
 response cache and trained students.
 
-Docker: `make docker && docker run --rm -v "$PWD:/work" anvil:dev label --spec anvil.yaml ...`
+Docker (the container runs as uid 1000, so pass your uid to write into the
+bind mount):
+
+```bash
+make docker
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" -e ANTHROPIC_API_KEY anvil:dev label --spec anvil.yaml --inputs inputs.jsonl --n 200
+docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" anvil:dev label --spec anvil.yaml --inputs inputs.jsonl --teacher fake   # offline
+```
 
 ## Architecture
 
@@ -99,7 +106,7 @@ flowchart LR
 |---|---|
 | `anvil/spec.py` | Pydantic task spec; the prompt hash keys every label |
 | `anvil/teacher/` | `Teacher` protocol; `ClaudeTeacher` (one structured-output request per input, enum-constrained label, content-addressed disk cache, token and dollar accounting); transports for the live API, recording and replay; `FakeTeacher` for offline runs |
-| `anvil/store.py` | SQLite store: inputs, append-only labels (triggers reject UPDATE and DELETE), held-out membership from a seeded hash of the input id |
+| `anvil/store.py` | SQLite store: inputs, append-only labels (triggers reject UPDATE and DELETE), held-out membership from a seeded hash of the input text; failed teacher calls kept with their cost |
 | `anvil/students/encoder.py` | Any Hugging Face encoder with a classification head; `tiny` builds a random-init ModernBERT for tests and the demo |
 | `anvil/train/loop.py` | The PyTorch training loop (M2 extends it with warmup, AMP, accumulation, early stopping, resume) |
 | `anvil/evaluate/metrics.py` | Cohen's kappa, accuracy, majority baseline, confusion matrix |
@@ -110,7 +117,7 @@ cost-versus-quality frontier: how few teacher labels reach a target kappa
 with the teacher, how active selection moves that curve against random
 sampling, and where the student still fails. M1 lays the ground it needs:
 labels are keyed by (teacher model, prompt hash) so curves never mix two
-prompts, splits are a pure function of the input id so re-runs never move an
+prompts, splits are a pure function of the input text so re-runs never move an
 item, and every label carries its cost so a curve can be drawn in dollars.
 
 ## Design decisions
@@ -141,7 +148,8 @@ item, and every label carries its cost so a curve can be drawn in dollars.
   model, in every process.
 - **Offline by default.** Unit tests use `FakeTeacher`, a scripted transport
   and tiny models, with the network blocked; live tests run only with a key;
-  recorded Claude responses replay through the same parsing code.
+  recorded Claude responses replay through the same parsing code (none are
+  committed yet; `make record` creates them once a key exists).
 - **ONNX export goes through `torch.onnx`.** `optimum-onnx` 0.1 requires
   `transformers<4.58` and cannot be installed next to transformers 5; the M1
   spike in [docs/notes/onnx-export-spike.md](docs/notes/onnx-export-spike.md)

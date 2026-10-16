@@ -26,9 +26,9 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make test-live` | tests that call Claude; skipped without `ANTHROPIC_API_KEY` |
 | `make record` | re-record the Claude fixtures under `tests/recordings/` (a few cents with Haiku) |
 | `make demo` | the offline vertical slice on the toy task (under two minutes) |
-| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals; write `eval/results/` and refresh RESULTS.md |
-| `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection, calibration and export studies |
-| `make bench` | latency, throughput and cost table |
+| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md |
+| `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies |
+| `make bench` | latency, throughput and cost table (M5) |
 | `make docker` | build the CLI image (M5 adds the slim serving image) |
 | `make spike-onnx` | the M1 ModernBERT ONNX export spike (downloads ModernBERT-base) |
 
@@ -47,15 +47,16 @@ every live teacher response there as a replayable recording),
 ## Layout
 
 ```
-anvil/            package (spec, teacher/, store, students/, train/, align,
-                  evaluate/, select, loop, calibrate, export, serve, hub, cli)
+anvil/            package: spec, teacher/, store, students/, train/, evaluate/,
+                  pipeline, cli (M2+ add align, select, loop, calibrate, export,
+                  serve, hub)
 examples/toy/     the toy ticket-triage task used by the demo and the tests
 scripts/          demo.sh
 tests/            unit + integration; tests/recordings/ holds real Claude
-                  responses replayed offline
-eval/             datasets loaders, study scripts, spikes/, results/
-docs/             notes/ (spikes), screenshots, architecture
-notebooks/        the Colab GPU run
+                  responses replayed offline (empty until `make record`)
+eval/             spikes/ and results/ (M2 adds dataset loaders and studies)
+docs/             notes/ (spikes); M7 adds screenshots
+notebooks/        the Colab GPU run (M6)
 ```
 
 ## Conventions

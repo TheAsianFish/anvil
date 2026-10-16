@@ -1,8 +1,8 @@
 """Content-addressed disk cache for teacher responses.
 
-The key is a hash of the exact request (model, system prompt, input, output schema, effort),
-so re-running with the same prompt, model and inputs costs nothing, and any change to one of
-them misses the cache instead of returning a stale answer.
+The key is a hash of the exact request parameters (model, system prompt, input, output schema,
+effort and max_tokens), so re-running with the same prompt, model and inputs costs nothing, and
+any change to one of them misses the cache instead of returning a stale answer.
 """
 
 from __future__ import annotations
