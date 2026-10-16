@@ -25,18 +25,18 @@ Status: **M1 of 7** (scaffold, Claude teacher, label store, and the
 ```console
 $ make demo
 == anvil label (fake teacher, offline)
-labelled 91 held-out + 200 pool inputs with fake-rules (0 from cache, $0.0000 spent); 291 labels in store worth $0.0000
+labelled 91 held-out + 200 pool inputs with fake-rules-c7ee422d (0 from cache, $0.0000 spent); 291 labels in store worth $0.0000
 == anvil train (tiny random-init ModernBERT)
-trained 20261016-170315-n200 on 200 fake-rules labels: 10 epochs, loss 2.441 -> 0.173, 0.9s
+trained 20261016-191004-n200 on 200 fake-rules-c7ee422d labels: 10 epochs, loss 2.441 -> 0.173, 0.9s
 == anvil eval (held-out agreement with the teacher)
-student 20261016-170315-n200 vs fake-rules on 91 held-out inputs: kappa 0.896, accuracy 0.923 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261016-170315-n200.json
-== demo finished in 17s
+student 20261016-191004-n200 vs fake-rules-c7ee422d on 91 held-out inputs: kappa 0.896, accuracy 0.923 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261016-191004-n200.json
+== demo finished in 18s
 ```
 
 The demo runs offline: the teacher is a keyword-rule `FakeTeacher` with 5%
 injected label noise and the student is a two-layer random-init ModernBERT
 with a vocabulary built from the pool, so it finishes quickly on
-a laptop CPU (17 s here, most of it Python start-up across three commands). Its kappa is a smoke check of the pipeline, not a result.
+a laptop CPU (18 s here, most of it Python start-up across three commands). Its kappa is a smoke check of the pipeline, not a result.
 
 <!-- GIF placeholder: record `anvil label/train/eval` against Claude with
 `vhs docs/demo.tape` (or asciinema + agg) once real labels exist, save it as
@@ -128,8 +128,8 @@ item, and every label carries its cost so a curve can be drawn in dollars.
 - **One request per input, with an enum-constrained JSON schema.** Batching
   several inputs into one prompt is cheaper per token, but per-input requests
   make the cache per input (adding inputs only pays for new ones) and let the
-  schema guarantee a valid label. Invalid outputs, truncation and refusals are
-  recorded as failures, never guessed.
+  schema guarantee a valid label. Invalid outputs, truncation, refusals and
+  an input too long for the teacher are recorded as failures, never guessed.
 - **No server-side model fallback on refusal.** A fallback would answer with
   a different model under the same key and silently mix two teachers in one
   agreement measurement. A refused input is reported and retried next run.
@@ -141,7 +141,10 @@ item, and every label carries its cost so a curve can be drawn in dollars.
   settings is refused at eval time.
 - **Every billed call is accounted, including failures.** A refused or
   truncated response still costs its input and thinking tokens, so failures
-  are stored with their cost and count toward the dollars spent.
+  are stored with their cost and count toward the dollars spent. Two inputs
+  with the same text are one request, and when a run stops early (a
+  configuration error, Ctrl-C) the answers that were already paid for are
+  stored before the error surfaces.
 - **A deterministic tiny student.** `tiny` uses a word-level vocabulary built
   by hand: the `tokenizers` WordPiece trainer breaks frequency ties in
   hash-map order, which gave a different vocabulary, and a different trained

@@ -52,20 +52,20 @@ W1016 16:48:35.097000 7259 torch/onnx/_internal/exporter/_registration.py:107] t
 2026-10-16 16:49:06,477 INFO fp32 Variant(ok=True, error_type=None, error_message=None, seconds=24.8, size_mb=601.3, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=1e-06, max_abs_diff_batch=5e-06, max_abs_diff_single=8e-06, max_abs_diff=8e-06, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=36.26, min=35.87, max=45.83), opset=20, n_nodes=1250)
 2026-10-16 16:49:06,608 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
 2026-10-16 16:49:07,097 ERROR failed: Traceback (most recent call last):
-  File "/home/runner/work/job-finder/job-finder/work/eval/spikes/onnx_export_spike.py", line 438, in quantize_and_evaluate
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 438, in quantize_and_evaluate
     quantize_dynamic(
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quantize.py", line 1000, in quantize_dynamic
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quantize.py", line 1000, in quantize_dynamic
     quantizer = ONNXQuantizer(
                 ^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/onnx_quantizer.py", line 72, in __init__
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/onnx_quantizer.py", line 72, in __init__
     model = save_and_reload_model_with_shape_infer(self.model.model)
             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1253, in save_and_reload_model_with_shape_infer
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1253, in save_and_reload_model_with_shape_infer
     return load_model_with_shape_infer(model_path)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1241, in load_model_with_shape_infer
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1241, in load_model_with_shape_infer
     onnx.shape_inference.infer_shapes_path(str(model_path), str(inferred_model_path))
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnx/shape_inference.py", line 108, in infer_shapes_path
+  File "<repo>/.venv/lib/python3.12/site-packages/onnx/shape_inference.py", line 108, in infer_shapes_path
     C.infer_shapes_path(model_path, output_path, check_type, strict_mode, data_prop)
 onnx.onnx_cpp2py_export.shape_inference.InferenceError: [ShapeInferenceError] Inferred shape and existing shape differ in dimension 0: (768) vs (4)
 
@@ -135,20 +135,20 @@ W1016 16:49:43.802000 7259 torch/onnx/_internal/exporter/_registration.py:107] t
 2026-10-16 16:50:14,532 INFO fp32 Variant(ok=True, error_type=None, error_message=None, seconds=24.0, size_mb=600.7, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=1e-06, max_abs_diff_batch=6e-06, max_abs_diff_single=6e-06, max_abs_diff=6e-06, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=35.4, min=35.21, max=36.64), opset=20, n_nodes=1008)
 2026-10-16 16:50:14,641 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
 2026-10-16 16:50:15,105 ERROR failed: Traceback (most recent call last):
-  File "/home/runner/work/job-finder/job-finder/work/eval/spikes/onnx_export_spike.py", line 438, in quantize_and_evaluate
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 438, in quantize_and_evaluate
     quantize_dynamic(
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quantize.py", line 1000, in quantize_dynamic
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quantize.py", line 1000, in quantize_dynamic
     quantizer = ONNXQuantizer(
                 ^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/onnx_quantizer.py", line 72, in __init__
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/onnx_quantizer.py", line 72, in __init__
     model = save_and_reload_model_with_shape_infer(self.model.model)
             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1253, in save_and_reload_model_with_shape_infer
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1253, in save_and_reload_model_with_shape_infer
     return load_model_with_shape_infer(model_path)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1241, in load_model_with_shape_infer
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1241, in load_model_with_shape_infer
     onnx.shape_inference.infer_shapes_path(str(model_path), str(inferred_model_path))
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnx/shape_inference.py", line 108, in infer_shapes_path
+  File "<repo>/.venv/lib/python3.12/site-packages/onnx/shape_inference.py", line 108, in infer_shapes_path
     C.infer_shapes_path(model_path, output_path, check_type, strict_mode, data_prop)
 onnx.onnx_cpp2py_export.shape_inference.InferenceError: [ShapeInferenceError] Inferred shape and existing shape differ in dimension 0: (768) vs (4)
 
@@ -228,16 +228,16 @@ Notes:
 2026-10-16 16:52:23,502 INFO config dynamo-sdpa-refcompile-kwarg-false
 2026-10-16 16:52:23,690 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base "HTTP/1.1 200 OK"
 2026-10-16 16:52:23,696 ERROR failed: Traceback (most recent call last):
-  File "/home/runner/work/job-finder/job-finder/work/eval/spikes/onnx_export_spike.py", line 353, in run_config
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 353, in run_config
     model = load_model(cfg)
             ^^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/eval/spikes/onnx_export_spike.py", line 216, in load_model
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 216, in load_model
     model = AutoModelForSequenceClassification.from_pretrained(
             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/transformers/models/auto/auto_factory.py", line 411, in from_pretrained
+  File "<repo>/.venv/lib/python3.12/site-packages/transformers/models/auto/auto_factory.py", line 411, in from_pretrained
     return model_class.from_pretrained(
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/transformers/modeling_utils.py", line 4300, in from_pretrained
+  File "<repo>/.venv/lib/python3.12/site-packages/transformers/modeling_utils.py", line 4300, in from_pretrained
     model = cls(config, *model_args, **model_kwargs)
             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 TypeError: ModernBertForSequenceClassification.__init__() got an unexpected keyword argument 'reference_compile'
@@ -294,20 +294,20 @@ W1016 16:52:33.994000 7259 torch/onnx/_internal/exporter/_registration.py:107] t
 2026-10-16 16:53:04,333 INFO fp32 Variant(ok=True, error_type=None, error_message=None, seconds=23.3, size_mb=601.3, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=1e-06, max_abs_diff_batch=5e-06, max_abs_diff_single=8e-06, max_abs_diff=8e-06, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=36.21, min=35.81, max=45.26), opset=20, n_nodes=1250)
 2026-10-16 16:53:04,449 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
 2026-10-16 16:53:04,932 ERROR failed: Traceback (most recent call last):
-  File "/home/runner/work/job-finder/job-finder/work/eval/spikes/onnx_export_spike.py", line 438, in quantize_and_evaluate
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 438, in quantize_and_evaluate
     quantize_dynamic(
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quantize.py", line 1000, in quantize_dynamic
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quantize.py", line 1000, in quantize_dynamic
     quantizer = ONNXQuantizer(
                 ^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/onnx_quantizer.py", line 72, in __init__
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/onnx_quantizer.py", line 72, in __init__
     model = save_and_reload_model_with_shape_infer(self.model.model)
             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1253, in save_and_reload_model_with_shape_infer
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1253, in save_and_reload_model_with_shape_infer
     return load_model_with_shape_infer(model_path)
            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1241, in load_model_with_shape_infer
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1241, in load_model_with_shape_infer
     onnx.shape_inference.infer_shapes_path(str(model_path), str(inferred_model_path))
-  File "/home/runner/work/job-finder/job-finder/work/.venv/lib/python3.12/site-packages/onnx/shape_inference.py", line 108, in infer_shapes_path
+  File "<repo>/.venv/lib/python3.12/site-packages/onnx/shape_inference.py", line 108, in infer_shapes_path
     C.infer_shapes_path(model_path, output_path, check_type, strict_mode, data_prop)
 onnx.onnx_cpp2py_export.shape_inference.InferenceError: [ShapeInferenceError] Inferred shape and existing shape differ in dimension 0: (768) vs (4)
 

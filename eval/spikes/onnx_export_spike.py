@@ -506,12 +506,28 @@ def cpu_model() -> str:
     return "unknown"
 
 
+class _PortableFormatter(logging.Formatter):
+    """Writes the checkout directory as `<repo>` so the committed log has no machine paths."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        return super().format(record).replace(str(Path.cwd()), "<repo>")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--configs", nargs="*", default=None, help="subset of config names")
     args = parser.parse_args(argv)
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    out: Path = args.out
+    out.mkdir(parents=True, exist_ok=True)
+    formatter = _PortableFormatter("%(asctime)s %(levelname)s %(message)s")
+    handlers: list[logging.Handler] = [
+        logging.StreamHandler(),
+        logging.FileHandler(out / "run.log"),
+    ]
+    for handler in handlers:
+        handler.setFormatter(formatter)
+    logging.basicConfig(level=logging.INFO, handlers=handlers)
     for noisy in ("httpx", "huggingface_hub"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
     ort.set_default_logger_severity(3)
@@ -520,7 +536,6 @@ def main(argv: list[str] | None = None) -> int:
     torch.manual_seed(SEED)
     np.random.seed(SEED)
     torch.set_num_threads(NUM_THREADS)
-    out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
 
     tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
