@@ -61,7 +61,15 @@ from anvil.teacher.labelfile import (
     read_label_file,
     write_label_file,
 )
-from eval.data import DatasetRef, Sample, load_rows, sample, write_inputs
+from eval.data import (
+    NEAR_DUPLICATE_JACCARD,
+    DatasetRef,
+    Sample,
+    load_rows,
+    near_duplicates,
+    sample,
+    write_inputs,
+)
 from eval.render import SEED_SUFFIX, SMOKE_SUFFIX
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -398,6 +406,8 @@ def run(
             "sampled": len(data.items),
             "sample_seed": config.sample.seed,
             "sample_sha256": data.sha256,
+            "near_duplicate_heldout": near_duplicates(texts, [it.text for it, _ in pool]),
+            "near_duplicate_jaccard": NEAR_DUPLICATE_JACCARD,
         },
         "teacher": {
             "kind": kind,

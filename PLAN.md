@@ -126,7 +126,8 @@ flowchart LR
 3. **Fixed, hash-based splits and an append-only label store.** Held-out
    and pool membership is decided by a seeded hash of the input text, so
    adding inputs or re-running a round never moves an item across splits
-   and two copies of the same text never sit on both sides. Labels are never overwritten; each carries the teacher model and
+   and two copies of the same text never sit on both sides (near-duplicates
+   that differ by a word can; the eval reports how many). Labels are never overwritten; each carries the teacher model and
    prompt hash so a prompt change creates new labels rather than silently
    mixing. *Rejected:* random splits per run (irreproducible curves).
 4. **Active learning retrains from scratch each round.** Warm-starting
@@ -298,7 +299,10 @@ Batches halve the cost of large pools and are used when a batch exceeds
   and the statistics on real data, not parity with Claude, which stays under
   "To measure" with its command and cost. The training loop resumes from
   per-epoch checkpoints (`anvil train --resume RUN`) and fingerprints the
-  config and the training data, so a resume on other data is refused.
+  config and the training data, so a resume on other data is refused. The
+  student and the TF-IDF baseline are scored on the same held-out items, so
+  the eval compares them with a paired bootstrap of the kappa difference
+  rather than by whether two separate intervals overlap.
 
 ## Milestones
 

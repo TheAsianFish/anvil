@@ -18,7 +18,7 @@ from anvil.teacher.fake import FakeTeacher
 from anvil.teacher.labelfile import RecordedLabel, read_label_file, write_label_file
 from eval import classify, render
 from eval.classify import EvalConfig, load_config, resolve_teacher_kind
-from eval.data import Sample, label_name, sample
+from eval.data import Sample, label_name, near_duplicates, sample
 from tests.conftest import TOY_INPUTS, TOY_SPEC
 
 
@@ -35,6 +35,19 @@ def test_shipped_configs_are_valid(name: str, n_labels: int) -> None:
     assert config.spec.teacher.model == "claude-haiku-5-5"
     assert config.paraphrase_spec().prompt_hash != config.spec.prompt_hash
     assert config.sample.pool_labels + config.sample.heldout_labels == config.sample.size
+
+
+def test_near_duplicates_count_word_overlap_not_exact_copies() -> None:
+    pool = ["Consumer Prices Calm Down in November (AP)", "Stocks fall as oil rises", ""]
+    heldout = [
+        "Consumer prices calm down in November",  # 6 of 7 words: a near-copy
+        "Oil rises as stocks fall",  # the same words in another order: Jaccard 1
+        "Rates steady as markets wait",  # no overlap
+        "",
+    ]
+    assert near_duplicates(heldout, pool) == 2
+    assert near_duplicates(heldout, pool, threshold=1.0) == 1
+    assert near_duplicates([], pool) == 0
 
 
 def test_sample_is_seeded_distinct_and_traceable() -> None:
@@ -122,6 +135,10 @@ def test_gold_run_writes_a_complete_report_and_renders(tmp_path: Path) -> None:
     assert "| toy | gold | tiny | 160 |" in table
     assert f"{diff['estimate']:+.3f} [" in table
     assert "learns from 160 clean labels" in table
+    assert on_disk["dataset"]["near_duplicate_heldout"] >= 0
+    assert (
+        f"- Near-duplicates: {on_disk['dataset']['near_duplicate_heldout']} of {ag['n']}" in table
+    )
     assert "not a parity-with-Claude number" in table
 
 

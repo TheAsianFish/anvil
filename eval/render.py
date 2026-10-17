@@ -133,6 +133,14 @@ def _details(name: str, r: Report, meta: Report) -> list[str]:
     ]
     if t.get("failures"):
         out.append(f"- Teacher failures: {t['failures']} inputs got no label")
+    dup = r["dataset"].get("near_duplicate_heldout")
+    if dup is not None:
+        out.append(
+            f"- Near-duplicates: {dup} of {ag['n']} held-out inputs share at least"
+            f" {100 * r['dataset']['near_duplicate_jaccard']:.0f}% of their words with a labelled"
+            " pool input (identical texts never straddle the split; these are the ones a hash"
+            " cannot catch)"
+        )
     if t["kind"] == "gold":
         out.append(
             "- The teacher here is the dataset's gold labels (no API key in this run), so this"

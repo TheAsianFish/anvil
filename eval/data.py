@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -88,3 +89,35 @@ def write_inputs(path: Path, items: list[Item]) -> None:
     with path.open("w", encoding="utf-8") as fh:
         for it in items:
             fh.write(json.dumps({"id": it.id, "text": it.text}, ensure_ascii=False) + "\n")
+
+
+NEAR_DUPLICATE_JACCARD = 0.8
+
+
+def _words(text: str) -> frozenset[str]:
+    return frozenset(re.findall(r"[a-z0-9]+", text.lower()))
+
+
+def near_duplicates(
+    heldout: Sequence[str], pool: Sequence[str], threshold: float = NEAR_DUPLICATE_JACCARD
+) -> int:
+    """How many held-out texts share at least `threshold` of their words (Jaccard over the
+    sets of lower-case alphanumeric tokens) with some pool text.
+
+    The store's split hashes the exact text, so identical texts never straddle it, but a
+    headline rewritten by a word or two can: this counts how many such near-copies the
+    student may have seen during training, so a report can say so instead of claiming no
+    leakage at all.
+    """
+    pool_words = [w for w in (_words(t) for t in pool) if w]
+    count = 0
+    for text in heldout:
+        words = _words(text)
+        if not words:
+            continue
+        for other in pool_words:
+            shared = len(words & other)
+            if shared and shared / (len(words) + len(other) - shared) >= threshold:
+                count += 1
+                break
+    return count
