@@ -58,6 +58,10 @@ class StudentSpec(_Strict):
     Hugging Face model id (default for real runs: `answerdotai/ModernBERT-base`)."""
     max_length: int = Field(default=64, ge=8, le=8192)
     epochs: int = Field(default=8, ge=1)
+    min_steps: int = Field(default=0, ge=0)
+    """Raise `epochs` until training runs at least this many optimizer steps: with 100 labels
+    a fixed epoch count is a handful of updates, which would under-train the small end of a
+    label-count curve. Early stopping still cuts the extra epochs when they do not help."""
     batch_size: int = Field(default=16, ge=1)
     learning_rate: float = Field(default=5e-5, gt=0)
     seed: int = 0

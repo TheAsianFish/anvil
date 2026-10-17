@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # The offline vertical slice: label the toy tickets with the rule-based fake teacher, train a
-# tiny random-init ModernBERT on them, and measure its agreement with the teacher.
+# tiny random-init ModernBERT on them, measure its agreement with the teacher, then run a
+# three-round active-learning loop that retrains from scratch at 50, 100 and 200 labels.
 set -euo pipefail
 
 home="${1:-.anvil/demo}"
@@ -22,4 +23,6 @@ echo "== anvil train (tiny random-init ModernBERT)"
 uv run anvil train --spec "$toy/anvil.yaml" --teacher fake
 echo "== anvil eval (held-out agreement with the teacher)"
 uv run anvil eval --spec "$toy/anvil.yaml"
+echo "== anvil loop (random selection, three rounds, fresh student each round)"
+uv run anvil loop --spec "$toy/anvil.yaml" --teacher fake --budgets 50,100,200 --id demo
 echo "== demo finished in $(( $(date +%s) - start ))s"

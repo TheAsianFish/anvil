@@ -51,6 +51,18 @@ CREATE TABLE IF NOT EXISTS failures (
     cost_usd REAL NOT NULL,
     created_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS loops (
+    loop_id TEXT PRIMARY KEY,
+    config TEXT NOT NULL,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS loop_picks (
+    loop_id TEXT NOT NULL REFERENCES loops(loop_id),
+    round INTEGER NOT NULL,
+    rank INTEGER NOT NULL,
+    input_id TEXT NOT NULL REFERENCES inputs(id),
+    PRIMARY KEY (loop_id, input_id)
+);
 CREATE INDEX IF NOT EXISTS labels_key ON labels (teacher_model, prompt_hash, input_id);
 CREATE TRIGGER IF NOT EXISTS labels_no_update BEFORE UPDATE ON labels
 BEGIN SELECT RAISE(ABORT, 'labels are append-only'); END;
@@ -60,6 +72,10 @@ CREATE TRIGGER IF NOT EXISTS failures_no_update BEFORE UPDATE ON failures
 BEGIN SELECT RAISE(ABORT, 'failures are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS failures_no_delete BEFORE DELETE ON failures
 BEGIN SELECT RAISE(ABORT, 'failures are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS loop_picks_no_update BEFORE UPDATE ON loop_picks
+BEGIN SELECT RAISE(ABORT, 'loop picks are append-only'); END;
+CREATE TRIGGER IF NOT EXISTS loop_picks_no_delete BEFORE DELETE ON loop_picks
+BEGIN SELECT RAISE(ABORT, 'loop picks are append-only'); END;
 """
 
 
@@ -275,6 +291,54 @@ class Store:
         """Inputs of a split that have a label under this key, in stable order."""
         by_id = self.labels(teacher_model, prompt_hash)
         return [(it, by_id[it.id]) for it in self.inputs(split) if it.id in by_id]
+
+    def create_loop(self, loop_id: str, config: dict[str, object]) -> None:
+        """Register an active-learning loop; its config is fixed from then on."""
+        with self._tx() as db:
+            try:
+                db.execute(
+                    "INSERT INTO loops (loop_id, config, created_at) VALUES (?, ?, ?)",
+                    (loop_id, json.dumps(config, sort_keys=True), time.time()),
+                )
+            except sqlite3.IntegrityError:
+                raise StoreError(
+                    f"loop {loop_id!r} already exists; resume it or pick another id"
+                ) from None
+
+    def loop_config(self, loop_id: str) -> dict[str, object] | None:
+        row = self._db.execute("SELECT config FROM loops WHERE loop_id = ?", (loop_id,)).fetchone()
+        if row is None:
+            return None
+        config: dict[str, object] = json.loads(row[0])
+        return config
+
+    def add_picks(self, loop_id: str, round_no: int, input_ids: Sequence[str]) -> None:
+        """Record which inputs a loop chose in a round, in the order they were ranked."""
+        with self._tx() as db:
+            db.executemany(
+                "INSERT INTO loop_picks (loop_id, round, rank, input_id) VALUES (?, ?, ?, ?)",
+                [(loop_id, round_no, rank, i) for rank, i in enumerate(input_ids)],
+            )
+
+    def picks(self, loop_id: str) -> list[tuple[int, str]]:
+        """(round, input id) for every input a loop has picked, by round then rank."""
+        rows = self._db.execute(
+            "SELECT round, input_id FROM loop_picks WHERE loop_id = ? ORDER BY round, rank",
+            (loop_id,),
+        ).fetchall()
+        return [(int(r[0]), str(r[1])) for r in rows]
+
+    def cost_of(self, teacher_model: str, prompt_hash: str, input_ids: Iterable[str]) -> float:
+        """What labelling these inputs cost under one key: their labels plus every billed
+        failed attempt on them (a refusal is paid for even though it yields no label)."""
+        wanted = set(input_ids)
+        rows = self._db.execute(
+            "SELECT input_id, cost_usd FROM labels WHERE teacher_model = ? AND prompt_hash = ?"
+            " UNION ALL SELECT input_id, cost_usd FROM failures"
+            " WHERE teacher_model = ? AND prompt_hash = ?",
+            (teacher_model, prompt_hash, teacher_model, prompt_hash),
+        ).fetchall()
+        return sum(float(cost) for input_id, cost in rows if input_id in wanted)
 
     def stats(self, teacher_model: str, prompt_hash: str) -> LabelStats:
         row = self._db.execute(

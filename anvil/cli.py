@@ -1,4 +1,4 @@
-"""Command-line interface: `anvil label | train | eval`."""
+"""Command-line interface: `anvil label | train | eval | loop`."""
 
 from __future__ import annotations
 
@@ -11,7 +11,8 @@ from typing import Annotated
 import typer
 
 from anvil import __version__, log
-from anvil.errors import AnvilError
+from anvil.errors import AnvilError, ConfigError
+from anvil.select import STRATEGIES
 from anvil.settings import Settings
 from anvil.spec import TaskSpec, load_spec
 
@@ -159,6 +160,80 @@ def eval_cmd(
             f" (majority '{a.majority_label}' accuracy {a.majority_accuracy:.3f});"
             f" report {r.report_path}"
         )
+
+    _run(body)
+
+
+def _budgets(raw: str) -> tuple[int, ...]:
+    try:
+        return tuple(int(x) for x in raw.split(",") if x.strip())
+    except ValueError:
+        raise ConfigError(f"--budgets {raw!r} must be comma-separated label counts") from None
+
+
+@app.command("loop")
+def loop_cmd(
+    spec: SpecOpt = Path("anvil.yaml"),
+    inputs: Annotated[
+        Path | None, typer.Option("--inputs", "-i", help="JSONL of {text, id?} to add first.")
+    ] = None,
+    strategy: Annotated[
+        str, typer.Option(help=f"Selection strategy: {', '.join(STRATEGIES)}.")
+    ] = "random",
+    budgets: Annotated[
+        str, typer.Option(help="Cumulative pool labels after each round, comma-separated.")
+    ] = "100,200,400,800,1600",
+    max_usd: Annotated[
+        float | None, typer.Option(help="Dollar budget for every label the loop uses.")
+    ] = None,
+    target_kappa: Annotated[
+        float | None,
+        typer.Option(help="Stop once the lower end of the kappa interval reaches this."),
+    ] = None,
+    seed: Annotated[int, typer.Option(help="Seeds selection and the student.")] = 0,
+    heldout_max: Annotated[
+        int | None, typer.Option(help="Cap on labelled held-out inputs (default: all).")
+    ] = None,
+    loop_id: Annotated[
+        str | None,
+        typer.Option("--id", help="Loop id; an existing id resumes that loop."),
+    ] = None,
+    teacher: TeacherOpt = None,
+) -> None:
+    """Grow the training set round by round: select, label, retrain from scratch, evaluate."""
+
+    def body() -> None:
+        from anvil.loop import LoopConfig, run_loop
+        from anvil.pipeline import Workspace
+        from anvil.teacher import build_teacher
+
+        task, settings = _setup(spec)
+        config = LoopConfig(
+            strategy=strategy,
+            budgets=_budgets(budgets),
+            seed=seed,
+            max_usd=max_usd,
+            target_kappa=target_kappa,
+            heldout_max=heldout_max,
+        )
+        t = build_teacher(task, settings, provider=teacher.value if teacher else None)
+        r = run_loop(
+            task,
+            Workspace.for_task(settings.home, task),
+            t,
+            config,
+            loop_id=loop_id,
+            inputs=inputs,
+        )
+        print(f"loop {r.loop_id} ({strategy}, seed {seed}) vs {t.model_id}:")
+        print("  round  labels  kappa [95% CI]          label cost  spent")
+        for row in r.rows:
+            print(
+                f"  {row['round']:>5}  {row['labels']:>6}  {row['kappa']:.3f}"
+                f" [{row['kappa_low']:.3f}, {row['kappa_high']:.3f}]"
+                f"  ${row['label_cost_usd']:>9.4f}  ${row['spent_usd']:.4f}"
+            )
+        print(f"stopped: {r.stopped or 'interrupted'}; frontier {r.frontier}; student {r.student}")
 
     _run(body)
 
