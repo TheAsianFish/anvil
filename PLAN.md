@@ -282,6 +282,23 @@ Batches halve the cost of large pools and are used when a batch exceeds
   is committed yet because the build environment has no key; `make record`
   creates them (under $0.01). Held-out membership hashes the input text
   rather than its id, so duplicate texts cannot leak across the split.
+- **M2 (2026-10-17).** Early stopping uses a validation slice carved out of the
+  *training* labels by a seeded text hash (10% by default), not the held-out
+  split: choosing the epoch on the set the headline kappa is reported on would
+  bias it upward. Evals replay committed label files (`eval/labels/`, one JSONL
+  row per label with its tokens and cost) rather than per-request recordings,
+  so a 2,500-label run stays one reviewable file; `make record` keeps the
+  per-request recordings for the unit-level replay test. Banking77 loads from
+  the `legacy-datasets/banking77` parquet mirror at a pinned revision (the
+  `PolyAI/banking77` loader is a script, which `datasets` 5 no longer runs);
+  `datasets` lives in a separate `eval` dependency group so CI does not install
+  pyarrow. With no key in the build environment, `make eval-classify
+  TEACHER=gold` runs the whole harness with each dataset's gold labels as the
+  teacher (model id `gold`, never mistaken for Claude): it measures the student
+  and the statistics on real data, not parity with Claude, which stays under
+  "To measure" with its command and cost. The training loop resumes from
+  per-epoch checkpoints (`anvil train --resume RUN`) and fingerprints the
+  config and the training data, so a resume on other data is refused.
 
 ## Milestones
 

@@ -26,7 +26,8 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make test-live` | tests that call Claude; skipped without `ANTHROPIC_API_KEY` |
 | `make record` | re-record the Claude fixtures under `tests/recordings/` (a few cents with Haiku) |
 | `make demo` | the offline vertical slice on the toy task (under two minutes) |
-| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md |
+| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md. `eval-classify` takes `TEACHER=auto\|claude\|replay\|gold` (`auto` replays committed labels, else calls Claude when a key is set) |
+| `make results` | re-render the RESULTS.md tables from `eval/results/` (a test fails when they are stale) |
 | `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies |
 | `make bench` | latency, throughput and cost table (M5) |
 | `make docker` | build the CLI image (M5 adds the slim serving image) |
@@ -34,9 +35,13 @@ live tests and evals are skipped without it and nothing else needs it.
 
 Every eval and bench writes raw output under `eval/results/<name>/` with the
 command, git SHA, models, seed, wall time and dollars spent. RESULTS.md is
-regenerated from those files, never edited by hand for numbers (until the
-renderer lands with the first eval in M2, numbers are copied verbatim from
-the raw files and each table names its source file).
+regenerated from those files by `make results` (`python -m eval.render`),
+never edited by hand for numbers: generated tables sit between
+`<!-- BEGIN generated:... -->` markers, and the M1 spike table, which predates
+the renderer, names its source file. Eval dependencies (`datasets`) are in the
+`eval` dependency group, which `make eval-*` installs on demand; CI does not.
+Labels a live eval pays for are committed under `eval/labels/` so every later
+run replays them offline and for free.
 
 Environment variables (all optional, read in `anvil/settings.py`):
 `ANVIL_HOME` (state directory, default `.anvil`), `ANVIL_TEACHER_WORKERS`
@@ -54,7 +59,10 @@ examples/toy/     the toy ticket-triage task used by the demo and the tests
 scripts/          demo.sh
 tests/            unit + integration; tests/recordings/ holds real Claude
                   responses replayed offline (empty until `make record`)
-eval/             spikes/ and results/ (M2 adds dataset loaders and studies)
+eval/             classify.py (the parity harness), data.py (pinned dataset
+                  loaders), render.py (RESULTS.md tables), classify/*.yaml
+                  (dataset, sample, ceiling prompt, task spec), labels/
+                  (recorded teacher labels), results/, spikes/
 docs/             notes/ (spikes); M7 adds screenshots
 notebooks/        the Colab GPU run (M6)
 ```
