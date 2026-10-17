@@ -265,8 +265,17 @@ def run(
     write_inputs(inputs, data.items)
 
     teacher = make_teacher(kind, config, spec, data, settings)
+    # `label` adds N *more* pool labels; an eval wants N in total, so a re-run (or one that
+    # was interrupted) tops up to the configured count instead of growing past it.
+    with ws.open_store(spec) as store:
+        pool_done = len(store.labelled(teacher.model_id, spec.prompt_hash, Split.POOL))
     labelled = label(
-        spec, ws, teacher, inputs, config.sample.pool_labels, config.sample.heldout_labels
+        spec,
+        ws,
+        teacher,
+        inputs,
+        max(0, config.sample.pool_labels - pool_done),
+        config.sample.heldout_labels,
     )
     spent = labelled.spent_usd
     failures = len(labelled.failures)

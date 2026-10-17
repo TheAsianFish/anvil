@@ -178,6 +178,8 @@ def test_replay_run_measures_the_ceiling_offline(
     # A second run reuses the stored paraphrase labels instead of appending them again.
     again = classify.run(config, data, "auto", out, settings, n_resamples=200)
     assert again["ceiling"] == ceiling
+    # ...and tops the pool up to the configured total rather than labelling 160 more.
+    assert again["teacher"]["pool_labels"] == teacher["pool_labels"] == 160  # type: ignore[index]
     with sqlite3.connect(ws.db) as db:
         rows = db.execute(
             "SELECT COUNT(*) FROM labels WHERE prompt_hash = ?", (para.prompt_hash,)
