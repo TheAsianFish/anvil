@@ -17,8 +17,10 @@ uncertainty-driven selection of the next batch to label, calibration, ONNX
 export with a parity gate, and a server that escalates low-confidence inputs
 back to the teacher.
 
-Status: **M1 of 7** (scaffold, Claude teacher, label store, and the
-`label -> train -> eval` slice). See [PLAN.md](PLAN.md) for the milestones.
+Status: **M2 of 7** (Claude teacher, label store, a full PyTorch training
+loop with exact resume, kappa with bootstrap intervals and error slices, and
+the `make eval-classify` harness on AG News and Banking77). See
+[PLAN.md](PLAN.md) for the milestones.
 
 ## Demo
 
@@ -27,16 +29,16 @@ $ make demo
 == anvil label (fake teacher, offline)
 labelled 91 held-out + 200 pool inputs with fake-rules-c7ee422d (0 from cache, $0.0000 spent); 291 labels in store worth $0.0000
 == anvil train (tiny random-init ModernBERT)
-trained 20261016-191004-n200 on 200 fake-rules-c7ee422d labels: 10 epochs, loss 2.441 -> 0.173, 0.9s
+trained 20261017-072429-n200 on 200 fake-rules-c7ee422d labels (16 held back for early stopping, best epoch 4, kappa 0.916): 6 epochs, loss 1.899 -> 0.196, 0.5s
 == anvil eval (held-out agreement with the teacher)
-student 20261016-191004-n200 vs fake-rules-c7ee422d on 91 held-out inputs: kappa 0.896, accuracy 0.923 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261016-191004-n200.json
-== demo finished in 18s
+student 20261017-072429-n200 vs fake-rules-c7ee422d on 91 held-out inputs: kappa 1.000 [1.000, 1.000], accuracy 1.000 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261017-072429-n200.json
+== demo finished in 17s
 ```
 
 The demo runs offline: the teacher is a keyword-rule `FakeTeacher` with 5%
 injected label noise and the student is a two-layer random-init ModernBERT
 with a vocabulary built from the pool, so it finishes quickly on
-a laptop CPU (18 s here, most of it Python start-up across three commands). Its kappa is a smoke check of the pipeline, not a result.
+a laptop CPU (17 s here, most of it Python start-up across three commands). Its kappa is a smoke check of the pipeline, not a result.
 
 <!-- GIF placeholder: record `anvil label/train/eval` against Claude with
 `vhs docs/demo.tape` (or asciinema + agg) once real labels exist, save it as
@@ -55,6 +57,11 @@ cd examples/toy
 uv run anvil label --inputs inputs.jsonl --n 200     # held-out split + 200 pool inputs
 uv run anvil train                                   # student.model: answerdotai/ModernBERT-base for real runs
 uv run anvil eval
+uv run anvil train --resume <run-id>                 # continue an interrupted run from its checkpoint
+
+# The parity eval on AG News and Banking77 (downloads the datasets and ModernBERT-base):
+make eval-classify                    # with a key: labels with Claude Haiku once, replays after
+make eval-classify TEACHER=gold       # no key: dataset gold labels as the teacher
 ```
 
 A task is a YAML file:
@@ -95,11 +102,13 @@ flowchart LR
     SPEC[anvil.yaml] --> T
     ST -->|unlabelled batch| T[Teacher<br/>Claude structured outputs<br/>disk cache + cost]
     T -->|labels + tokens + $| ST
-    ST -->|labelled pool| TR[train/loop.py<br/>PyTorch]
+    ST -->|labelled pool| TR[train/loop.py<br/>AMP, accumulation, warmup,<br/>early stopping, exact resume]
     TR --> S[Student<br/>ModernBERT classifier]
-    ST -->|held-out, teacher-labelled| EV[evaluate<br/>kappa, accuracy,<br/>majority baseline]
+    ST -->|held-out, teacher-labelled| EV[evaluate/<br/>kappa + bootstrap CI,<br/>per-class, slices]
     S --> EV
     EV --> R[reports/eval-*.json]
+    LF[eval/labels/<br/>recorded labels] -.->|replay| T
+    EV --> RES[eval/results/ -> RESULTS.md]
 ```
 
 | Module | Role |
@@ -108,14 +117,21 @@ flowchart LR
 | `anvil/teacher/` | `Teacher` protocol; `ClaudeTeacher` (one structured-output request per input, enum-constrained label, content-addressed disk cache, token and dollar accounting); transports for the live API, recording and replay; `FakeTeacher` for offline runs |
 | `anvil/store.py` | SQLite store: inputs, append-only labels (triggers reject UPDATE and DELETE), held-out membership from a seeded hash of the input text; failed teacher calls kept with their cost |
 | `anvil/students/encoder.py` | Any Hugging Face encoder with a classification head; `tiny` builds a random-init ModernBERT for tests and the demo |
-| `anvil/train/loop.py` | The PyTorch training loop (M2 extends it with warmup, AMP, accumulation, early stopping, resume) |
-| `anvil/evaluate/metrics.py` | Cohen's kappa, accuracy, majority baseline, confusion matrix |
+| `anvil/train/loop.py` | One generic PyTorch loop: seeded batches, gradient accumulation, AMP, warmup + linear decay, clipping, early stopping, per-epoch checkpoints that resume bit for bit |
+| `anvil/train/classifier.py` | Cross-entropy for the encoder classifier; early stopping on the kappa of a validation slice of the training labels |
+| `anvil/evaluate/` | Kappa and accuracy with vectorised percentile bootstrap CIs, macro F1, per-class scores, top confusions, teacher self-agreement, slices by confidence and input length |
+| `anvil/teacher/labelfile.py` | Replays recorded labels (or a dataset's gold labels, as model `gold`) offline |
+| `eval/classify.py`, `eval/render.py` | `make eval-classify` and the RESULTS.md renderer |
 | `anvil/pipeline.py`, `anvil/cli.py` | `label`, `train`, `eval` as a library API and a Typer CLI |
 
 **The hard part** (the core of the project, built over M2 and M3) is the
 cost-versus-quality frontier: how few teacher labels reach a target kappa
 with the teacher, how active selection moves that curve against random
-sampling, and where the student still fails. M1 lays the ground it needs:
+sampling, and where the student still fails. M2 built the measuring
+instrument: kappa with a bootstrap interval verified against scikit-learn and
+scipy (and a coverage simulation), a ceiling from the teacher's own
+self-agreement, slices that show where the student disagrees, and a training
+loop whose runs are reproducible to the bit. M1 laid the ground it needs:
 labels are keyed by (teacher model, prompt hash) so curves never mix two
 prompts, splits are a pure function of the input text so re-runs never move an
 item, and every label carries its cost so a curve can be drawn in dollars.
@@ -145,6 +161,25 @@ item, and every label carries its cost so a curve can be drawn in dollars.
   with the same text are one request, and when a run stops early (a
   configuration error, Ctrl-C) the answers that were already paid for are
   stored before the error surfaces.
+- **Intervals, not point estimates.** Kappa comes with a 95% percentile
+  bootstrap interval over held-out items (1,000 paired resamples, computed
+  for all resamples at once from per-resample marginals). Two students
+  scored on the same items are compared with a paired bootstrap of the
+  difference, not by whether their separate intervals overlap: overlapping
+  intervals do not make two students tied.
+- **Early stopping never looks at the held-out split.** The epoch is chosen
+  on a validation slice of the training labels (10%, picked by a hash of the
+  text); choosing it on the reported split would bias the headline upward.
+- **Exact resume.** A checkpoint holds the model, optimizer, scheduler,
+  gradient scaler, both RNGs, the epoch's data order and position, and the
+  early-stopping state, fingerprinted with the config and the training data;
+  an interrupted run resumed from it ends with bit-identical weights (tested
+  at five crash points on CPU; on CUDA that holds only with deterministic
+  kernels).
+- **No key, no fake parity.** Without a key, `make eval-classify
+  TEACHER=gold` uses the dataset's own labels as the teacher under the model
+  id `gold`, so the harness and the student are measured on real data while
+  Claude parity stays under "To measure".
 - **A deterministic tiny student.** `tiny` uses a word-level vocabulary built
   by hand: the `tokenizers` WordPiece trainer breaks frequency ties in
   hash-map order, which gave a different vocabulary, and a different trained
@@ -161,14 +196,32 @@ item, and every label carries its cost so a curve can be drawn in dollars.
 ## Results
 
 Every number comes from a command in [CONTRIBUTING.md](CONTRIBUTING.md) with
-its raw output under `eval/results/`. See [RESULTS.md](RESULTS.md) for what
-has been measured so far (the ONNX export spike) and the exact commands and
-cost estimates for what has not (everything that needs a key or a GPU).
+its raw output under `eval/results/`; [RESULTS.md](RESULTS.md) tables are
+rendered from those files. ModernBERT-base on 2,000 teacher labels (10% of
+them held back to pick the epoch), CPU, with the dataset's gold labels as the
+teacher (no key yet, so not a Claude parity number):
+
+| Dataset | Student kappa [95% CI] | TF-IDF + LR kappa [95% CI] | Student minus TF-IDF [95% paired CI] | Majority accuracy |
+|---|---|---|---|---|
+| AG News (4 topics) | 0.844 [0.805, 0.882] | 0.835 [0.795, 0.873] | +0.009 [-0.033, 0.054] | 0.260 |
+| Banking77 (77 intents) | 0.842 [0.807, 0.873] | 0.662 [0.621, 0.702] | +0.180 [0.141, 0.223] | 0.024 |
+
+The encoder's gain over a bag of words is large on short, fine-grained
+intents and nil on long news articles (the paired interval includes zero).
+Training randomness matters as much as the held-out sample: re-training on
+AG News with another student seed moved kappa from 0.844 to 0.896, about 70%
+of one run's interval width; on Banking77 two seeds tie at 0.842 but disagree
+on 15% of items. That is why the frontier milestone runs three seeds per
+point. On Banking77 the least confident tenth of predictions (50 items) agrees
+40% of the time against 98-100% for the top six tenths, which is what the
+active-selection and cascade milestones build on. Parity with Claude and the
+teacher's self-agreement ceiling are listed under "To measure" with their
+commands and cost (about $0.35 with Haiku 5.5).
 
 ## Roadmap
 
 - [x] M1: scaffold, CI, Claude teacher with cache and cost accounting, label store, offline slice, ONNX export spike
-- [ ] M2: full training loop and evaluation core (bootstrap CI, teacher self-agreement ceiling, error slices); AG News and Banking77 parity
+- [x] M2: full training loop and evaluation core (bootstrap CI, teacher self-agreement ceiling, error slices); AG News and Banking77 harness (Claude parity to measure)
 - [ ] M3: active learning and the labels-vs-kappa-vs-cost frontier
 - [ ] M4: span extraction with character-offset alignment
 - [ ] M5: calibration, ONNX export with a parity gate, FastAPI server with teacher escalation, benchmarks

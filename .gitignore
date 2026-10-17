@@ -17,6 +17,7 @@ checkpoints/
 *.onnx
 *.safetensors
 eval/results/**/checkpoints/
+eval/results/*-smoke/
 
 # Environment and secrets
 .env

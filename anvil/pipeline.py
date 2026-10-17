@@ -14,7 +14,8 @@ from anvil.spec import TaskSpec
 from anvil.store import Split, Store, read_inputs
 from anvil.students.encoder import EncoderClassifier
 from anvil.teacher.base import BatchAbortedError, Failure, LabelBatch, Teacher
-from anvil.train.loop import TrainResult, train_classifier
+from anvil.train.classifier import train_classifier
+from anvil.train.loop import LAST, TrainResult, remove_checkpoint
 
 log = get_logger(__name__)
 
@@ -125,8 +126,15 @@ class TrainReport:
     result: TrainResult
 
 
-def train(spec: TaskSpec, ws: Workspace, teacher_model: str) -> TrainReport:
-    """Train a fresh student on every labelled pool input under (teacher model, prompt hash)."""
+def train(
+    spec: TaskSpec, ws: Workspace, teacher_model: str, resume: str | None = None
+) -> TrainReport:
+    """Train a fresh student on every labelled pool input under (teacher model, prompt hash).
+
+    The loop checkpoints at every epoch under `<run>/checkpoint/`; `resume` names a run that
+    was interrupted and continues it exactly where it stopped. The checkpoint is removed once
+    the run completes.
+    """
     with ws.open_store(spec) as store:
         pairs = store.labelled(teacher_model, spec.prompt_hash, Split.POOL)
         labelled_by = store.teacher_models(spec.prompt_hash)
@@ -143,16 +151,34 @@ def train(spec: TaskSpec, ws: Workspace, teacher_model: str) -> TrainReport:
     index = {name: i for i, name in enumerate(spec.label_names)}
     targets = [index[lab] for _, lab in pairs]
 
-    base = time.strftime("%Y%m%d-%H%M%S", time.gmtime()) + f"-n{len(pairs)}"
-    run_id, k = base, 1
-    while (ws.students / run_id).exists():
-        k += 1
-        run_id = f"{base}-{k}"
-    out = ws.students / run_id
-    out.mkdir(parents=True)
+    if resume is not None:
+        run_id = resume
+        out = ws.students / run_id
+        if not (out / "checkpoint" / LAST).exists():
+            raise StoreError(
+                f"no checkpoint to resume under {out}; it finished or never started"
+                " (run `anvil train` without --resume)"
+            )
+    else:
+        base = time.strftime("%Y%m%d-%H%M%S", time.gmtime()) + f"-n{len(pairs)}"
+        run_id, k = base, 1
+        while (ws.students / run_id).exists():
+            k += 1
+            run_id = f"{base}-{k}"
+        out = ws.students / run_id
+        out.mkdir(parents=True)
     # The tiny student learns its vocabulary from pool texts only, never the held-out split.
     student = EncoderClassifier.build(spec.student, spec.label_names, corpus)
-    result = train_classifier(student, texts, targets, spec.student, out / "metrics.jsonl")
+    result = train_classifier(
+        student,
+        texts,
+        targets,
+        spec.student,
+        out / "metrics.jsonl",
+        checkpoint_dir=out / "checkpoint",
+        resume=resume is not None,
+        keep_checkpoint=True,  # removed below, once the student is on disk
+    )
     student.meta.update(
         {
             "task": spec.name,
@@ -166,6 +192,7 @@ def train(spec: TaskSpec, ws: Workspace, teacher_model: str) -> TrainReport:
     )
     student.save(out)
     (ws.students / "LATEST").write_text(run_id + "\n", encoding="utf-8")
+    remove_checkpoint(out / "checkpoint")  # only now: a failed save must stay resumable
     return TrainReport(run_id, out, teacher_model, result)
 
 
@@ -177,8 +204,19 @@ class EvalReport:
     report_path: Path
 
 
-def evaluate(spec: TaskSpec, ws: Workspace, student_dir: Path | None = None) -> EvalReport:
-    """Agreement of a trained student with the teacher on the teacher-labelled held-out split."""
+def evaluate(
+    spec: TaskSpec,
+    ws: Workspace,
+    student_dir: Path | None = None,
+    *,
+    n_resamples: int = 1000,
+    seed: int = 0,
+) -> EvalReport:
+    """Agreement of a trained student with the teacher on the teacher-labelled held-out split.
+
+    `n_resamples` and `seed` drive the kappa bootstrap CI; an eval passes its own so the
+    headline interval follows the same settings as every other interval in its report.
+    """
     path = student_dir or ws.latest_student()
     student = EncoderClassifier.load(path)
     try:
@@ -211,10 +249,20 @@ def evaluate(spec: TaskSpec, ws: Workspace, student_dir: Path | None = None) -> 
         raise StoreError("no teacher labels on the held-out split; run `anvil label` first")
     texts = [it.text for it, _ in pairs]
     teacher = [lab for _, lab in pairs]
-    predicted = student.predict(texts)
+    probs = student.predict_proba(texts)
+    predicted = [student.labels[i] for i in probs.argmax(axis=1)]
     raw_train = student.meta.get("train_labels", [])
     train_labels = [str(x) for x in raw_train] if isinstance(raw_train, list) else []
-    result = agreement(teacher, predicted, spec.label_names, train_labels)
+    result = agreement(
+        teacher,
+        predicted,
+        spec.label_names,
+        train_labels,
+        confidence=probs.max(axis=1).tolist(),
+        lengths=[len(text.split()) for text in texts],
+        n_resamples=n_resamples,
+        seed=seed,
+    )
 
     ws.reports.mkdir(parents=True, exist_ok=True)
     report_path = ws.reports / f"eval-{path.name}.json"

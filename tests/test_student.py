@@ -13,7 +13,8 @@ import torch
 from anvil.errors import StudentError
 from anvil.spec import StudentSpec
 from anvil.students.encoder import EncoderClassifier, build_tiny_tokenizer
-from anvil.train.loop import TrainResult, train_classifier
+from anvil.train.classifier import train_classifier
+from anvil.train.loop import TrainResult
 
 ROOT = Path(__file__).resolve().parent.parent
 LABELS = ["billing", "bug", "feature", "account"]
@@ -25,7 +26,11 @@ WORDS = {
 }
 FILLER = ["please", "help", "today", "my", "the", "app", "again", "now"]
 # 48 examples in batches of 7 leave a partial last batch, so the loss weighting is exercised.
-SPEC = StudentSpec(model="tiny", max_length=16, epochs=8, batch_size=7, learning_rate=3e-3)
+# No validation slice here, so every example trains (early stopping is in test_train_loop.py).
+SPEC = StudentSpec(
+    model="tiny", max_length=16, epochs=8, batch_size=7, learning_rate=3e-3,
+    validation_fraction=0.0,
+)  # fmt: skip
 
 
 def _toy_set() -> tuple[list[str], list[int]]:
@@ -122,8 +127,10 @@ def test_training_learns_a_separable_task(tmp_path: Path) -> None:
     assert acc >= 0.9
     lines = (tmp_path / "metrics.jsonl").read_text(encoding="utf-8").splitlines()
     records = [json.loads(line) for line in lines]
-    assert [r["epoch"] for r in records] == list(range(1, SPEC.epochs + 1))
-    assert records[-1]["steps"] == result.steps
+    epochs = [r for r in records if r["event"] == "epoch"]
+    assert [r["epoch"] for r in epochs] == list(range(1, SPEC.epochs + 1))
+    assert epochs[-1]["step"] == result.steps
+    assert sum(r["event"] == "step" for r in records) == result.steps
 
 
 def test_training_is_reproducible_and_saves_roundtrip(tmp_path: Path) -> None:

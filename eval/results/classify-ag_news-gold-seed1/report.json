@@ -1,0 +1,323 @@
+{
+  "dataset": {
+    "name": "ag_news",
+    "repo": "fancyzhx/ag_news",
+    "revision": "eb185aade064a813bc0b7f42de02595523103ca4",
+    "split": "train",
+    "license": "AG's corpus, used under its academic terms (http://groups.di.unipi.it/~gulli/AG_corpus_of_news_articles.html)",
+    "source_rows": 120000,
+    "sampled": 2500,
+    "sample_seed": 0,
+    "sample_sha256": "3cf708037e0163cd1fd2c0a30f3d3f74067ff4c4382c26a504413c5136a409eb"
+  },
+  "teacher": {
+    "kind": "gold",
+    "model": "gold",
+    "prompt_hash": "c3089daeb0a6f1ac",
+    "effort": null,
+    "pool_labels": 2000,
+    "heldout_labels": 477,
+    "failures": 0,
+    "label_cost_usd": 0.0
+  },
+  "student": {
+    "model": "answerdotai/ModernBERT-base",
+    "run": "20261017-073320-n2000",
+    "settings": {
+      "model": "answerdotai/ModernBERT-base",
+      "max_length": 96,
+      "epochs": 4,
+      "batch_size": 16,
+      "learning_rate": 5e-05,
+      "seed": 1,
+      "grad_accum": 1,
+      "warmup_ratio": 0.1,
+      "weight_decay": 0.01,
+      "max_grad_norm": 1.0,
+      "amp": "auto",
+      "validation_fraction": 0.1,
+      "patience": 2
+    },
+    "train": {
+      "examples": 1817,
+      "epochs": 4,
+      "steps": 456,
+      "epoch_losses": [
+        0.588724671533443,
+        0.20094479500722545,
+        0.059561529294377524,
+        0.01000230622822094
+      ],
+      "seconds": 2753.6534863819998,
+      "best_epoch": 4,
+      "best_metric": 0.7732432648493086,
+      "stopped_early": false,
+      "resumed_at_step": null,
+      "amp": "off",
+      "device": "cpu",
+      "validation_examples": 183
+    }
+  },
+  "agreement": {
+    "n": 477,
+    "kappa": 0.896474052522598,
+    "accuracy": 0.9224318658280922,
+    "majority_label": "sci_tech",
+    "majority_accuracy": 0.259958071278826,
+    "confusion": [
+      [
+        118,
+        4,
+        5,
+        3
+      ],
+      [
+        0,
+        116,
+        1,
+        1
+      ],
+      [
+        5,
+        0,
+        95,
+        5
+      ],
+      [
+        2,
+        0,
+        11,
+        111
+      ]
+    ],
+    "kappa_ci": {
+      "estimate": 0.896474052522598,
+      "low": 0.8624707055536366,
+      "high": 0.9300965136950308,
+      "confidence": 0.95,
+      "n_resamples": 1000,
+      "method": "percentile"
+    },
+    "accuracy_ci": {
+      "estimate": 0.9224318658280922,
+      "low": 0.8972746331236897,
+      "high": 0.9475890985324947,
+      "confidence": 0.95,
+      "n_resamples": 1000,
+      "method": "percentile"
+    },
+    "macro_f1": 0.921423053621237,
+    "per_class": [
+      {
+        "label": "world",
+        "support": 130,
+        "predicted": 125,
+        "precision": 0.944,
+        "recall": 0.9076923076923077,
+        "f1": 0.9254901960784314,
+        "kappa": 0.8983227688337914
+      },
+      {
+        "label": "sports",
+        "support": 118,
+        "predicted": 120,
+        "precision": 0.9666666666666667,
+        "recall": 0.9830508474576272,
+        "f1": 0.9747899159663865,
+        "kappa": 0.9664108161397085
+      },
+      {
+        "label": "business",
+        "support": 105,
+        "predicted": 112,
+        "precision": 0.8482142857142857,
+        "recall": 0.9047619047619048,
+        "f1": 0.8755760368663595,
+        "kappa": 0.8389903611746615
+      },
+      {
+        "label": "sci_tech",
+        "support": 124,
+        "predicted": 120,
+        "precision": 0.925,
+        "recall": 0.8951612903225806,
+        "f1": 0.9098360655737704,
+        "kappa": 0.8788613381354757
+      }
+    ],
+    "top_confusions": [
+      {
+        "teacher": "sci_tech",
+        "student": "business",
+        "count": 11
+      },
+      {
+        "teacher": "business",
+        "student": "sci_tech",
+        "count": 5
+      },
+      {
+        "teacher": "business",
+        "student": "world",
+        "count": 5
+      },
+      {
+        "teacher": "world",
+        "student": "business",
+        "count": 5
+      },
+      {
+        "teacher": "world",
+        "student": "sports",
+        "count": 4
+      },
+      {
+        "teacher": "world",
+        "student": "sci_tech",
+        "count": 3
+      },
+      {
+        "teacher": "sci_tech",
+        "student": "world",
+        "count": 2
+      },
+      {
+        "teacher": "sports",
+        "student": "business",
+        "count": 1
+      },
+      {
+        "teacher": "sports",
+        "student": "sci_tech",
+        "count": 1
+      }
+    ],
+    "by_confidence": [
+      {
+        "lo": 0.43914148211479187,
+        "hi": 0.9755691885948181,
+        "n": 48,
+        "agreement": 0.625
+      },
+      {
+        "lo": 0.9756563901901245,
+        "hi": 0.9978844523429871,
+        "n": 48,
+        "agreement": 0.8541666666666666
+      },
+      {
+        "lo": 0.9979958534240723,
+        "hi": 0.9994391798973083,
+        "n": 48,
+        "agreement": 0.8958333333333334
+      },
+      {
+        "lo": 0.9994593262672424,
+        "hi": 0.999750554561615,
+        "n": 48,
+        "agreement": 0.9375
+      },
+      {
+        "lo": 0.9997547268867493,
+        "hi": 0.9999097585678101,
+        "n": 48,
+        "agreement": 0.9791666666666666
+      },
+      {
+        "lo": 0.9999098777770996,
+        "hi": 0.9999501705169678,
+        "n": 48,
+        "agreement": 0.9583333333333334
+      },
+      {
+        "lo": 0.9999502897262573,
+        "hi": 0.9999741315841675,
+        "n": 48,
+        "agreement": 0.9791666666666666
+      },
+      {
+        "lo": 0.9999746084213257,
+        "hi": 0.9999866485595703,
+        "n": 47,
+        "agreement": 1.0
+      },
+      {
+        "lo": 0.999987006187439,
+        "hi": 0.9999946355819702,
+        "n": 47,
+        "agreement": 1.0
+      },
+      {
+        "lo": 0.9999947547912598,
+        "hi": 0.9999998807907104,
+        "n": 47,
+        "agreement": 1.0
+      }
+    ],
+    "by_length": [
+      {
+        "lo": 14.0,
+        "hi": 31.0,
+        "n": 120,
+        "agreement": 0.9
+      },
+      {
+        "lo": 32.0,
+        "hi": 37.0,
+        "n": 119,
+        "agreement": 0.957983193277311
+      },
+      {
+        "lo": 37.0,
+        "hi": 43.0,
+        "n": 119,
+        "agreement": 0.9243697478991597
+      },
+      {
+        "lo": 43.0,
+        "hi": 107.0,
+        "n": 119,
+        "agreement": 0.907563025210084
+      }
+    ]
+  },
+  "baselines": {
+    "majority": {
+      "label": "sci_tech",
+      "accuracy": 0.259958071278826,
+      "kappa": 0.0
+    },
+    "tfidf_logreg": {
+      "kappa": 0.8347173933471151,
+      "kappa_ci": {
+        "estimate": 0.8347173933471151,
+        "low": 0.7957591896290913,
+        "high": 0.8733663244788196,
+        "confidence": 0.95,
+        "n_resamples": 1000,
+        "method": "percentile"
+      },
+      "accuracy": 0.8763102725366876
+    }
+  },
+  "ceiling": {
+    "skipped": "gold labels are fixed, so the teacher agrees with itself"
+  },
+  "gold": {
+    "student_vs_gold": {
+      "n": 477,
+      "kappa": 0.896474052522598,
+      "kappa_ci": {
+        "estimate": 0.896474052522598,
+        "low": 0.8624707055536366,
+        "high": 0.9300965136950308,
+        "confidence": 0.95,
+        "n_resamples": 1000,
+        "method": "percentile"
+      },
+      "accuracy": 0.9224318658280922
+    }
+  },
+  "spent_usd": 0.0,
+  "wall_seconds": 2878.9252416159998
+}

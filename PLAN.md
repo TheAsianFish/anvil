@@ -70,7 +70,7 @@ tool. Anvil is the open-source end-to-end CLI with the measurement built in.
 | Teacher | `anvil/teacher/` | `Teacher` protocol with `label(items) -> LabelBatch` (labels plus failures, each with its tokens and cost). `ClaudeTeacher` uses the `anthropic` SDK with structured outputs (`output_config.format`), low effort, optional Message Batches for large pools (M3), a content-addressed on-disk cache keyed by the hash of the full request, token and dollar accounting. `OllamaTeacher` is the offline fallback. `FakeTeacher` (deterministic rules) is for tests. |
 | Data store | `anvil/store.py` | SQLite under `.anvil/`: inputs, labels and failed calls (append-only, with teacher model and prompt hash), splits (held-out / pool are fixed by a seeded hash of the input text so re-runs are stable), round records (M3). |
 | Students | `anvil/students/` | `Student` protocol (M2; M1 has `Classifier` with `predict_proba` and `save`): `fit`, `predict_proba` / `predict_spans` / `generate`, `save`, `load`. `EncoderClassifier` and `EncoderTagger` wrap any Hugging Face encoder (default `answerdotai/ModernBERT-base`); `LoraGenerator` wraps Qwen2.5-0.5B-Instruct with PEFT LoRA. CI and unit tests use tiny random-init models built from a config, no download. |
-| Trainer | `anvil/train/loop.py` | One PyTorch training loop for all students: seeded, AMP when a GPU is present, gradient accumulation, linear warmup + decay, early stopping on held-out agreement, checkpointing, structured JSONL metrics per step. |
+| Trainer | `anvil/train/loop.py` | One PyTorch training loop for all students: seeded, AMP when a GPU is present, gradient accumulation, linear warmup + decay, early stopping on a validation slice of the training labels, checkpointing, structured JSONL metrics per step. |
 | Alignment | `anvil/align.py` | Turns teacher outputs into training targets: label ids; character-offset spans to BIO tags over the student tokenizer's offsets (with a report of spans that could not be aligned); chat-template formatting for generation. |
 | Evaluation | `anvil/evaluate/` | Agreement metrics vs the teacher: Cohen's kappa with bootstrap CI, accuracy, macro F1, confusion matrix, majority baseline, teacher self-agreement ceiling; entity-level F1 for extraction; exact match / field match for generation plus an optional judge sample. Error slices by class, confidence bucket and length. |
 | Selection | `anvil/select.py` | Acquisition strategies over the unlabeled pool: `random`, `uncertainty` (entropy), `margin`, `diverse` (uncertainty with cluster coverage). One function: `select_batch(pool, k, strategy, seed)`. |
@@ -126,7 +126,8 @@ flowchart LR
 3. **Fixed, hash-based splits and an append-only label store.** Held-out
    and pool membership is decided by a seeded hash of the input text, so
    adding inputs or re-running a round never moves an item across splits
-   and two copies of the same text never sit on both sides. Labels are never overwritten; each carries the teacher model and
+   and two copies of the same text never sit on both sides (near-duplicates
+   that differ by a word can; the eval reports how many). Labels are never overwritten; each carries the teacher model and
    prompt hash so a prompt change creates new labels rather than silently
    mixing. *Rejected:* random splits per run (irreproducible curves).
 4. **Active learning retrains from scratch each round.** Warm-starting
@@ -282,11 +283,37 @@ Batches halve the cost of large pools and are used when a batch exceeds
   is committed yet because the build environment has no key; `make record`
   creates them (under $0.01). Held-out membership hashes the input text
   rather than its id, so duplicate texts cannot leak across the split.
+- **M2 (2026-10-17).** Early stopping uses a validation slice carved out of the
+  *training* labels by a seeded text hash (10% by default), not the held-out
+  split: choosing the epoch on the set the headline kappa is reported on would
+  bias it upward. Evals replay committed label files (`eval/labels/`, one JSONL
+  row per label with its tokens and cost) rather than per-request recordings,
+  so a 2,500-label run stays one reviewable file; `make record` keeps the
+  per-request recordings for the unit-level replay test. Banking77 loads from
+  the `legacy-datasets/banking77` parquet mirror at a pinned revision (the
+  `PolyAI/banking77` loader is a script, which `datasets` 5 no longer runs);
+  `datasets` lives in a separate `eval` dependency group so CI does not install
+  pyarrow. With no key in the build environment, `make eval-classify
+  TEACHER=gold` runs the whole harness with each dataset's gold labels as the
+  teacher (model id `gold`, never mistaken for Claude): it measures the student
+  and the statistics on real data, not parity with Claude, which stays under
+  "To measure" with its command and cost. The training loop resumes from
+  per-epoch checkpoints (`anvil train --resume RUN`) and fingerprints the
+  config and the training data, so a resume on other data is refused. The
+  student and the TF-IDF baseline are scored on the same held-out items, so
+  the eval compares them with a paired bootstrap of the kappa difference
+  rather than by whether two separate intervals overlap. A second training
+  seed moved AG News kappa by 0.053 (about 70% of one run's interval width)
+  and left Banking77's unchanged while flipping 15% of its predictions, which
+  confirms M3's three seeds per frontier point. Known gap: a recorded Claude
+  run with a refused input cannot be replayed (the replay teacher treats any
+  missing label as an incomplete recording); M3 records refusals alongside
+  labels before the first paid frontier run.
 
 ## Milestones
 
 - [x] M1: Scaffold, CI and a thin vertical slice — package layout, `uv` lockfile, ruff + mypy strict + pytest + GitHub Actions (lint, type, test on 3.12), Dockerfile, Makefile, MIT licence; `anvil.yaml` spec; `Teacher` protocol with `ClaudeTeacher` (structured outputs, disk cache, cost accounting, recorded fixtures, live test skipped without a key) and `FakeTeacher`; store with hash splits; `anvil label | train | eval` end to end on a toy classify task with a tiny random-init encoder; ModernBERT ONNX export spike recorded in `docs/notes/`. Done when `make check` is green in CI and `make demo` runs the slice offline in under two minutes.
-- [ ] M2: Training and evaluation core — `train/loop.py` (seeded, AMP, accumulation, warmup/decay, early stopping, checkpoints, JSONL metrics) with tests that assert loss decreases and resumes are exact; `EncoderClassifier` on ModernBERT-base; `evaluate/` with kappa + bootstrap CI, majority baseline, teacher self-agreement ceiling, confusion matrix and error slices; `make eval-classify` on AG News and Banking77 writing RESULTS.md (measured with Haiku if a key is present, otherwise harness + "To measure"). Done when the eval runs offline on recorded labels and the stats are verified against scikit-learn in tests.
+- [x] M2: Training and evaluation core — `train/loop.py` (seeded, AMP, accumulation, warmup/decay, early stopping, checkpoints, JSONL metrics) with tests that assert loss decreases and resumes are exact; `EncoderClassifier` on ModernBERT-base; `evaluate/` with kappa + bootstrap CI, majority baseline, teacher self-agreement ceiling, confusion matrix and error slices; `make eval-classify` on AG News and Banking77 writing RESULTS.md (measured with Haiku if a key is present, otherwise harness + "To measure"). Done when the eval runs offline on recorded labels and the stats are verified against scikit-learn in tests.
 - [ ] M3: Active learning and the frontier — `select.py` interface with the `random` baseline, property tests and the synthetic selection study; `anvil loop` with label and dollar budgets, from-scratch retrains and `frontier.jsonl`; `make eval-frontier` (3 seeds, 5 budgets, every strategy present) and `make eval-select`; RESULTS.md frontier table with "labels to kappa 0.8 / 0.9". Done when the loop runs end to end offline with the fake teacher and the frontier table is produced from real labels where a key exists.
 - [ ] M4: Extraction — teacher schema with character-offset spans, `align.py` (verification, token snapping, unaligned-rate report), `EncoderTagger`, entity-level F1 and token kappa vs teacher, `make eval-extract` on MIT Restaurant. Done when alignment has tests for off-by-one, overlapping and unicode cases and the extraction eval writes its table.
 - [ ] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
