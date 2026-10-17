@@ -134,8 +134,10 @@ def test_close_to_scipy_bootstrap() -> None:
         confidence_level=0.95,
         random_state=np.random.default_rng(0),
     )
-    assert abs(ours.low - res.confidence_interval.low) < 0.02
-    assert abs(ours.high - res.confidence_interval.high) < 0.02
+    # Monte Carlo noise at 5,000 resamples is about 0.001; 0.005 separates the percentile
+    # method from scipy's basic (off by ~0.005 here) and BCa intervals, and a 90% interval.
+    assert abs(ours.low - res.confidence_interval.low) < 0.005
+    assert abs(ours.high - res.confidence_interval.high) < 0.005
 
 
 def test_coverage_of_the_population_kappa() -> None:
@@ -154,7 +156,7 @@ def test_fast_enough_for_banking77() -> None:
     sa, sb = [str(x) for x in a], [str(x) for x in b]
     start = time.perf_counter()
     bootstrap_ci(sa, sb, "kappa", n_resamples=1000)
-    assert time.perf_counter() - start < 1.0
+    assert time.perf_counter() - start < 3.0  # milliseconds in practice; loose for slow CI
 
 
 def test_bad_input_raises() -> None:

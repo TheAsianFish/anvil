@@ -4,7 +4,11 @@ The unit of resampling is the item: each resample draws n item indices with repl
 keeps both raters' labels for each drawn item together (paired resampling), so the interval
 reflects how much the statistic would move on another held-out set of the same size drawn
 from the same population. The 95% percentile interval is the 2.5th and 97.5th percentiles of
-the statistic over the resamples (Efron and Tibshirani, ch. 13).
+the statistic over the resamples (Efron and Tibshirani, ch. 13). The percentile method is
+simple and cheap but not bias-corrected: for a statistic bounded at 1 it sits high when the
+estimate is near 1 or n is small, so coverage is below nominal there (the tests check
+coverage at kappa 0.7 with 200 items); BCa would be the upgrade if the ceiling or a
+near-perfect student needs a tight interval.
 
 Everything is vectorised over resamples: 1,000 resamples of 500 items with 77 labels take a
 few milliseconds, so the CI is cheap enough to report on every eval and every loop round.
