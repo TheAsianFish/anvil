@@ -26,6 +26,7 @@ from transformers.utils import logging as hf_logging
 
 from anvil.errors import StudentError
 from anvil.spec import StudentSpec
+from anvil.train.loop import TrainResult
 
 hf_logging.disable_progress_bar()  # type: ignore[no-untyped-call]
 hf_logging.set_verbosity_error()  # type: ignore[no-untyped-call]
@@ -133,7 +134,15 @@ class EncoderClassifier:
                     f"could not load student {spec.model!r}: {exc}; check the model id or use"
                     " student.model: tiny"
                 ) from exc
+        # Train on the GPU when there is one; CPU otherwise (the loop picks AMP to match).
+        model.to("cuda" if torch.cuda.is_available() else "cpu")
         return cls(model, tokenizer, labels, spec.max_length)
+
+    @property
+    def device(self) -> torch.device:
+        """Where the model's parameters live; inputs are moved there by `encode`."""
+        device: torch.device = next(self.model.parameters()).device
+        return device
 
     def encode(self, texts: Sequence[str]) -> dict[str, torch.Tensor]:
         enc = self.tokenizer(
@@ -143,7 +152,26 @@ class EncoderClassifier:
             max_length=self.max_length,
             return_tensors="pt",
         )
-        return {k: v for k, v in enc.items() if k in ("input_ids", "attention_mask")}
+        device = self.device
+        return {k: v.to(device) for k, v in enc.items() if k in ("input_ids", "attention_mask")}
+
+    def fit(
+        self,
+        texts: Sequence[str],
+        targets: Sequence[int],
+        spec: StudentSpec,
+        metrics_path: Path | None = None,
+        *,
+        checkpoint_dir: Path | None = None,
+        resume: bool = False,
+    ) -> TrainResult:
+        """Train on (text, label id) pairs; see `anvil.train.classifier.train_classifier`."""
+        # Imported here: the training module imports this one for its type hints.
+        from anvil.train.classifier import train_classifier
+
+        return train_classifier(
+            self, texts, targets, spec, metrics_path, checkpoint_dir=checkpoint_dir, resume=resume
+        )
 
     @torch.no_grad()
     def predict_proba(self, texts: Sequence[str], batch_size: int = 64) -> npt.NDArray[np.float32]:

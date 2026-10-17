@@ -103,19 +103,35 @@ def label_cmd(
 
 
 @app.command("train")
-def train_cmd(spec: SpecOpt = Path("anvil.yaml"), teacher: TeacherOpt = None) -> None:
+def train_cmd(
+    spec: SpecOpt = Path("anvil.yaml"),
+    teacher: TeacherOpt = None,
+    resume: Annotated[
+        str | None,
+        typer.Option(help="Continue an interrupted run (its run id) from its checkpoint."),
+    ] = None,
+) -> None:
     """Train a fresh student on every labelled pool input."""
 
     def body() -> None:
         from anvil.pipeline import Workspace, train
 
         task, settings = _setup(spec)
-        r = train(task, Workspace.for_task(settings.home, task), _teacher_model(task, teacher))
-        losses = r.result.epoch_losses
+        r = train(
+            task, Workspace.for_task(settings.home, task), _teacher_model(task, teacher), resume
+        )
+        res = r.result
+        losses = res.epoch_losses
+        stopping = (
+            f" ({res.validation_examples} held back for early stopping, best epoch"
+            f" {res.best_epoch}, kappa {res.best_metric:.3f})"
+            if res.validation_examples and res.best_metric is not None
+            else ""
+        )
         print(
-            f"trained {r.run_id} on {r.result.examples} {r.teacher_model} labels:"
-            f" {r.result.epochs} epochs, loss {losses[0]:.3f} -> {losses[-1]:.3f},"
-            f" {r.result.seconds:.1f}s"
+            f"trained {r.run_id} on {res.examples + res.validation_examples} {r.teacher_model}"
+            f" labels{stopping}: {res.epochs} epochs, loss {losses[0]:.3f} -> {losses[-1]:.3f},"
+            f" {res.seconds:.1f}s"
         )
 
     _run(body)
@@ -138,7 +154,8 @@ def eval_cmd(
         a = r.agreement
         print(
             f"student {r.student} vs {r.teacher_model} on {a.n} held-out inputs:"
-            f" kappa {a.kappa:.3f}, accuracy {a.accuracy:.3f}"
+            f" kappa {a.kappa:.3f} [{a.kappa_ci.low:.3f}, {a.kappa_ci.high:.3f}],"
+            f" accuracy {a.accuracy:.3f}"
             f" (majority '{a.majority_label}' accuracy {a.majority_accuracy:.3f});"
             f" report {r.report_path}"
         )

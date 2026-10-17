@@ -61,6 +61,20 @@ class StudentSpec(_Strict):
     batch_size: int = Field(default=16, ge=1)
     learning_rate: float = Field(default=5e-5, gt=0)
     seed: int = 0
+    grad_accum: int = Field(default=1, ge=1)
+    """Micro-batches per optimizer step; the effective batch is `batch_size * grad_accum`."""
+    warmup_ratio: float = Field(default=0.1, ge=0, le=0.5)
+    """Fraction of optimizer steps with linear warmup from 0, then linear decay to 0."""
+    weight_decay: float = Field(default=0.01, ge=0)
+    """AdamW weight decay, not applied to biases and norm weights."""
+    max_grad_norm: float | None = Field(default=1.0, gt=0)
+    """Clip the global gradient norm to this; null disables clipping."""
+    amp: Literal["auto", "off", "bf16", "fp16"] = "auto"
+    """Mixed precision: `auto` is bf16 or fp16 on CUDA and off on CPU."""
+    validation_fraction: float = Field(default=0.1, ge=0, lt=0.5)
+    """Share of the training labels held back to pick the best epoch (0 disables)."""
+    patience: int = Field(default=2, ge=1)
+    """Epochs without a better validation kappa before training stops early."""
 
 
 class SplitSpec(_Strict):
