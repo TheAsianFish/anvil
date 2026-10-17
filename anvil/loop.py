@@ -20,7 +20,9 @@ rows as one that never stopped.
 
 Dollars are label cost, not spend: a label replayed from the cache or a recording counts what
 it cost to make, so a replay stops at the same round as the live run it replays. The budget
-covers everything the loop labels, the held-out split included (labelled first).
+covers everything the loop labels, the held-out split included (labelled first). A row's
+`spent_usd` is what the process that wrote it paid during that round; a resumed round reports
+only the resumed process's spend, while its label cost columns are complete either way.
 """
 
 from __future__ import annotations
@@ -106,6 +108,8 @@ class LoopReport:
     stopped: str | None = None
     student: Path | None = None
     """The last round's student (the earlier ones are removed as the loop moves on)."""
+    resumed_rows: int = 0
+    """Rows an earlier run of the same loop id had already written when this one started."""
 
     @property
     def frontier(self) -> Path:
@@ -144,8 +148,12 @@ class _Labeller:
 
     An input is sent to the teacher at most once per process, and never when the store
     already holds a label or a billed failure for it: a refused pick stays picked (it used
-    budget) and is not paid for again in every later round. A failure replayed from a
-    recording is not stored (`Store.append_failures`), so its cost is kept here instead.
+    budget) and is not paid for again in every later round. A failure that cost nothing (a
+    dropped connection, a recording with no row for the input) settles nothing, so the next
+    run asks again, as `anvil label` does. A failure replayed from a recording is not stored
+    (`Store.append_failures`), so its cost is kept here instead; `cost_of` is complete only
+    once every input asked about has been through `label` in this process, which is why the
+    loop re-labels its earlier picks (a no-op for settled inputs) before it costs them.
     """
 
     def __init__(self, store: Store, spec: TaskSpec, teacher: Teacher) -> None:
@@ -159,7 +167,7 @@ class _Labeller:
         """Label the inputs that still need it; returns what this call spent."""
         model, prompt = self._teacher.model_id, self._spec.prompt_hash
         settled = set(self._store.labels(model, prompt)) | {
-            f.input_id for f in self._store.failure_records(model, prompt)
+            f.input_id for f in self._store.failure_records(model, prompt) if f.cost_usd > 0
         }
         todo = [it for it in items if it.id not in settled and it.id not in self._attempted]
         if not todo:
@@ -257,17 +265,24 @@ def run_loop(
 
         rows = read_frontier(root / FRONTIER)
         report.rows = rows
+        report.resumed_rows = len(rows)
         if rows and rows[-1].get("stop"):
             report.stopped = str(rows[-1]["stop"])
             report.student = root / f"round-{len(rows) - 1}"
             return report
 
         picks = store.picks(loop_id)
+        by_id = {it.id: it for it in pool_items}
         student: EncoderClassifier | None = None
         if rows:
             previous = root / f"round-{len(rows) - 1}"
             if previous.exists():
                 student = EncoderClassifier.load(previous)
+            for stale in root.glob("round-*"):
+                # A crash between a row and the removal of the round before it leaves a
+                # student the loop no longer selects with.
+                if stale.is_dir() and stale != previous:
+                    shutil.rmtree(stale)
 
         for r in range(len(rows), len(config.budgets)):
             budget = config.budgets[r]
@@ -280,6 +295,9 @@ def run_loop(
                 taken = set(picked)
                 candidates = [it for it in pool_items if it.id not in taken]
                 want = budget - len(picked)
+                # Earlier rounds' picks are settled already; on a resume this call only
+                # recovers what their replayed failures cost, so the budget check is complete.
+                spent += labeller.label([by_id[i] for i in picked])
                 cost = labeller.cost_of([*heldout_ids, *picked])
                 allowed = _affordable(cost, len(heldout_ids) + len(picked), config.max_usd)
                 if allowed is not None:
@@ -319,10 +337,15 @@ def run_loop(
                 round_picks = [candidates[i].id for i in order]
                 store.add_picks(loop_id, r, round_picks)
                 picks = store.picks(loop_id)
-            elif r > 0 and student is not None:
+            elif r > 0:
                 # Resumed after this round's picks were recorded: score them again with the
                 # same forward pass over the same candidates, so the row matches a loop that
                 # never stopped.
+                if student is None:
+                    raise StoreError(
+                        f"loop {loop_id!r} lost the round {r - 1} student that scored its"
+                        f" round {r} picks; start a new loop id"
+                    )
                 earlier = {i for rnd, i in picks if rnd < r}
                 candidates = [it for it in pool_items if it.id not in earlier]
                 probs, _ = student.predict_with_embeddings([it.text for it in candidates])
@@ -331,7 +354,6 @@ def run_loop(
                 confidence = float(probs[order].max(axis=1).mean())
 
             picked = [i for _, i in picks]
-            by_id = {it.id: it for it in pool_items}
             spent += labeller.label([by_id[i] for i in picked])
             chosen = set(picked)
             pairs = [p for p in store.labelled(model, prompt, Split.POOL) if p[0].id in chosen]
@@ -383,14 +405,19 @@ def run_loop(
             next_allowed = _affordable(
                 pool_cost + heldout_cost, len(heldout_ids) + len(picked), config.max_usd
             )
+            # A round cut short (fewer picks than its budget) stopped for the pool or the
+            # dollars, whether or not it was the last budget; a full last round is the label
+            # budget even when the dollars run out at the same time.
             if config.target_kappa is not None and low >= config.target_kappa:
                 row["stop"] = STOP_TARGET
-            elif r == len(config.budgets) - 1:
+            elif r == len(config.budgets) - 1 and len(picked) >= budget:
                 row["stop"] = STOP_LABELS
             elif len(picked) >= len(pool_items):
                 row["stop"] = STOP_POOL
             elif next_allowed is not None and next_allowed <= 0:
                 row["stop"] = STOP_DOLLARS
+            elif r == len(config.budgets) - 1:
+                row["stop"] = STOP_LABELS
             rows.append(row)
             _write_frontier(root / FRONTIER, rows)
             # Only once the row is written: until then a resume selects with this student.
