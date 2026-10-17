@@ -20,9 +20,9 @@ Teachers:
 
 Raw output goes to `eval/results/classify-<dataset>-<teacher>/`: `report.json` (every number),
 `meta.json` (command, git SHA, models, seed, wall time, dollars), `train-metrics.jsonl`.
-`python -m eval.render` turns those into RESULTS.md tables. A run with `--student`, `--epochs`
-or `--size` is a smoke run: it writes to `...-smoke/`, which the renderer ignores, so it can
-never overwrite the numbers RESULTS.md is built from.
+`python -m eval.render` turns those into RESULTS.md tables. A run with `--student`, `--epochs`,
+`--size` or a non-default `--resamples` is a smoke run: it writes to `...-smoke/`, which the
+renderer ignores, so it can never overwrite the numbers RESULTS.md is built from.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from anvil import __version__, log
 from anvil.errors import AnvilError, ConfigError
-from anvil.evaluate.bootstrap import bootstrap_ci
+from anvil.evaluate.bootstrap import bootstrap_ci, bootstrap_difference_ci
 from anvil.evaluate.metrics import accuracy, self_agreement
 from anvil.pipeline import Workspace, evaluate, label, train
 from anvil.settings import Settings
@@ -54,7 +54,13 @@ from anvil.store import Split
 from anvil.students.encoder import EncoderClassifier
 from anvil.teacher import Teacher, build_teacher
 from anvil.teacher.base import Label
-from anvil.teacher.labelfile import GOLD, LabelFileTeacher, read_label_file, write_label_file
+from anvil.teacher.labelfile import (
+    GOLD,
+    LabelFileTeacher,
+    RecordedThenLiveTeacher,
+    read_label_file,
+    write_label_file,
+)
 from eval.data import DatasetRef, Sample, load_rows, sample, write_inputs
 from eval.render import SEED_SUFFIX, SMOKE_SUFFIX
 
@@ -63,6 +69,7 @@ CONFIG_DIR = ROOT / "eval" / "classify"
 LABELS_DIR = ROOT / "eval" / "labels"
 RESULTS_DIR = ROOT / "eval" / "results"
 TeacherKind = Literal["auto", "claude", "replay", "gold"]
+DEFAULT_RESAMPLES = 1000
 
 logger = log.get_logger("anvil.eval.classify")
 
@@ -180,8 +187,28 @@ def make_teacher(
             raise ConfigError(f"no recorded labels at {_shown(path)}; label with --teacher claude")
         return LabelFileTeacher.from_file(path, spec.teacher.model, spec.prompt_hash)
     if kind == "claude":
-        return build_teacher(spec, settings, provider="claude")
+        live = build_teacher(spec, settings, provider="claude")
+        path = label_file(config.dataset.name, spec.teacher.model, spec.prompt_hash)
+        if path.exists():  # pay only for inputs the committed file does not cover
+            recorded = LabelFileTeacher.from_file(path, spec.teacher.model, spec.prompt_hash)
+            return RecordedThenLiveTeacher(recorded, live)
+        return live
     raise ConfigError(f"unresolved teacher kind {kind!r}")
+
+
+def _require_complete(
+    kind: TeacherKind, failures: int, config: EvalConfig, spec: TaskSpec
+) -> None:
+    """Recorded labels must cover every input the run labels: a partial file (a smoke run
+    recorded before a full one) would otherwise score a student on a fraction of the sample
+    and write that as a result."""
+    if failures and kind in ("replay", "gold"):
+        path = label_file(config.dataset.name, spec.teacher.model, spec.prompt_hash)
+        raise ConfigError(
+            f"{failures} inputs have no recorded label in {_shown(path)}; the recording is"
+            " incomplete, so re-label with --teacher claude (only the missing inputs are paid"
+            " for) or run with --teacher gold"
+        )
 
 
 def _tfidf_baseline(
@@ -189,27 +216,34 @@ def _tfidf_baseline(
     train_labels: list[str],
     test_texts: list[str],
     test_labels: list[str],
+    student_predicted: list[str],
     n_resamples: int,
     seed: int,
-) -> dict[str, object]:
+) -> tuple[dict[str, object], list[str]]:
     """A TF-IDF + logistic regression student on the same teacher labels: what the encoder
-    adds over a bag of words."""
+    adds over a bag of words. Both students are scored on the same held-out items, so the
+    comparison is a paired bootstrap of the kappa difference (student minus TF-IDF), not a
+    look at whether two separate intervals overlap. Returns the stats and the predictions."""
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.linear_model import LogisticRegression
 
     if len(set(train_labels)) < 2:
-        return {"skipped": "fewer than two classes in the training labels"}
+        return {"skipped": "fewer than two classes in the training labels"}, []
     vec = TfidfVectorizer(ngram_range=(1, 2), sublinear_tf=True, min_df=1)
     x_train = vec.fit_transform(train_texts)
     clf = LogisticRegression(max_iter=2000, random_state=seed)
     clf.fit(x_train, train_labels)
     predicted = [str(p) for p in clf.predict(vec.transform(test_texts))]
     ci = bootstrap_ci(test_labels, predicted, "kappa", n_resamples=n_resamples, seed=seed)
+    diff = bootstrap_difference_ci(
+        test_labels, student_predicted, predicted, "kappa", n_resamples=n_resamples, seed=seed
+    )
     return {
         "kappa": ci.estimate,
         "kappa_ci": asdict(ci),
         "accuracy": accuracy(test_labels, predicted),
-    }
+        "student_minus_tfidf_kappa": asdict(diff),
+    }, predicted
 
 
 def _pair_stats(a: list[str], b: list[str], n_resamples: int, seed: int) -> dict[str, object]:
@@ -279,6 +313,7 @@ def run(
     )
     spent = labelled.spent_usd
     failures = len(labelled.failures)
+    _require_complete(kind, failures, config, spec)
 
     with ws.open_store(spec) as store:
         heldout = store.labelled(teacher.model_id, spec.prompt_hash, Split.HELDOUT)
@@ -306,6 +341,7 @@ def run(
                 batch = second.label(todo)
                 spent += batch.spent_usd
                 failures += len(batch.failures)
+                _require_complete(kind, len(batch.failures), config, para)
                 store.append_labels(batch.labels)
                 store.append_failures(batch.failures, second.model_id, para.prompt_hash)
             repeated = store.labels(second.model_id, para.prompt_hash)
@@ -330,13 +366,15 @@ def run(
     texts = [it.text for it, _ in heldout]
     teacher_labels = [lab for _, lab in heldout]
     student = EncoderClassifier.load(trained.path)
-    predicted = student.predict(texts)
+    probs = student.predict_proba(texts)
+    predicted = [student.labels[i] for i in probs.argmax(axis=1)]
     gold_labels = [data.gold[it.id] for it, _ in heldout]
-    baseline = _tfidf_baseline(
+    baseline, tfidf_predicted = _tfidf_baseline(
         [it.text for it, _ in pool],
         [lab for _, lab in pool],
         texts,
         teacher_labels,
+        predicted,
         n_resamples,
         seed,
     )
@@ -388,6 +426,16 @@ def run(
         },
         "ceiling": ceiling,
         "gold": gold,
+        # Per-item labels, so any later comparison (another baseline, a paired test, an error
+        # review) can be done from the committed raw output without the student or the store.
+        "predictions": {
+            "input_id": [it.id for it, _ in heldout],
+            "teacher": teacher_labels,
+            "student": predicted,
+            "student_confidence": [round(float(c), 4) for c in probs.max(axis=1)],
+            "tfidf": tfidf_predicted,
+            "gold": gold_labels,
+        },
         "spent_usd": spent,
         "wall_seconds": wall,
     }
@@ -454,16 +502,26 @@ def main(argv: list[str] | None = None) -> int:
         type=int,
         help="repeat with another student seed (init, data order, validation slice)",
     )
-    parser.add_argument("--resamples", type=int, default=1000)
+    parser.add_argument(
+        "--resamples",
+        type=int,
+        default=DEFAULT_RESAMPLES,
+        help=f"bootstrap resamples (default {DEFAULT_RESAMPLES}; any other value is a smoke run)",
+    )
     parser.add_argument("--out", type=Path, help="results directory (one dataset only)")
     args = parser.parse_args(argv)
+    if args.out is not None and len(args.datasets) > 1:
+        parser.error("--out takes one dataset; several would overwrite each other")
 
     settings = Settings.from_env()
     log.configure(settings.log_level)
     command = "python -m eval.classify " + " ".join(argv if argv is not None else sys.argv[1:])
     provenance = git_provenance()
     # Any override makes a smoke run: it must not land where RESULTS.md is rendered from.
-    smoke = any(v is not None for v in (args.student, args.epochs, args.size))
+    smoke = (
+        any(v is not None for v in (args.student, args.epochs, args.size))
+        or args.resamples != DEFAULT_RESAMPLES
+    )
     try:
         for name in args.datasets:
             config = load_config(CONFIG_DIR / f"{name}.yaml")
@@ -493,15 +551,15 @@ def _override(
     config: EvalConfig, student: str | None, epochs: int | None, size: int | None
 ) -> EvalConfig:
     s_update: dict[str, object] = {}
-    if student:
+    if student is not None:
         s_update["model"] = student
-    if epochs:
+    if epochs is not None:
         s_update["epochs"] = epochs
     spec = config.spec.model_copy(
         update={"student": config.spec.student.model_copy(update=s_update)}
     )
     smp = config.sample
-    if size:
+    if size is not None:
         ratio = size / smp.size
         smp = smp.model_copy(
             update={

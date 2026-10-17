@@ -101,10 +101,27 @@ def test_gold_run_writes_a_complete_report_and_renders(tmp_path: Path) -> None:
     assert "teacher_vs_gold" not in on_disk["gold"]
     # With gold as the teacher, student-vs-gold is the headline number again.
     assert on_disk["gold"]["student_vs_gold"]["kappa"] == pytest.approx(ag["kappa"])
-    assert "kappa" in on_disk["baselines"]["tfidf_logreg"]
+    assert teacher["failures"] == 0
+    assert teacher["pool_labels"] == 160
+    tfidf = on_disk["baselines"]["tfidf_logreg"]
+    assert "kappa" in tfidf
+    # The student-vs-TF-IDF comparison is paired on the same held-out items and reproducible
+    # from the per-item predictions the report keeps.
+    pred = on_disk["predictions"]
+    assert len(pred["input_id"]) == ag["n"]
+    assert pred["teacher"] == pred["gold"]  # gold is the teacher here
+    assert cohen_kappa(pred["teacher"], pred["student"]) == pytest.approx(ag["kappa"])
+    assert cohen_kappa(pred["teacher"], pred["tfidf"]) == pytest.approx(tfidf["kappa"])
+    diff = tfidf["student_minus_tfidf_kappa"]
+    assert diff["estimate"] == pytest.approx(ag["kappa"] - tfidf["kappa"])
+    assert diff["low"] <= diff["estimate"] <= diff["high"]
+    assert diff["n_resamples"] == 200
+    assert all(0 < c <= 1 for c in pred["student_confidence"])
 
     table = render.render_classify(render.load_runs(tmp_path / "results"))
-    assert "| toy | gold | tiny |" in table
+    assert "| toy | gold | tiny | 160 |" in table
+    assert f"{diff['estimate']:+.3f} [" in table
+    assert "learns from 160 clean labels" in table
     assert "not a parity-with-Claude number" in table
 
 
@@ -187,6 +204,29 @@ def test_replay_run_measures_the_ceiling_offline(
     assert rows == config.ceiling.n
 
 
+def test_partial_recorded_labels_are_refused_not_scored(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, data = _toy_config(tmp_path)
+    monkeypatch.setattr(classify, "LABELS_DIR", tmp_path / "labels")
+    spec, para = config.spec, config.paraphrase_spec()
+    model = spec.teacher.model
+    # A recording from a smaller (smoke) run covers only part of the sample.
+    write_label_file(
+        classify.label_file("toy", model, spec.prompt_hash),
+        _as_labels(_flipped(config, data, 7, 0)[:60]),
+    )
+    write_label_file(
+        classify.label_file("toy", model, para.prompt_hash),
+        _as_labels(_flipped(config, data, 5, 1)),
+    )
+    assert resolve_teacher_kind("auto", config) == "replay"
+    out = tmp_path / "results" / "classify-toy-haiku"
+    with pytest.raises(ConfigError, match=r"no recorded label.*incomplete"):
+        classify.run(config, data, "auto", out, _settings(tmp_path), n_resamples=50)
+    assert not out.exists()
+
+
 def test_auto_replays_only_when_the_paraphrase_labels_are_recorded_too(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -249,7 +289,7 @@ def test_recording_merges_into_the_existing_label_file(
     ("flags", "suffix"),
     [([], ""), (["--size", "100"], "-smoke"), (["--student", "tiny"], "-smoke"),
      (["--epochs", "1"], "-smoke"), (["--seed", "2"], "-seed2"), (["--seed", "0"], ""),
-     (["--seed", "2", "--size", "100"], "-smoke")],
+     (["--seed", "2", "--size", "100"], "-smoke"), (["--resamples", "10"], "-smoke")],
 )  # fmt: skip
 def test_main_sends_override_runs_to_a_smoke_directory(
     tmp_path: Path,
@@ -265,10 +305,13 @@ def test_main_sends_override_runs_to_a_smoke_directory(
     monkeypatch.setattr(classify, "sample", lambda *args, **kwargs: data)
     monkeypatch.setattr(classify, "git_provenance", lambda: {"git_sha": "abc", "git_dirty": False})
     calls: list[tuple[Path, object]] = []
+    seen: list[EvalConfig] = []
 
     def fake_run(*args: object, provenance: object = None) -> dict[str, object]:
         out = args[3]
         assert isinstance(out, Path)
+        assert isinstance(args[0], EvalConfig)
+        seen.append(args[0])
         calls.append((out, provenance))
         ci = {"low": 0.5, "high": 0.7}
         return {
@@ -288,6 +331,23 @@ def test_main_sends_override_runs_to_a_smoke_directory(
     printed = capsys.readouterr().out.splitlines()
     assert len(printed) == 1
     assert printed[0].startswith("toy: gold -> student: kappa 0.600 [0.500, 0.700] on 60")
+    # The overrides reach the run, not just the directory name.
+    used = seen[0]
+    assert used.spec.student.seed == (2 if "--seed" in flags and "2" in flags else 0)
+    if "--size" in flags:
+        assert (used.sample.size, used.sample.pool_labels, used.sample.heldout_labels) == (
+            100, 67, 25,
+        )  # fmt: skip
+    if "--epochs" in flags:
+        assert used.spec.student.epochs == 1
+    if "--student" in flags:
+        assert used.spec.student.model == "tiny"
+
+
+def test_main_refuses_out_with_several_datasets(capsys: pytest.CaptureFixture[str]) -> None:
+    with pytest.raises(SystemExit):
+        classify.main(["ag_news", "banking77", "--out", "/tmp/x"])
+    assert "--out takes one dataset" in capsys.readouterr().err
 
 
 def test_render_skips_smoke_runs(tmp_path: Path) -> None:

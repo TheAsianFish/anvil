@@ -41,6 +41,13 @@ def _ci(stats: Mapping[str, Any] | None) -> str:
     return f"{_f(stats['kappa'])} [{_f(ci.get('low'))}, {_f(ci.get('high'))}]"
 
 
+def _diff(stats: Mapping[str, Any] | None) -> str:
+    """A signed difference with its interval, `+0.180 [0.139, 0.222]`."""
+    if not stats or "estimate" not in stats:
+        return "n/a"
+    return f"{stats['estimate']:+.3f} [{_f(stats.get('low'))}, {_f(stats.get('high'))}]"
+
+
 def _student_name(model: str) -> str:
     return model.rsplit("/", 1)[-1]
 
@@ -76,10 +83,11 @@ def render_classify(runs: list[tuple[str, Report, Report]]) -> str:
     if not runs:
         return "No classification runs yet: run `make eval-classify`.\n"
     lines = [
-        "| Dataset | Teacher | Student | Train labels | Held-out | Student kappa [95% CI]"
-        " | Accuracy | Macro F1 | Majority acc. | TF-IDF kappa [95% CI] | Teacher ceiling kappa"
+        "| Dataset | Teacher | Student | Teacher labels | Held-out | Student kappa [95% CI]"
+        " | Accuracy | Macro F1 | Majority acc. | TF-IDF kappa [95% CI]"
+        " | Student minus TF-IDF kappa [95% paired CI] | Teacher ceiling kappa"
         " | Label cost | Wall time |",
-        "|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
     ]
     for _, r, meta in runs:
         ag, t, s = r["agreement"], r["teacher"], r["student"]
@@ -90,7 +98,9 @@ def render_classify(runs: list[tuple[str, Report, Report]]) -> str:
             f"| {r['dataset']['name']} | {t['model']} | {_student_name(s['model'])}"
             f" | {t['pool_labels']} | {ag['n']} | {_ci(ag)} | {_f(ag['accuracy'])}"
             f" | {_f(ag.get('macro_f1'))} | {_f(r['baselines']['majority']['accuracy'])}"
-            f" | {_ci(r['baselines']['tfidf_logreg'])} | {ceiling_cell}"
+            f" | {_ci(r['baselines']['tfidf_logreg'])}"
+            f" | {_diff(r['baselines']['tfidf_logreg'].get('student_minus_tfidf_kappa'))}"
+            f" | {ceiling_cell}"
             f" | ${t['label_cost_usd']:.2f} | {minutes:.0f} min |"
         )
     lines.append("")
@@ -115,14 +125,19 @@ def _details(name: str, r: Report, meta: Report) -> list[str]:
         f"- Data: {r['dataset']['repo']}@{str(r['dataset']['revision'])[:7]}"
         f" ({r['dataset']['license']}), {r['dataset']['sampled']} inputs sampled"
         f" (seed {r['dataset']['sample_seed']}, sha256 {str(r['dataset']['sample_sha256'])[:12]})",
-        f"- Training: {train.get('epochs')} epochs, {train.get('steps')} steps,"
-        f" best epoch {train.get('best_epoch')}, {_f(train.get('seconds'), 0)} s",
+        f"- Training: {train.get('examples')} examples and"
+        f" {train.get('validation_examples')} held back to pick the epoch, out of"
+        f" {t['pool_labels']} teacher labels; {train.get('epochs')} epochs,"
+        f" {train.get('steps')} steps, best epoch {train.get('best_epoch')},"
+        f" {_f(train.get('seconds'), 0)} s",
     ]
+    if t.get("failures"):
+        out.append(f"- Teacher failures: {t['failures']} inputs got no label")
     if t["kind"] == "gold":
         out.append(
             "- The teacher here is the dataset's gold labels (no API key in this run), so this"
-            " row measures the harness and how well the student learns from 2,000 clean labels;"
-            " it is not a parity-with-Claude number."
+            " row measures the harness and how well the student learns from"
+            f" {t['pool_labels']:,} clean labels; it is not a parity-with-Claude number."
         )
     gold = r.get("gold") or {}
     if "teacher_vs_gold" in gold:

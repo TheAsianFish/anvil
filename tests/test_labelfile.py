@@ -1,15 +1,17 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import pytest
 
 from anvil.errors import ConfigError
 from anvil.store import Store
-from anvil.teacher.base import Item, Label
+from anvil.teacher.base import BatchAbortedError, Failure, Item, Label, LabelBatch
 from anvil.teacher.labelfile import (
     GOLD,
     LabelFileTeacher,
+    RecordedThenLiveTeacher,
     read_label_file,
     write_label_file,
 )
@@ -71,3 +73,58 @@ def test_store_exports_the_latest_label_per_input(tmp_path: Path) -> None:
         records = store.label_records("claude-haiku-5-5", "p1")
     assert [(r.input_id, r.label) for r in records] == [("a", "z"), ("b", "y")]
     assert records[0].input_tokens == 300
+
+
+class _CountingTeacher:
+    model_id = "claude-haiku-5-5"
+
+    def __init__(self) -> None:
+        self.asked: list[list[str]] = []
+
+    def label(self, items: Sequence[Item]) -> LabelBatch:
+        self.asked.append([it.id for it in items])
+        batch = LabelBatch()
+        for it in items:
+            if it.id == "refused":
+                batch.failures.append(Failure(it.id, "refusal"))
+            else:
+                batch.labels.append(_label(it.id, "live", cost=2e-4))
+        return batch
+
+
+def test_recorded_then_live_pays_only_for_missing_inputs(tmp_path: Path) -> None:
+    recorded = LabelFileTeacher.from_file(
+        _write(tmp_path, [_label("a", "x"), _label("b", "y")]), "claude-haiku-5-5", "p1"
+    )
+    live = _CountingTeacher()
+    teacher = RecordedThenLiveTeacher(recorded, live)
+    items = [Item("a", "ta"), Item("c", "tc"), Item("b", "tb"), Item("refused", "tr")]
+    batch = teacher.label(items)
+    assert live.asked == [["c", "refused"]]
+    assert {lb.input_id: lb.label for lb in batch.labels} == {"a": "x", "b": "y", "c": "live"}
+    assert [f.input_id for f in batch.failures] == ["refused"]
+    assert batch.spent_usd == pytest.approx(2e-4)  # the recorded two were free
+    assert teacher.label([Item("a", "ta")]).labels[0].cached
+    assert live.asked == [["c", "refused"]]
+    with pytest.raises(ConfigError, match="same teacher model"):
+        RecordedThenLiveTeacher(LabelFileTeacher.gold({"a": "x"}, "p1"), live)
+
+
+def test_recorded_then_live_keeps_recorded_answers_on_abort(tmp_path: Path) -> None:
+    class Aborting:
+        model_id = "claude-haiku-5-5"
+
+        def label(self, items: Sequence[Item]) -> LabelBatch:
+            partial = LabelBatch(labels=[_label(items[0].id, "live")])
+            raise BatchAbortedError(KeyboardInterrupt(), partial)
+
+    recorded = LabelFileTeacher.from_file(
+        _write(tmp_path, [_label("a", "x")]), "claude-haiku-5-5", "p1"
+    )
+    teacher = RecordedThenLiveTeacher(recorded, Aborting())
+    with pytest.raises(BatchAbortedError) as info:
+        teacher.label([Item("a", "ta"), Item("c", "tc"), Item("d", "td")])
+    assert [(lb.input_id, lb.label) for lb in info.value.batch.labels] == [
+        ("a", "x"),
+        ("c", "live"),
+    ]

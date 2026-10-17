@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from anvil.errors import ConfigError
-from anvil.teacher.base import Failure, Item, Label, LabelBatch
+from anvil.teacher.base import BatchAbortedError, Failure, Item, Label, LabelBatch, Teacher
 
 GOLD = "gold"
 """Model id for a dataset's human labels used as the teacher."""
@@ -132,4 +132,40 @@ class LabelFileTeacher:
                     cached=True,
                 )
             )
+        return batch
+
+
+class RecordedThenLiveTeacher:
+    """Answers from recorded labels first and sends only the inputs without one to a live
+    teacher under the same (model, prompt hash).
+
+    A fresh checkout has the committed label file but neither the store nor the disk cache,
+    so without this a run that still needs a few labels (say the paraphrase set for the
+    ceiling) would buy every main label a second time.
+    """
+
+    def __init__(self, recorded: LabelFileTeacher, live: Teacher) -> None:
+        if recorded.model_id != live.model_id:
+            raise ConfigError(
+                f"recorded labels are from {recorded.model_id}, the live teacher is"
+                f" {live.model_id}; use the same teacher model or re-record"
+            )
+        self.model_id = live.model_id
+        self._recorded = recorded
+        self._live = live
+
+    def label(self, items: Sequence[Item]) -> LabelBatch:
+        batch = self._recorded.label(items)
+        missing = {f.input_id for f in batch.failures}
+        todo = [it for it in items if it.id in missing]
+        batch.failures = []
+        if not todo:
+            return batch
+        try:
+            fresh = self._live.label(todo)
+        except BatchAbortedError as exc:
+            exc.batch.labels[:0] = batch.labels  # the recorded answers are kept as well
+            raise
+        batch.labels.extend(fresh.labels)
+        batch.failures.extend(fresh.failures)
         return batch
