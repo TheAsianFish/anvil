@@ -354,6 +354,7 @@ def _report(kind: str = "gold") -> dict[str, object]:
             "sampled": 6000,
             "sample_sha256": "f" * 64,
             "pool": 4500,
+            "heldout_inputs": 477,
         },
         "teacher": {"kind": kind, "model": "gold" if kind == "gold" else "claude-haiku-5-5"},
         "student": {"model": "sentence-transformers/all-MiniLM-L6-v2"},
@@ -389,6 +390,7 @@ def test_render_frontier_table() -> None:
     assert "wall 10 min" in table
     assert "gold labels" in table
     assert "4.0 at 100, 4.0 at 200" in table
+    assert "477 held-out inputs scored every round" in table  # the split's share, not the cap
 
     claude = render.render_frontier([("frontier-ag_news-claude", _report("claude"), meta)])
     assert "gold labels" not in claude

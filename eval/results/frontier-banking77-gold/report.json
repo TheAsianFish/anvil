@@ -1,0 +1,146 @@
+{
+  "dataset": {
+    "name": "banking77",
+    "repo": "legacy-datasets/banking77",
+    "revision": "f54121560de48f2852f90be299010d1d6dc612ec",
+    "license": "CC-BY-4.0 (Casanueva et al., 2020, PolyAI)",
+    "sampled": 2500,
+    "sample_seed": 0,
+    "sample_sha256": "2aeaf7290b43563fcc42a3f57b112d64b2511ccd434f16dc0d70ff34899fe0bb",
+    "pool": 2004,
+    "heldout_inputs": 496
+  },
+  "teacher": {
+    "kind": "gold",
+    "model": "gold",
+    "prompt_hash": "5665f885a5fd61a7",
+    "labels_in_store": 2485,
+    "label_cost_usd": 0.0
+  },
+  "student": {
+    "model": "sentence-transformers/all-MiniLM-L6-v2",
+    "max_length": 64,
+    "epochs": 5,
+    "min_steps": 600,
+    "batch_size": 16,
+    "learning_rate": 0.0005,
+    "seed": 0,
+    "grad_accum": 1,
+    "warmup_ratio": 0.1,
+    "weight_decay": 0.01,
+    "max_grad_norm": 1.0,
+    "amp": "auto",
+    "validation_fraction": 0.0,
+    "patience": 2
+  },
+  "settings": {
+    "strategies": [
+      "random",
+      "uncertainty",
+      "margin",
+      "diverse"
+    ],
+    "seeds": [
+      0,
+      1,
+      2
+    ],
+    "budgets": [
+      100,
+      200,
+      400,
+      800,
+      1600
+    ],
+    "targets": [
+      0.8,
+      0.9
+    ],
+    "heldout_labels": 500,
+    "n_resamples": 1000
+  },
+  "status": {
+    "random": "measured",
+    "uncertainty": "not implemented",
+    "margin": "not implemented",
+    "diverse": "not implemented"
+  },
+  "strategies": {
+    "random": {
+      "points": [
+        {
+          "budget": 100,
+          "seeds": 3,
+          "labels_mean": 100.0,
+          "kappa_mean": 0.415603806666547,
+          "kappa_min": 0.39615290966642314,
+          "kappa_max": 0.4333532674819046,
+          "kappa_low_min": 0.3510202118421802,
+          "label_cost_usd_mean": 0.0,
+          "classes_covered_mean": 55.666666666666664,
+          "train_seconds_mean": 207.06433333333334
+        },
+        {
+          "budget": 200,
+          "seeds": 3,
+          "labels_mean": 200.0,
+          "kappa_mean": 0.53213925222889,
+          "kappa_min": 0.5066896671261257,
+          "kappa_max": 0.5724173204312785,
+          "kappa_low_min": 0.4633583566037221,
+          "label_cost_usd_mean": 0.0,
+          "classes_covered_mean": 68.0,
+          "train_seconds_mean": 221.60933333333332
+        },
+        {
+          "budget": 400,
+          "seeds": 3,
+          "labels_mean": 400.0,
+          "kappa_mean": 0.6813822711224208,
+          "kappa_min": 0.6705420280049178,
+          "kappa_max": 0.6908764471593372,
+          "kappa_low_min": 0.6273256638751921,
+          "label_cost_usd_mean": 0.0,
+          "classes_covered_mean": 76.33333333333333,
+          "train_seconds_mean": 217.69266666666667
+        },
+        {
+          "budget": 800,
+          "seeds": 3,
+          "labels_mean": 800.0,
+          "kappa_mean": 0.7680071931778224,
+          "kappa_min": 0.7605772682077538,
+          "kappa_max": 0.7747809108659129,
+          "kappa_low_min": 0.7192288584952055,
+          "label_cost_usd_mean": 0.0,
+          "classes_covered_mean": 77.0,
+          "train_seconds_mean": 218.01666666666665
+        },
+        {
+          "budget": 1600,
+          "seeds": 3,
+          "labels_mean": 1600.0,
+          "kappa_mean": 0.8204935569324787,
+          "kappa_min": 0.8116388313285836,
+          "kappa_max": 0.8300654673942656,
+          "kappa_low_min": 0.7767139958396048,
+          "label_cost_usd_mean": 0.0,
+          "classes_covered_mean": 77.0,
+          "train_seconds_mean": 220.54033333333334
+        }
+      ],
+      "labels_to_target": {
+        "0.8": {
+          "mean_kappa": 1600,
+          "every_seed_ci": null
+        },
+        "0.9": {
+          "mean_kappa": null,
+          "every_seed_ci": null
+        }
+      }
+    }
+  },
+  "spent_usd": 0.0,
+  "wall_seconds": 1678.291648847
+}

@@ -325,6 +325,15 @@ def _target(value: object, budgets: list[int]) -> str:
     return str(value) if isinstance(value, int) else f"> {max(budgets)}"
 
 
+def _heldout(dataset: Report, settings: Report) -> str:
+    """The held-out inputs a frontier scores: the hash split's share of the sample, capped."""
+    cap = int(settings["heldout_labels"])
+    inputs = dataset.get("heldout_inputs")
+    if not isinstance(inputs, int) or inputs <= cap:
+        return str(inputs if isinstance(inputs, int) else cap)
+    return f"{cap} (of {inputs})"
+
+
 def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
     """Held-out kappa per label budget and strategy (mean and range over seeds), and the labels
     each target kappa needs, from `eval/frontier.py` runs."""
@@ -347,7 +356,7 @@ def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
             f" wall {_f(meta.get('wall_seconds', 0) / 60, 0)} min; spent ${r['spent_usd']:.4f}",
             f"- Data: {d['repo']}@{str(d['revision'])[:7]}, {d['sampled']} inputs sampled"
             f" (sha256 {str(d['sample_sha256'])[:12]}): a pool of {d['pool']} to select from,"
-            f" {settings['heldout_labels']} held-out inputs scored every round",
+            f" {_heldout(d, settings)} held-out inputs scored every round",
             "",
             "| Strategy | "
             + " | ".join(f"{b} labels" for b in budgets)

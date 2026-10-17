@@ -95,6 +95,63 @@ Training-seed spread (only the student seed changes: weight init, data order, va
 | banking77 | gold | ModernBERT-base | 2 | 0: 0.842, 1: 0.842 | 0.842 | 0.000 | 0.067 |
 <!-- END generated:classify-seeds -->
 
+### Label-count frontier: AG News and Banking77 (M3)
+
+- Command: `make eval-frontier TEACHER=gold` (`python -m eval.frontier --teacher gold`, then
+  `python -m eval.render`, which writes the block below from `eval/results/frontier-*/`).
+- Method: the `make eval-classify` sample of each dataset (2,500 inputs; the same prompt and
+  label files, so a Claude run labels once for both evals). Every implemented strategy runs
+  one `anvil loop` per seed (0, 1, 2) over budgets of 100, 200, 400, 800 and 1,600 pool labels.
+  Round 0 is a random draw that depends only on the seed, so all strategies of a seed share
+  their first student. Every round trains a fresh MiniLM-L6 student
+  (`sentence-transformers/all-MiniLM-L6-v2`, 64 tokens, batch 16, learning rate 5e-4, at least
+  600 optimizer steps, no early stopping) on every label so far and scores it against the
+  teacher on the same held-out inputs (kappa with a 95% percentile bootstrap interval,
+  1,000 resamples). Cells are the mean kappa over the three seeds with the lowest and highest
+  seed in brackets. "Labels to kappa t" reads the grid two ways: the smallest budget whose mean
+  kappa reaches t, and the smallest at which every seed's interval lies above t; neither
+  interpolates between budgets. The learning rate and step count come from a pilot on
+  Banking77 scored on pool inputs outside the training slice, never on this held-out split.
+- With no key in the build environment the teacher is each dataset's gold labels, so these
+  are curves of how the student learns from clean labels, not parity with Claude; the
+  strategies other than `random` are not written yet. Both are under "To measure".
+
+<!-- BEGIN generated:frontier -->
+#### ag_news, teacher `gold`, student `all-MiniLM-L6-v2`
+
+- Raw output: `eval/results/frontier-ag_news-gold/` (`frontier.jsonl`, `report.json`, `meta.json`)
+- Command: `python -m eval.frontier --teacher gold` at `f929d74`; seeds 0, 1, 2; 4 CPUs; wall 87 min; spent $0.0000
+- Data: fancyzhx/ag_news@eb185aa, 2500 inputs sampled (sha256 3cf708037e01): a pool of 2023 to select from, 477 held-out inputs scored every round
+
+| Strategy | 100 labels | 200 labels | 400 labels | 800 labels | 1600 labels | Labels to kappa 0.8 (mean / every seed's CI) | Labels to kappa 0.9 (mean / every seed's CI) | Label cost at 1600 |
+|---|---|---|---|---|---|---|---|---|
+| random | 0.721 [0.709, 0.733] | 0.795 [0.787, 0.810] | 0.817 [0.807, 0.824] | 0.844 [0.837, 0.851] | 0.859 [0.855, 0.863] | 400 / 1600 | > 1600 / > 1600 | $0.00 |
+| uncertainty | not implemented yet | not implemented yet | not implemented yet | not implemented yet | not implemented yet | n/a | n/a | n/a |
+| margin | not implemented yet | not implemented yet | not implemented yet | not implemented yet | not implemented yet | n/a | n/a | n/a |
+| diverse | not implemented yet | not implemented yet | not implemented yet | not implemented yet | not implemented yet | n/a | n/a | n/a |
+
+Classes seen in the training labels (random, mean over seeds): 4.0 at 100, 4.0 at 200, 4.0 at 400, 4.0 at 800, 4.0 at 1600; training time per round: 312 s, 335 s, 342 s, 340 s, 338 s.
+
+The teacher here is the dataset's gold labels (no API key in this run): the curve measures how the student learns from clean labels, not parity with Claude.
+
+#### banking77, teacher `gold`, student `all-MiniLM-L6-v2`
+
+- Raw output: `eval/results/frontier-banking77-gold/` (`frontier.jsonl`, `report.json`, `meta.json`)
+- Command: `python -m eval.frontier banking77 --teacher gold` at `278462c`; seeds 0, 1, 2; 4 CPUs; wall 28 min; spent $0.0000
+- Data: legacy-datasets/banking77@f541215, 2500 inputs sampled (sha256 2aeaf7290b43): a pool of 2004 to select from, 496 held-out inputs scored every round
+
+| Strategy | 100 labels | 200 labels | 400 labels | 800 labels | 1600 labels | Labels to kappa 0.8 (mean / every seed's CI) | Labels to kappa 0.9 (mean / every seed's CI) | Label cost at 1600 |
+|---|---|---|---|---|---|---|---|---|
+| random | 0.416 [0.396, 0.433] | 0.532 [0.507, 0.572] | 0.681 [0.671, 0.691] | 0.768 [0.761, 0.775] | 0.820 [0.812, 0.830] | 1600 / > 1600 | > 1600 / > 1600 | $0.00 |
+| uncertainty | not implemented yet | not implemented yet | not implemented yet | not implemented yet | not implemented yet | n/a | n/a | n/a |
+| margin | not implemented yet | not implemented yet | not implemented yet | not implemented yet | not implemented yet | n/a | n/a | n/a |
+| diverse | not implemented yet | not implemented yet | not implemented yet | not implemented yet | not implemented yet | n/a | n/a | n/a |
+
+Classes seen in the training labels (random, mean over seeds): 55.7 at 100, 68.0 at 200, 76.3 at 400, 77.0 at 800, 77.0 at 1600; training time per round: 207 s, 222 s, 218 s, 218 s, 221 s.
+
+The teacher here is the dataset's gold labels (no API key in this run): the curve measures how the student learns from clean labels, not parity with Claude.
+<!-- END generated:frontier -->
+
 ### Selection on synthetic data (M3)
 
 - Command: `make eval-select` (`python -m eval.select_study`, then `python -m eval.render`,
@@ -167,6 +224,8 @@ on a trained student.
 | Live teacher test and the replay recordings (8 toy inputs) | `make record` | `ANTHROPIC_API_KEY` | under $0.01 with `claude-haiku-5-5` |
 | Student vs Claude on the toy task (91 held-out + 200 pool labels) | set `teacher.model` in `examples/toy/anvil.yaml`, then `anvil label -i inputs.jsonl -n 200 && anvil train && anvil eval` from `examples/toy/` | `ANTHROPIC_API_KEY` | about $0.04 with Haiku 5.5, about $1.60 with Opus 5.5 (300 labels at roughly 300 input and 200 output tokens each) |
 | Parity with Claude on AG News and Banking77: student vs `claude-haiku-5-5` kappa with CIs, the teacher's self-agreement ceiling (200 items, paraphrased prompt) and teacher vs gold. Labels are written to `eval/labels/` so later runs replay them offline | `make eval-classify` (with `ANTHROPIC_API_KEY` set; `TEACHER=auto` then calls Claude once and replays afterwards) | key; about 1.5 h CPU for the two students | about $0.35 with Haiku 5.5 effort `low` (5,400 labels at ~180 input tokens for AG News, ~540 for Banking77 with its 77 label names, ~50 output tokens each); under $1 if thinking doubles the output |
+| The frontier with Claude Haiku as the teacher (both datasets, every implemented strategy) | `make eval-classify` with `ANTHROPIC_API_KEY` set records the labels, then `make eval-frontier` replays them | key; about 2.5 h CPU per strategy | $0 beyond the `make eval-classify` labels: the frontier uses the same 2,500 inputs and prompt per dataset |
+| The `uncertainty`, `margin` and `diverse` curves, synthetic and text | write them in `anvil/select.py` (the tests in `tests/test_select.py` turn from expected failures into passes), then `make eval-select` and `make eval-frontier TEACHER=gold` | about 2.5 h CPU per strategy for the text frontier; seconds for the synthetic study | $0 |
 | A third training seed on both datasets (seeds 0 and 1 are in the table above) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 2`, then `make results` | about 1.5 h CPU (2 ModernBERT-base runs) | $0 |
 
 The toy task is synthetic and only exercises the pipeline; real parity numbers come from the
