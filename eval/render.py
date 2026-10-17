@@ -26,6 +26,10 @@ RESULTS_DIR = ROOT / "eval" / "results"
 Report = Mapping[str, Any]
 
 
+MIN_SUPPORT = 5
+"""Held-out items a class needs before it is listed among the weakest classes."""
+
+
 def _f(x: object, digits: int = 3) -> str:
     return f"{x:.{digits}f}" if isinstance(x, int | float) else "n/a"
 
@@ -117,13 +121,15 @@ def _details(name: str, r: Report, meta: Report) -> list[str]:
             f"- Against gold: teacher {_ci(gold['teacher_vs_gold'])},"
             f" student {_ci(gold['student_vs_gold'])}"
         )
+    # Classes with a handful of held-out items have F1 of 0 or 1 by chance; rank the rest.
     worst = sorted(
-        (c for c in ag.get("per_class", []) if c.get("support", 0) > 0),
+        (c for c in ag.get("per_class", []) if c.get("support", 0) >= MIN_SUPPORT),
         key=lambda c: (c["f1"], c["label"]),
     )[:5]
     if worst:
         out.append(
-            "- Weakest classes (F1 vs teacher, support): "
+            f"- Weakest classes with at least {MIN_SUPPORT} held-out items (F1 vs teacher,"
+            " support): "
             + ", ".join(f"`{c['label']}` {_f(c['f1'], 2)} ({c['support']})" for c in worst)
         )
     confusions = ag.get("top_confusions", [])[:5]
