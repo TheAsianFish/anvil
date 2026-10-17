@@ -241,10 +241,86 @@ def render_seed_spread(runs: list[tuple[str, Report, Report]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+SELECT_DIR = "select-synthetic"
+"""Where `python -m eval.select_study` writes, under the results directory."""
+SELECT_AT = (50, 100, 200, 400)
+"""Label counts whose mean test accuracy the selection table shows."""
+
+
+def load_select(results_dir: Path) -> tuple[Report, Report] | None:
+    path = results_dir / SELECT_DIR / "report.json"
+    if not path.exists():
+        return None
+    meta_path = path.parent / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    return json.loads(path.read_text(encoding="utf-8")), meta
+
+
+def _reach(stats: Mapping[str, Any]) -> str:
+    """`98.5 [60-150]`: mean labels to a target over the seeds that reached it, and its range."""
+    if stats.get("mean") is None:
+        return "never"
+    return f"{stats['mean']:g} [{stats['min']}-{stats['max']}]"
+
+
+def render_select(run: tuple[Report, Report] | None) -> str:
+    """The synthetic selection study: per setting, labels to target and accuracy by labels."""
+    if run is None:
+        return "No selection study yet: run `make eval-select`.\n"
+    report, meta = run
+    config = report["config"]
+    max_labels = config["max_labels"]
+    seeds = config["seeds"]
+    lines = [
+        f"- Raw output: `eval/results/{SELECT_DIR}/` (`report.json`, `meta.json`)",
+        f"- Command: `{meta.get('command', '')}` at `{str(meta.get('git_sha', ''))[:7]}`"
+        f"{' (dirty tree)' if meta.get('git_dirty') else ''}; {seeds} seeds, data seed"
+        f" {report['data']['data_seed']}; {meta.get('cpus')} CPUs;"
+        f" wall {_f(meta.get('wall_seconds', report.get('wall_seconds')), 0)} s;"
+        f" spent ${report.get('spent_usd', 0):.2f}",
+        "",
+    ]
+    for name, setting in report["settings"].items():
+        targets = setting["targets"]
+        lines += [
+            f"**{name}**: {setting['pool_size']:,} pool points"
+            f" ({setting['distinct_pool_points']:,} distinct), {setting['test_size']:,} test"
+            f" points; a student trained on the whole pool scores"
+            f" {_f(setting['full_pool_accuracy'])} test accuracy (95% of it:"
+            f" {_f(targets['relative'])}).",
+            "",
+            f"| Strategy | Labels to {targets['accuracy']:.2f} accuracy, mean [min-max]"
+            f" | Seeds not reaching {targets['accuracy']:.2f} by {max_labels}"
+            f" | Labels to {_f(targets['relative'])} (95% of full pool), mean [min-max]"
+            f" | Seeds not reaching it | "
+            + " | ".join(f"Accuracy at {n}" for n in SELECT_AT)
+            + " |",
+            "|---|---|---|---|---|" + "---|" * len(SELECT_AT),
+        ]
+        for strategy, result in setting["strategies"].items():
+            if result.get("status") != "ok":
+                lines.append(
+                    f"| {strategy} | not implemented yet: run `make eval-select` once it is"
+                    " written | | | | " + " | ".join("" for _ in SELECT_AT) + " |"
+                )
+                continue
+            accuracy = dict(zip(result["label_counts"], result["accuracy"]["mean"], strict=True))
+            to = result["labels_to_target"]
+            lines.append(
+                f"| {strategy} | {_reach(to['accuracy'])} | {to['accuracy']['never']} of {seeds}"
+                f" | {_reach(to['relative'])} | {to['relative']['never']} of {seeds} | "
+                + " | ".join(_f(accuracy.get(n)) for n in SELECT_AT)
+                + " |"
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
     return {
         "classify": render_classify(load_runs(results_dir)),
         "classify-seeds": render_seed_spread(load_runs(results_dir, seeds=True)),
+        "select": render_select(load_select(results_dir)),
     }
 
 
