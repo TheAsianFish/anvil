@@ -1,0 +1,25 @@
+# `make eval-frontier`: kappa against the number of teacher labels, per selection strategy.
+# Datasets, samples, prompts and teachers come from eval/classify/<dataset>.yaml, so the
+# frontier and the parity eval share one set of recorded labels.
+datasets: [ag_news, banking77]
+strategies: [random, uncertainty, margin, diverse]
+seeds: [0, 1, 2]
+budgets: [100, 200, 400, 800, 1600]
+targets: [0.8, 0.9]
+heldout_labels: 500
+# The CPU student (PLAN.md, risks): MiniLM-L6 retrains from scratch every round, five rounds
+# per seed and strategy; ModernBERT-base would take about ten times as long per round.
+# A fixed training length instead of early stopping: at 100 labels the 10% validation slice is
+# ten inputs for up to 77 classes, too few to choose an epoch with. Every round trains at least
+# 600 optimizer steps (five epochs once the label set is large enough). The learning rate and
+# step count were chosen in a pilot on Banking77 (100 and 400 gold labels, scored on pool
+# inputs outside the training slice, never on the held-out split): 5e-4 with 600 steps reached
+# kappa 0.665 at 400 labels against 0.518 for 3e-4 with 300 steps.
+student:
+  model: sentence-transformers/all-MiniLM-L6-v2
+  max_length: 64
+  epochs: 5
+  min_steps: 600
+  batch_size: 16
+  learning_rate: 5.0e-4
+  validation_fraction: 0.0

@@ -316,11 +316,102 @@ def render_select(run: tuple[Report, Report] | None) -> str:
     return "\n".join(lines)
 
 
+def load_frontiers(results_dir: Path) -> list[tuple[str, Report, Report]]:
+    """Every `frontier-*` run except smoke runs."""
+    return load_runs(results_dir, prefix="frontier-")
+
+
+def _target(value: object, budgets: list[int]) -> str:
+    return str(value) if isinstance(value, int) else f"> {max(budgets)}"
+
+
+def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
+    """Held-out kappa per label budget and strategy (mean and range over seeds), and the labels
+    each target kappa needs, from `eval/frontier.py` runs."""
+    if not runs:
+        return "No frontier runs yet: run `make eval-frontier`.\n"
+    out: list[str] = []
+    for name, r, meta in runs:
+        settings = r["settings"]
+        budgets = [int(b) for b in settings["budgets"]]
+        targets = [f"{float(t):g}" for t in settings["targets"]]
+        d, t = r["dataset"], r["teacher"]
+        out += [
+            f"#### {d['name']}, teacher `{t['model']}`, student"
+            f" `{_student_name(str(r['student']['model']))}`",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`frontier.jsonl`, `report.json`, `meta.json`)",
+            f"- Command: `{meta.get('command', '')}` at `{str(meta.get('git_sha', ''))[:7]}`"
+            f"{' (dirty tree)' if meta.get('git_dirty') else ''}; seeds"
+            f" {', '.join(str(x) for x in settings['seeds'])}; {meta.get('cpus')} CPUs;"
+            f" wall {_f(meta.get('wall_seconds', 0) / 60, 0)} min; spent ${r['spent_usd']:.4f}",
+            f"- Data: {d['repo']}@{str(d['revision'])[:7]}, {d['sampled']} inputs sampled"
+            f" (sha256 {str(d['sample_sha256'])[:12]}): a pool of {d['pool']} to select from,"
+            f" {settings['heldout_labels']} held-out inputs scored every round",
+            "",
+            "| Strategy | "
+            + " | ".join(f"{b} labels" for b in budgets)
+            + " | "
+            + " | ".join(f"Labels to kappa {x} (mean / every seed's CI)" for x in targets)
+            + f" | Label cost at {budgets[-1]} |",
+            "|---|" + "---|" * (len(budgets) + len(targets) + 1),
+        ]
+        for strategy, status in r["status"].items():
+            if status != "measured":
+                out.append(
+                    f"| {strategy} | "
+                    + " | ".join("not implemented yet" for _ in budgets)
+                    + " | "
+                    + " | ".join("n/a" for _ in targets)
+                    + " | n/a |"
+                )
+                continue
+            s = r["strategies"][strategy]
+            by_budget = {int(pt["budget"]): pt for pt in s["points"]}
+            cells = []
+            for b in budgets:
+                pt = by_budget.get(b)
+                cells.append(
+                    "n/a"
+                    if pt is None
+                    else f"{_f(pt['kappa_mean'])} [{_f(pt['kappa_min'])}, {_f(pt['kappa_max'])}]"
+                )
+            reach = [
+                f"{_target(s['labels_to_target'][x]['mean_kappa'], budgets)}"
+                f" / {_target(s['labels_to_target'][x]['every_seed_ci'], budgets)}"
+                for x in targets
+            ]
+            last = by_budget.get(budgets[-1])
+            cost = f"${last['label_cost_usd_mean']:.2f}" if last else "n/a"
+            out.append(f"| {strategy} | " + " | ".join([*cells, *reach, cost]) + " |")
+        measured = [k for k, v in r["status"].items() if v == "measured"]
+        if measured:
+            pts = r["strategies"][measured[0]]["points"]
+            out += [
+                "",
+                f"Classes seen in the training labels ({measured[0]}, mean over seeds): "
+                + ", ".join(f"{_f(pt['classes_covered_mean'], 1)} at {pt['budget']}" for pt in pts)
+                + "; training time per round: "
+                + ", ".join(f"{_f(pt['train_seconds_mean'], 0)} s" for pt in pts)
+                + ".",
+            ]
+        if t["kind"] == "gold":
+            out += [
+                "",
+                "The teacher here is the dataset's gold labels (no API key in this run): the"
+                " curve measures how the student learns from clean labels, not parity with"
+                " Claude.",
+            ]
+        out.append("")
+    return "\n".join(out)
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
     return {
         "classify": render_classify(load_runs(results_dir)),
         "classify-seeds": render_seed_spread(load_runs(results_dir, seeds=True)),
         "select": render_select(load_select(results_dir)),
+        "frontier": render_frontier(load_frontiers(results_dir)),
     }
 
 
