@@ -45,6 +45,9 @@ class Failure:
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
+    """Price of the failed call, whether or not this run paid it (see `cached`)."""
+    cached: bool = False
+    """True when the failure was replayed from a recording, so this run spent nothing on it."""
 
 
 @dataclass
@@ -60,9 +63,10 @@ class LabelBatch:
 
     @property
     def spent_usd(self) -> float:
-        """Dollars actually spent by this call: new labels plus billed failures."""
+        """Dollars actually spent by this call: new labels plus billed failures (replayed
+        labels and failures were paid for when they were recorded, not now)."""
         return sum(lb.cost_usd for lb in self.labels if not lb.cached) + sum(
-            f.cost_usd for f in self.failures
+            f.cost_usd for f in self.failures if not f.cached
         )
 
     @property

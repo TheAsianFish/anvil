@@ -211,7 +211,13 @@ class Store:
     def append_failures(
         self, failures: Sequence[Failure], teacher_model: str, prompt_hash: str
     ) -> None:
-        """Failed teacher calls are kept for their cost and for diagnosing the prompt."""
+        """Failed teacher calls are kept for their cost and for diagnosing the prompt.
+
+        Every live attempt is a row (each one was billed). A replayed failure (`cached`, from a
+        label file) is skipped: it was billed once, when it was recorded, and its row in the
+        label file is its record. A refused input never gets a label, so every run sends it
+        again; storing each replay would add the recorded cost to `stats` once per run.
+        """
         now = time.time()
         with self._tx() as db:
             db.executemany(
@@ -229,6 +235,7 @@ class Store:
                         now,
                     )
                     for f in failures
+                    if not f.cached
                 ],
             )
 
@@ -286,3 +293,15 @@ class Store:
             cost_usd=float(row[1]) + float(failed[0]),
             spent_usd=float(row[2]) + float(failed[0]),
         )
+
+    def failure_records(self, teacher_model: str, prompt_hash: str) -> list[Failure]:
+        """The latest failure per input under one key, for inputs that have no label under it
+        (a later answer supersedes a refusal), sorted by input id (for export)."""
+        rows = self._db.execute(
+            "SELECT input_id, reason, input_tokens, output_tokens, cost_usd FROM failures"
+            " WHERE teacher_model = ? AND prompt_hash = ? ORDER BY seq",
+            (teacher_model, prompt_hash),
+        ).fetchall()
+        labelled = self.labels(teacher_model, prompt_hash)
+        latest = {r[0]: Failure(r[0], r[1], r[2], r[3], r[4]) for r in rows}
+        return [latest[k] for k in sorted(latest) if k not in labelled]
