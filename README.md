@@ -68,7 +68,7 @@ uv run anvil loop --budgets 100,200,400 --max-usd 1.00 --strategy random --id fi
 # The parity eval on AG News and Banking77 (downloads the datasets and ModernBERT-base):
 make eval-classify                    # with a key: labels with Claude Haiku once, replays after
 make eval-classify TEACHER=gold       # no key: dataset gold labels as the teacher
-make eval-frontier TEACHER=gold       # kappa vs labels, 3 seeds x 5 budgets per strategy (CPU, ~2 h)
+make eval-frontier TEACHER=gold       # kappa vs labels, 3 seeds x 5 budgets per strategy (CPU, ~2.5 h)
 make eval-select                      # the strategies on synthetic blobs (seconds)
 ```
 
@@ -211,9 +211,9 @@ item, and every label carries its cost so a curve can be drawn in dollars.
   cache or a recording counts what it cost to make, so a replay stops at the
   same round as the live run it reproduces.
 - **Fixed-length training on the frontier.** At 100 labels a 10% validation
-  slice is ten inputs for up to 77 classes; in a pilot, early stopping on it
-  quit at epoch 4 and kept an untrained epoch 1. Frontier rounds train for at
-  least 600 optimizer steps instead (`min_steps`).
+  slice is ten inputs for up to 77 classes; in a pilot (output not kept),
+  early stopping on it quit at epoch 4 and kept an untrained epoch 1. Frontier
+  rounds train for at least 600 optimizer steps instead (`min_steps`).
 - **A deterministic tiny student.** `tiny` uses a word-level vocabulary built
   by hand: the `tokenizers` WordPiece trainer breaks frequency ties in
   hash-map order, which gave a different vocabulary, and a different trained

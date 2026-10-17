@@ -13,8 +13,9 @@ heldout_labels: 500
 # ten inputs for up to 77 classes, too few to choose an epoch with. Every round trains at least
 # 600 optimizer steps (five epochs once the label set is large enough). The learning rate and
 # step count were chosen in a pilot on Banking77 (100 and 400 gold labels, scored on pool
-# inputs outside the training slice, never on the held-out split): 5e-4 with 600 steps reached
-# kappa 0.665 at 400 labels against 0.518 for 3e-4 with 300 steps.
+# inputs outside the training slice, never on the held-out split); its output was not kept,
+# so its numbers are not reported anywhere (RESULTS.md holds only what `make eval-frontier`
+# wrote).
 student:
   model: sentence-transformers/all-MiniLM-L6-v2
   max_length: 64

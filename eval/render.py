@@ -334,6 +334,22 @@ def _heldout(dataset: Report, settings: Report) -> str:
     return f"{cap} (of {inputs})"
 
 
+def _resumed(name: str, meta: Report) -> str:
+    """Training plus selection time summed over the rows, flagged when it exceeds the wall:
+    the run then finished an earlier invocation's loops (`anvil loop` resumes by id)."""
+    path = RESULTS_DIR / name / "frontier.jsonl"
+    compute = 0.0
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                compute += float(row.get("train_seconds", 0)) + float(row.get("select_seconds", 0))
+    note = f" (training + selection {_f(compute / 60, 0)} min"
+    if compute > float(meta.get("wall_seconds", 0)):
+        note += ", so this invocation resumed an earlier one"
+    return note + ")"
+
+
 def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
     """Held-out kappa per label budget and strategy (mean and range over seeds), and the labels
     each target kappa needs, from `eval/frontier.py` runs."""
@@ -353,7 +369,8 @@ def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
             f"- Command: `{meta.get('command', '')}` at `{str(meta.get('git_sha', ''))[:7]}`"
             f"{' (dirty tree)' if meta.get('git_dirty') else ''}; seeds"
             f" {', '.join(str(x) for x in settings['seeds'])}; {meta.get('cpus')} CPUs;"
-            f" wall {_f(meta.get('wall_seconds', 0) / 60, 0)} min; spent ${r['spent_usd']:.4f}",
+            f" wall {_f(meta.get('wall_seconds', 0) / 60, 0)} min"
+            f"{_resumed(name, meta)}; spent ${r['spent_usd']:.4f}",
             f"- Data: {d['repo']}@{str(d['revision'])[:7]}, {d['sampled']} inputs sampled"
             f" (sha256 {str(d['sample_sha256'])[:12]}): a pool of {d['pool']} to select from,"
             f" {_heldout(d, settings)} held-out inputs scored every round",

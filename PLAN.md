@@ -324,10 +324,11 @@ Batches halve the cost of large pools and are used when a batch exceeds
   CPU frontier student is MiniLM-L6 (the risk table's fast option), trained
   for a fixed length (at least 600 optimizer steps, five epochs once the set
   is large) without early stopping: at 100 labels a 10% validation slice is
-  ten inputs for up to 77 classes, and in a pilot it stopped training at
-  epoch 4 and kept an untrained epoch 1. `StudentSpec.min_steps` provides the
-  fixed length; the learning rate (5e-4) was picked in a pilot scored on pool
-  inputs outside the training slice, never on the held-out split. "Labels to
+  ten inputs for up to 77 classes, and in a pilot (output not kept) it
+  stopped training at epoch 4 and kept an untrained epoch 1.
+  `StudentSpec.min_steps` provides the fixed length; the learning rate (5e-4)
+  was picked in the same pilot, scored on pool inputs outside the training
+  slice, never on the held-out split. "Labels to
   kappa t" is reported two ways: the smallest budget whose mean kappa over
   three seeds reaches t, and the smallest at which every seed's 95% interval
   lies above t. The loop's dollar budget counts label cost (what the labels

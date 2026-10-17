@@ -228,6 +228,7 @@ def run_dataset(
     write_inputs(inputs, data.items)
 
     rows: list[dict[str, object]] = []
+    resumed_rows = 0
     status: dict[str, str] = {}
     for strategy in frontier.strategies:
         if not implemented(strategy):
@@ -252,6 +253,7 @@ def run_dataset(
                 inputs=inputs,
             )
             rows += result.rows
+            resumed_rows += result.resumed_rows
             logger.info(
                 "loop finished",
                 extra={"dataset": name, "strategy": strategy, "seed": seed, "rounds": len(rows)},
@@ -266,6 +268,8 @@ def run_dataset(
         heldout_size = len(store.inputs(Split.HELDOUT))
     spent = sum(float(str(r["spent_usd"])) for r in rows)
     wall = time.perf_counter() - started
+    # Wall is this invocation only; the rows' own timings cover a run resumed across several.
+    compute = sum(float(str(r["train_seconds"])) + float(str(r["select_seconds"])) for r in rows)
     report: dict[str, object] = {
         "dataset": {
             "name": config.dataset.name,
@@ -298,6 +302,8 @@ def run_dataset(
         "strategies": summarise(rows, frontier),
         "spent_usd": spent,
         "wall_seconds": wall,
+        "compute_seconds": compute,
+        "resumed_rows": resumed_rows,
     }
     meta = {
         "command": command,
@@ -313,6 +319,8 @@ def run_dataset(
         "teacher_model": teacher.model_id,
         "student_model": frontier.student.model,
         "wall_seconds": round(wall, 1),
+        "compute_seconds": round(compute, 1),
+        "resumed_rows": resumed_rows,
         "spent_usd": spent,
         "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
@@ -349,7 +357,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--budgets", type=_ints, help="smoke: other label budgets")
     parser.add_argument("--student", help="smoke: another student model (e.g. tiny)")
     parser.add_argument("--epochs", type=int, help="smoke: another epoch count")
-    parser.add_argument("--size", type=int, help="smoke: a smaller sample")
+    parser.add_argument(
+        "--size",
+        type=int,
+        help="smoke: a smaller sample (pair it with --budgets that fit the smaller pool)",
+    )
     parser.add_argument("--resamples", type=int, help="smoke: other bootstrap resamples")
     parser.add_argument("--out", type=Path, help="results directory (one dataset; smoke only)")
     args = parser.parse_args(argv)

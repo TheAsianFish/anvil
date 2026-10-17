@@ -111,7 +111,11 @@ Training-seed spread (only the student seed changes: weight init, data order, va
   seed in brackets. "Labels to kappa t" reads the grid two ways: the smallest budget whose mean
   kappa reaches t, and the smallest at which every seed's interval lies above t; neither
   interpolates between budgets. The learning rate and step count come from a pilot on
-  Banking77 scored on pool inputs outside the training slice, never on this held-out split.
+  Banking77 scored on pool inputs outside the training slice, never on this held-out split;
+  the pilot's output was not kept, so no number from it is reported. "Wall" is the clock
+  time of the invocation named in the command line; "training + selection" sums every
+  round's `train_seconds` and `select_seconds` in `frontier.jsonl`, so it covers a run
+  finished over several invocations (the Banking77 run resumed an interrupted one).
 - With no key in the build environment the teacher is each dataset's gold labels, so these
   are curves of how the student learns from clean labels, not parity with Claude; the
   strategies other than `random` are not written yet. Both are under "To measure".
@@ -120,7 +124,7 @@ Training-seed spread (only the student seed changes: weight init, data order, va
 #### ag_news, teacher `gold`, student `all-MiniLM-L6-v2`
 
 - Raw output: `eval/results/frontier-ag_news-gold/` (`frontier.jsonl`, `report.json`, `meta.json`)
-- Command: `python -m eval.frontier --teacher gold` at `f929d74`; seeds 0, 1, 2; 4 CPUs; wall 87 min; spent $0.0000
+- Command: `python -m eval.frontier --teacher gold` at `f929d74`; seeds 0, 1, 2; 4 CPUs; wall 87 min (training + selection 86 min); spent $0.0000
 - Data: fancyzhx/ag_news@eb185aa, 2500 inputs sampled (sha256 3cf708037e01): a pool of 2023 to select from, 477 held-out inputs scored every round
 
 | Strategy | 100 labels | 200 labels | 400 labels | 800 labels | 1600 labels | Labels to kappa 0.8 (mean / every seed's CI) | Labels to kappa 0.9 (mean / every seed's CI) | Label cost at 1600 |
@@ -137,7 +141,7 @@ The teacher here is the dataset's gold labels (no API key in this run): the curv
 #### banking77, teacher `gold`, student `all-MiniLM-L6-v2`
 
 - Raw output: `eval/results/frontier-banking77-gold/` (`frontier.jsonl`, `report.json`, `meta.json`)
-- Command: `python -m eval.frontier banking77 --teacher gold` at `278462c`; seeds 0, 1, 2; 4 CPUs; wall 28 min; spent $0.0000
+- Command: `python -m eval.frontier banking77 --teacher gold` at `278462c`; seeds 0, 1, 2; 4 CPUs; wall 28 min (training + selection 56 min, so this invocation resumed an earlier one); spent $0.0000
 - Data: legacy-datasets/banking77@f541215, 2500 inputs sampled (sha256 2aeaf7290b43): a pool of 2004 to select from, 496 held-out inputs scored every round
 
 | Strategy | 100 labels | 200 labels | 400 labels | 800 labels | 1600 labels | Labels to kappa 0.8 (mean / every seed's CI) | Labels to kappa 0.9 (mean / every seed's CI) | Label cost at 1600 |
