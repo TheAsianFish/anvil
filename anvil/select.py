@@ -15,8 +15,9 @@ Strategies:
 - `uncertainty`: the highest predictive entropy, `-sum(p * log p)` over the classes.
 - `margin`: the smallest gap between the two most probable classes.
 - `diverse`: uncertain inputs that also cover the pool, so a batch is not k copies of one
-  confusing input: among the most uncertain candidates, pick inputs spread across the
-  embedding space (for example one per cluster of the candidates' embeddings).
+  confusing input: among the most uncertain candidates (a few times k of them, say 5k), pick
+  inputs spread across the embedding space (for example one per cluster of the candidates'
+  embeddings).
 """
 
 from __future__ import annotations

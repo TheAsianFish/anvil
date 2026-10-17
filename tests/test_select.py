@@ -209,18 +209,20 @@ def _near_uniform(rng: np.random.Generator, n: int, classes: int, peak: float) -
 @pytest.mark.parametrize("seed", range(5))
 def test_diverse_takes_one_input_from_each_uncertain_cluster(seed: int) -> None:
     rng = np.random.default_rng(seed)
-    classes, dim = 4, 5
-    # Two tight clusters of ten highly uncertain inputs each. Cluster A is a touch more
-    # uncertain, so a pure-uncertainty pick of two would take both from A.
-    a = _near_uniform(rng, 10, classes, peak=0.26)
-    b = _near_uniform(rng, 10, classes, peak=0.30)
+    classes, dim, size = 4, 5, 3
+    # Two tight clusters of three highly uncertain inputs each. Cluster A is a touch more
+    # uncertain, so a pure-uncertainty pick of two would take both from A. The clusters are
+    # small so that a strategy which spreads only the few-times-k most uncertain candidates
+    # (the contract's "among the most uncertain") still sees both of them.
+    a = _near_uniform(rng, size, classes, peak=0.26)
+    b = _near_uniform(rng, size, classes, peak=0.30)
     confident = _near_uniform(rng, 10, classes, peak=0.97)
     probs = np.concatenate([a, b, confident])
     centre_a, centre_b = np.full(dim, 5.0), np.full(dim, -5.0)
     embeddings = np.concatenate(
         [
-            centre_a + rng.normal(scale=0.01, size=(10, dim)),
-            centre_b + rng.normal(scale=0.01, size=(10, dim)),
+            centre_a + rng.normal(scale=0.01, size=(size, dim)),
+            centre_b + rng.normal(scale=0.01, size=(size, dim)),
             rng.normal(scale=2.0, size=(10, dim)),  # confident inputs elsewhere
         ]
     )
@@ -228,7 +230,7 @@ def test_diverse_takes_one_input_from_each_uncertain_cluster(seed: int) -> None:
     picked = select_batch(
         Pool(probs=probs[order], embeddings=embeddings[order]), 2, "diverse", seed
     )
-    clusters = sorted(int(order[i]) // 10 for i in picked)
+    clusters = sorted(min(int(order[i]) // size, 2) for i in picked)
     assert clusters == [0, 1]
 
 
