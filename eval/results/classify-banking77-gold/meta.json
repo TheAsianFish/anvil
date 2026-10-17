@@ -1,6 +1,6 @@
 {
-  "command": "python -m eval.classify ag_news banking77 --teacher gold",
-  "git_sha": "1a19c21468330f75d23ad0187c724ec8750e153b",
+  "command": "python -m eval.classify banking77 --teacher gold",
+  "git_sha": "d4f40167c2b64630b863d553a15a282d8dabf57a",
   "git_dirty": false,
   "anvil": "0.1.0.dev0",
   "python": "3.12.3",
@@ -18,7 +18,7 @@
   "n_resamples": 1000,
   "teacher_model": "gold",
   "student_model": "answerdotai/ModernBERT-base",
-  "wall_seconds": 3355.0,
+  "wall_seconds": 3390.7,
   "spent_usd": 0.0,
-  "finished_at": "2026-10-17T06:45:18Z"
+  "finished_at": "2026-10-17T11:01:09Z"
 }

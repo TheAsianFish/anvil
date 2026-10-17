@@ -25,22 +25,29 @@ they are not parity-with-Claude numbers, which are listed under "To measure".
 Findings so far (from the table below):
 
 - On Banking77 (77 intents, ~12-word inputs) the fine-tuned encoder beats a TF-IDF + logistic
-  regression student trained on the same 2,000 labels by 0.18 kappa, with non-overlapping
-  intervals. On AG News (4 topics, ~40-word inputs) the two intervals overlap: bag-of-words is
-  already strong there, and the encoder's edge is not resolved at 477 held-out items.
+  regression student trained on the same 2,000 labels by 0.18 kappa (paired 95% interval
+  [0.141, 0.223]). On AG News (4 topics, ~40-word inputs) the paired difference is +0.009
+  [-0.033, 0.054]: a tie, since bag-of-words is already strong on long topical text.
+- The exact-hash split cannot catch near-duplicates: 17 of 496 Banking77 held-out inputs (3%)
+  and 3 of 477 AG News ones share at least 80% of their words with a labelled pool input.
+  Every report counts them, so a leak would show up as the count grows rather than hide.
 - Student confidence tracks agreement: on Banking77 the lowest-confidence tenth of held-out
   inputs agrees 40% of the time and the top six tenths 98-100%. That is the signal the
   uncertainty selection (M3) and the escalating cascade (M5) depend on.
-- On AG News, early stopping kept epoch 1 of 3: validation kappa went 0.821, 0.780, 0.821
-  (`train-metrics.jsonl`), and a later epoch only ties. On a ~200-item validation slice that
-  dip is within noise, so the epoch choice is fragile; the seed repeats under "To measure"
-  quantify how much training randomness moves the held-out kappa.
+- Training randomness moves the headline about as much as the held-out sample does. On AG
+  News, changing only the student seed (initialisation, data order, validation slice) took
+  held-out kappa from 0.844 to 0.896: a 0.053 swing, about 70% of one run's 95% interval
+  width (0.073 on average). The bootstrap interval covers "which held-out items", not "which
+  training run", so a single run's interval understates the uncertainty of the recipe. The
+  epoch choice is part of it: seed 0's validation kappa went 0.821, 0.780, 0.821 and it kept
+  epoch 1; seed 1 went 0.752, 0.707, 0.773, 0.773 and kept epoch 4. Two seeds show the size
+  of the effect, not its distribution, so M3 runs three seeds per frontier point.
 
 <!-- BEGIN generated:classify -->
 | Dataset | Teacher | Student | Teacher labels | Held-out | Student kappa [95% CI] | Accuracy | Macro F1 | Majority acc. | TF-IDF kappa [95% CI] | Student minus TF-IDF kappa [95% paired CI] | Teacher ceiling kappa | Label cost | Wall time |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | ag_news | gold | ModernBERT-base | 2000 | 477 | 0.844 [0.805, 0.882] | 0.883 | 0.882 | 0.260 | 0.835 [0.795, 0.873] | +0.009 [-0.033, 0.054] | n/a | $0.00 | 36 min |
-| banking77 | gold | ModernBERT-base | 2000 | 496 | 0.842 [0.807, 0.873] | 0.845 | 0.814 | 0.024 | 0.662 [0.621, 0.702] | n/a | n/a | $0.00 | 56 min |
+| banking77 | gold | ModernBERT-base | 2000 | 496 | 0.842 [0.807, 0.873] | 0.845 | 0.814 | 0.024 | 0.662 [0.621, 0.702] | +0.180 [0.141, 0.223] | n/a | $0.00 | 57 min |
 
 #### ag_news, teacher `gold`, student `ModernBERT-base`
 
@@ -58,9 +65,10 @@ Findings so far (from the table below):
 #### banking77, teacher `gold`, student `ModernBERT-base`
 
 - Raw output: `eval/results/classify-banking77-gold/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
-- Command: `python -m eval.classify ag_news banking77 --teacher gold` at `1a19c21`; seed 0, 1000 bootstrap resamples; 4 CPUs; wall 3355 s; spent $0.0000
+- Command: `python -m eval.classify banking77 --teacher gold` at `d4f4016`; seed 0, 1000 bootstrap resamples; 4 CPUs; wall 3391 s; spent $0.0000
 - Data: legacy-datasets/banking77@f541215 (CC-BY-4.0 (Casanueva et al., 2020, PolyAI)), 2500 inputs sampled (seed 0, sha256 2aeaf7290b43)
-- Training: 1809 examples and 191 held back to pick the epoch, out of 2000 teacher labels; 10 epochs, 1140 steps, best epoch 8, 3286 s
+- Training: 1809 examples and 191 held back to pick the epoch, out of 2000 teacher labels; 10 epochs, 1140 steps, best epoch 8, 3320 s
+- Near-duplicates: 17 of 496 held-out inputs share at least 80% of their words with a labelled pool input (identical texts never straddle the split; these are the ones a hash cannot catch)
 - The teacher here is the dataset's gold labels (no API key in this run), so this row measures the harness and how well the student learns from 2,000 clean labels; it is not a parity-with-Claude number.
 - Weakest classes with at least 5 held-out items (F1 vs teacher, support): `card_not_working` 0.60 (6), `pending_transfer` 0.62 (8), `atm_support` 0.67 (5), `card_delivery_estimate` 0.67 (6), `transfer_not_received_by_recipient` 0.67 (6)
 - Top confusions (teacher -> student): `card_not_working` -> `declined_card_payment` 3, `transfer_timing` -> `pending_transfer` 3, `card_delivery_estimate` -> `card_arrival` 2, `card_swallowed` -> `lost_or_stolen_card` 2, `compromised_card` -> `card_payment_not_recognised` 2
