@@ -1,0 +1,24 @@
+{
+  "command": "python -m eval.classify ag_news --teacher gold",
+  "git_sha": "2ca325f42977ee98df5d28eb7d3f1fd4146a4d14",
+  "git_dirty": false,
+  "anvil": "0.1.0.dev0",
+  "python": "3.12.3",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "cpus": 4,
+  "versions": {
+    "torch": "2.14.1+cpu",
+    "transformers": "5.20.1",
+    "numpy": "2.5.4",
+    "scikit-learn": "1.9.1",
+    "datasets": "5.1.0",
+    "anthropic": "1.15.0"
+  },
+  "seed": 0,
+  "n_resamples": 1000,
+  "teacher_model": "gold",
+  "student_model": "answerdotai/ModernBERT-base",
+  "wall_seconds": 2136.8,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-17T07:22:02Z"
+}
