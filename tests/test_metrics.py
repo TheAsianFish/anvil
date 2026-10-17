@@ -135,7 +135,11 @@ def test_per_class_matches_sklearn() -> None:
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")  # undefined (p_e == 1) cases are handled below
                 expected = float(cohen_kappa_score(ta, tb))
-            if math.isnan(expected):  # both binary raters constant: p_e == 1 convention
+            if row.support == 0 and row.predicted == 0:
+                assert math.isnan(expected)
+                assert row.kappa is None  # nothing to agree on
+                continue
+            if math.isnan(expected):  # both always True: p_e == 1 convention
                 expected = 1.0 if ta == tb else 0.0
             assert row.kappa == pytest.approx(expected, abs=1e-12)
 
@@ -208,3 +212,8 @@ def test_self_agreement_uses_the_id_intersection() -> None:
 def test_self_agreement_without_shared_ids_raises() -> None:
     with pytest.raises(ValueError, match="share no input ids"):
         self_agreement({"1": "a"}, {"2": "a"})
+
+
+def test_a_label_outside_the_task_set_is_a_specific_error() -> None:
+    with pytest.raises(ValueError, match=r"outside the task's label set.*zzz"):
+        agreement(["a", "b"], ["a", "zzz"], ["a", "b"], ["a"])

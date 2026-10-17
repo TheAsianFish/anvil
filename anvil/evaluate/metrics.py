@@ -46,6 +46,12 @@ def accuracy(a: Sequence[str], b: Sequence[str]) -> float:
 def confusion(truth: Sequence[str], pred: Sequence[str], labels: Sequence[str]) -> list[list[int]]:
     """Rows are the teacher's label, columns the student's, in `labels` order."""
     index = {label: i for i, label in enumerate(labels)}
+    unknown = sorted({x for x in (*truth, *pred) if x not in index})
+    if unknown:
+        raise ValueError(
+            f"labels outside the task's label set: {unknown[:5]}; the teacher and the student"
+            " must both use the labels in the spec"
+        )
     matrix = [[0] * len(labels) for _ in labels]
     for t, p in zip(truth, pred, strict=True):
         matrix[index[t]][index[p]] += 1
@@ -74,8 +80,9 @@ class ClassStats:
     precision: float
     recall: float
     f1: float
-    kappa: float
-    """One-vs-rest kappa: Cohen's kappa of the binary "is this label" ratings."""
+    kappa: float | None
+    """One-vs-rest kappa: Cohen's kappa of the binary "is this label" ratings; None when
+    neither rater used the label (nothing to agree on, where sklearn reports nan)."""
 
 
 def per_class(
@@ -84,7 +91,8 @@ def per_class(
     """Precision, recall, F1 and one-vs-rest kappa for each label, rows in `labels` order.
 
     With tp the items both gave the label: precision = tp / predicted, recall = tp / support,
-    f1 = 2 * precision * recall / (precision + recall); any 0/0 is 0 (zero_division=0).
+    f1 = 2 * precision * recall / (precision + recall); any 0/0 is 0 (zero_division=0). The
+    one-vs-rest kappa is None for a label neither rater used.
     """
     if len(truth) != len(pred):
         raise ValueError(f"rater lengths differ: {len(truth)} vs {len(pred)}")
@@ -96,8 +104,8 @@ def per_class(
         recall = _ratio(hits[label], support[label])
         kappa = (
             cohen_kappa([str(t == label) for t in truth], [str(p == label) for p in pred])
-            if truth
-            else 0.0
+            if support[label] or predicted[label]
+            else None
         )
         rows.append(
             ClassStats(
