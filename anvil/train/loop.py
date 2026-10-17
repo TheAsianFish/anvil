@@ -15,11 +15,12 @@ import hashlib
 import json
 import math
 import os
+import pickle
 import time
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Literal, TextIO
+from typing import Any, Literal, TextIO
 
 import torch
 
@@ -104,6 +105,7 @@ class TrainResult:
     steps: int
     epoch_losses: list[float]
     seconds: float
+    """Wall time of this call; a resumed run counts the resumed segment only."""
     best_epoch: int | None = None
     best_metric: float | None = None
     stopped_early: bool = False
@@ -150,7 +152,8 @@ def fit(
     device. `evaluate(model)` (higher is better) runs after every epoch; the weights of the best
     epoch are restored at the end. With `checkpoint_dir`, state is written at every epoch end
     (and every `checkpoint_every` optimizer steps), and `resume=True` continues from it with the
-    same result as an uninterrupted run, bit for bit. The checkpoint files are deleted when
+    same result as an uninterrupted run, bit for bit (given deterministic kernels: true on
+    CPU, where the tests run; some CUDA kernels are not). The checkpoint files are deleted when
     training completes unless `keep_checkpoint`. `data_fingerprint` (a digest of the examples
     behind `loss_fn`) is folded into the checkpoint fingerprint, so resuming on different data
     is refused instead of silently mixing two datasets.
@@ -212,11 +215,22 @@ def fit(
                     state.loss_sum += value
                     state.seen += len(idx)
                 scaler.unscale_(optimizer)
-                norm = torch.nn.utils.clip_grad_norm_(params, config.max_grad_norm or math.inf)
+                if config.max_grad_norm is None:
+                    # Not `clip_grad_norm_(params, inf)`: with an inf gradient that scales
+                    # every gradient by inf / inf = nan instead of leaving them alone.
+                    norm = torch.nn.utils.get_total_norm(
+                        [p.grad for p in params if p.grad is not None]
+                    )
+                else:
+                    norm = torch.nn.utils.clip_grad_norm_(params, config.max_grad_norm)
                 lr = float(scheduler.get_last_lr()[0])
+                scale_before = scaler.get_scale()
                 scaler.step(optimizer)
                 scaler.update()
-                scheduler.step()
+                # With fp16 the scaler skips the optimizer step on an inf/nan gradient and
+                # lowers its scale; the schedule must not advance past a step never taken.
+                if scaler.get_scale() >= scale_before:
+                    scheduler.step()
                 state.step += 1
                 state.position += 1
                 grad_norm = float(norm)
@@ -227,7 +241,7 @@ def fit(
                         "step": state.step,
                         "epoch": state.epoch + 1,
                         "loss": round(step_loss / len(chunk), 6),
-                        "lr": round(lr, 6),
+                        "lr": float(f"{lr:.6g}"),  # significant digits: 5e-5 schedules
                         "grad_norm": round(grad_norm, 6) if math.isfinite(grad_norm) else None,
                     },
                 )
@@ -308,6 +322,8 @@ def _check(
         raise StudentError(
             "patience needs a validation metric; pass `evaluate` or set patience to None"
         )
+    if config.patience is not None and config.patience < 1:
+        raise StudentError(f"patience must be at least 1 epoch, got {config.patience}")
     if config.checkpoint_every is not None and checkpoint_dir is None:
         raise StudentError("checkpoint_every needs a checkpoint_dir to write to")
 
@@ -500,6 +516,18 @@ def _save(
             path.unlink(missing_ok=True)
 
 
+def _read(path: Path) -> dict[str, Any]:  # Any: whatever torch.save wrote, checked by _load
+    """A checkpoint file's payload, or a `StudentError` that says what to do."""
+    try:
+        payload: dict[str, Any] = torch.load(path, map_location="cpu", weights_only=True)
+    except (OSError, RuntimeError, EOFError, pickle.UnpicklingError) as exc:
+        raise StudentError(
+            f"checkpoint {path} is unreadable ({str(exc).splitlines()[0]}); delete the"
+            " checkpoint directory to start over"
+        ) from exc
+    return payload
+
+
 def _load(
     path: Path,
     fingerprint: str,
@@ -510,12 +538,7 @@ def _load(
     generator: torch.Generator,
     device: torch.device,
 ) -> _State:
-    try:
-        ckpt = torch.load(path, map_location="cpu", weights_only=True)
-    except (OSError, RuntimeError, EOFError) as exc:
-        raise StudentError(
-            f"checkpoint {path} is unreadable ({exc}); delete it to start over"
-        ) from exc
+    ckpt = _read(path)
     if ckpt.get("version") != CHECKPOINT_VERSION:
         raise StudentError(
             f"checkpoint {path} has format {ckpt.get('version')}, this Anvil writes"
@@ -551,7 +574,7 @@ def _load(
                 f"checkpoint {path} refers to {best_path.name}, which is missing; delete the"
                 " checkpoint directory to start over"
             )
-        best_state = torch.load(best_path, map_location="cpu", weights_only=True)
+        best_state = _read(best_path)
     order = ckpt["order"]
     return _State(
         epoch=int(ckpt["epoch"]),

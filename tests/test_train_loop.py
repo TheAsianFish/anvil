@@ -152,9 +152,9 @@ def test_resume_is_bit_exact(tmp_path: Path, fail_at: int) -> None:
         resume=True,
         metrics_path=tmp_path / "m.jsonl",
     )
-    if fail_at > 6:  # the first checkpoint lands after 3 steps = 6 micro-batches
-        assert resumed.resumed_at_step is not None
-        assert resumed.resumed_at_step > 0
+    # The checkpoint the run resumed from: steps 3, 6 (mid-epoch), 8 (epoch end), ... Before
+    # the first one (fail_at 3) the run starts over.
+    assert resumed.resumed_at_step == {3: None, 16: 8, 37: 18, 46: 24, 58: 30}[fail_at]
     for a, b in zip(ref_model.parameters(), model.parameters(), strict=True):
         assert torch.equal(a, b)
     assert resumed.epoch_losses == ref.epoch_losses
@@ -482,3 +482,73 @@ def test_resume_under_another_resolved_precision_is_refused(
     monkeypatch.setattr("anvil.train.loop._resolve_amp", lambda mode, device: torch.bfloat16)
     with pytest.raises(StudentError, match="precision"):
         _run_resumable(tmp_path, None, resume=True)
+
+
+def _scripted(
+    values: list[float], start: int, snapshots: dict[int, list[torch.Tensor]]
+) -> Callable[[torch.nn.Module], float]:
+    """A validation metric that follows a script by epoch (`start` epochs already done when
+    a run resumes) and snapshots the weights it scored."""
+    calls = start
+
+    def evaluate(model: torch.nn.Module) -> float:
+        nonlocal calls
+        calls += 1
+        snapshots.setdefault(calls, _params(model))
+        return values[calls - 1]
+
+    return evaluate
+
+
+def test_best_weights_from_before_a_crash_are_restored_after_the_resume(tmp_path: Path) -> None:
+    # Best at epoch 2, then two worse epochs: patience 2 stops the run after epoch 4 of 5.
+    script = [0.5, 0.9, 0.6, 0.55, 0.7]
+    config = dataclasses.replace(RESUME, epochs=5, patience=2, checkpoint_every=None)
+    ref_model = _mlp()
+    ref_snaps: dict[int, list[torch.Tensor]] = {}
+    ref = fit(ref_model, N, _loss_fn(), config, evaluate=_scripted(script, 0, ref_snaps))
+    assert (ref.best_epoch, ref.epochs, ref.stopped_early) == (2, 4, True)
+    for a, b in zip(ref_model.parameters(), ref_snaps[2], strict=True):
+        assert torch.equal(a, b)  # the kept weights are the epoch-2 ones, not the last
+
+    # Crash in epoch 3 (micro-batch 37), after the epoch-2 checkpoint wrote best-epoch2.pt.
+    with pytest.raises(SimulatedCrashError):
+        fit(_mlp(), N, _loss_fn(37), config, evaluate=_scripted(script, 0, {}),
+            checkpoint_dir=tmp_path / "ckpt")  # fmt: skip
+    assert (tmp_path / "ckpt" / "best-epoch2.pt").exists()
+    model = _mlp()
+    snaps: dict[int, list[torch.Tensor]] = {}
+    resumed = fit(model, N, _loss_fn(), config, evaluate=_scripted(script, 2, snaps),
+                  checkpoint_dir=tmp_path / "ckpt", resume=True)  # fmt: skip
+    assert resumed.resumed_at_step == 16
+    assert (resumed.best_epoch, resumed.epochs, resumed.stopped_early) == (2, 4, True)
+    assert resumed.best_metric == 0.9
+    for a, b in zip(model.parameters(), ref_model.parameters(), strict=True):
+        assert torch.equal(a, b)  # restored from best-epoch2.pt, which the resume never scored
+
+
+def test_patience_below_one_is_refused() -> None:
+    with pytest.raises(StudentError, match="patience must be at least 1"):
+        fit(_mlp(), N, _loss_fn(), dataclasses.replace(BASE, patience=0), evaluate=_neg_loss)
+
+
+def test_a_corrupt_best_file_is_a_student_error(tmp_path: Path) -> None:
+    with pytest.raises(SimulatedCrashError):
+        _run_resumable(tmp_path, 37, resume=False)
+    best = tmp_path / "ckpt" / "best-epoch2.pt"
+    assert best.exists()
+    best.write_bytes(best.read_bytes()[:100])
+    with pytest.raises(StudentError, match=r"unreadable.*delete the checkpoint directory"):
+        _run_resumable(tmp_path, None, resume=True)
+
+
+def test_lr_is_logged_with_significant_digits(tmp_path: Path) -> None:
+    # 80 steps at the spec's default LR: decay moves by 7e-7 a step, below six decimals.
+    config = dataclasses.replace(BASE, learning_rate=5e-5, warmup_ratio=0.1, epochs=10)
+    fit(_mlp(), N, _loss_fn(), config, metrics_path=tmp_path / "m.jsonl")
+    lrs = [float(str(r["lr"])) for r in _records(tmp_path / "m.jsonl", "step")]
+    assert lrs[0] == 0
+    assert max(lrs) == pytest.approx(5e-5, rel=1e-5)
+    decay = lrs[lrs.index(max(lrs)) :]
+    assert decay == sorted(decay, reverse=True)
+    assert len(set(decay)) == len(decay)  # every decay step is distinct in the log
