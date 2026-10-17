@@ -95,6 +95,47 @@ Training-seed spread (only the student seed changes: weight init, data order, va
 | banking77 | gold | ModernBERT-base | 2 | 0: 0.842, 1: 0.842 | 0.842 | 0.000 | 0.067 |
 <!-- END generated:classify-seeds -->
 
+### Selection on synthetic data (M3)
+
+- Command: `make eval-select` (`python -m eval.select_study`, then `python -m eval.render`,
+  which writes the block below from `eval/results/select-synthetic/`). Offline, $0.
+- Method: the acquisition strategies of `anvil/select.py` with a cheap student, to look at the
+  selection mechanism before the text frontier. Data: scikit-learn Gaussian blobs (10 classes,
+  12 features, cluster standard deviation 2.3, data seed 0), a pool of 2,000 points and a
+  separate test set of 1,000. In `blobs` every pool point is distinct; in `blobs-duplicated`
+  400 distinct points each appear 5 times with tiny jitter (standard deviation 0.001), so a
+  batch chosen on uncertainty alone can be several copies of one point. The true labels play
+  the teacher. The student is a logistic regression (lbfgs, multinomial), retrained from
+  scratch every round on the labelled points; it scores the unlabelled pool with its class
+  probabilities, and the raw features serve as embeddings. Cold start: 20 points drawn at
+  random, the same for every strategy within a seed; then batches of 10 up to 400 labels.
+  20 seeds. "Labels to 0.95" is the smallest label count whose test accuracy reaches 0.95; the
+  mean and range are over the seeds that reach it, and the next column counts those that do
+  not by 400 labels. Accuracy columns are means over seeds.
+
+<!-- BEGIN generated:select -->
+- Raw output: `eval/results/select-synthetic/` (`report.json`, `meta.json`)
+- Command: `python -m eval.select_study` at `c1a7a44`; 20 seeds, data seed 0; 4 CPUs; wall 25 s; spent $0.00
+
+**blobs**: 2,000 pool points (2,000 distinct), 1,000 test points; a student trained on the whole pool scores 0.973 test accuracy (95% of it: 0.924).
+
+| Strategy | Labels to 0.95 accuracy, mean [min-max] | Seeds not reaching 0.95 by 400 | Labels to 0.924 (95% of full pool), mean [min-max] | Seeds not reaching it | Accuracy at 50 | Accuracy at 100 | Accuracy at 200 | Accuracy at 400 |
+|---|---|---|---|---|---|---|---|---|
+| random | 107 [60-170] | 0 of 20 | 68.5 [40-140] | 0 of 20 | 0.897 | 0.944 | 0.962 | 0.969 |
+| uncertainty | not implemented yet: run `make eval-select` once it is written | | | |  |  |  |  |
+| margin | not implemented yet: run `make eval-select` once it is written | | | |  |  |  |  |
+| diverse | not implemented yet: run `make eval-select` once it is written | | | |  |  |  |  |
+
+**blobs-duplicated**: 2,000 pool points (400 distinct), 1,000 test points; a student trained on the whole pool scores 0.966 test accuracy (95% of it: 0.918).
+
+| Strategy | Labels to 0.95 accuracy, mean [min-max] | Seeds not reaching 0.95 by 400 | Labels to 0.918 (95% of full pool), mean [min-max] | Seeds not reaching it | Accuracy at 50 | Accuracy at 100 | Accuracy at 200 | Accuracy at 400 |
+|---|---|---|---|---|---|---|---|---|
+| random | 100.5 [40-190] | 0 of 20 | 60.5 [40-90] | 0 of 20 | 0.899 | 0.948 | 0.960 | 0.966 |
+| uncertainty | not implemented yet: run `make eval-select` once it is written | | | |  |  |  |  |
+| margin | not implemented yet: run `make eval-select` once it is written | | | |  |  |  |  |
+| diverse | not implemented yet: run `make eval-select` once it is written | | | |  |  |  |  |
+<!-- END generated:select -->
+
 ### ONNX export spike: ModernBERT-base on CPU (M1)
 
 - Command: `make spike-onnx` (`uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export`)
