@@ -55,13 +55,15 @@ def data_fingerprint(
     spec: StudentSpec,
 ) -> str:
     """sha256 of what the student trains on: texts, targets (they carry the teacher model and
-    prompt), the validation slice and, for the `tiny` student, the vocabulary learned from the
+    prompt), the validation slice, the student model id and `max_length` (they decide what
+    the model sees of each text) and, for the `tiny` student, the vocabulary learned from the
     pool. A resume with any of these changed would continue a run on different data."""
     # Imported lazily, like the type-only import above: the encoder pulls in transformers.
     from anvil.students.encoder import TINY
 
     h = hashlib.sha256()
     h.update(json.dumps([list(texts), list(targets), list(val_idx)]).encode())
+    h.update(json.dumps([spec.model, spec.max_length]).encode())
     if spec.model == TINY:
         vocab = sorted(student.tokenizer.get_vocab().items())
         h.update(json.dumps(vocab, ensure_ascii=False).encode())
@@ -77,6 +79,7 @@ def train_classifier(
     *,
     checkpoint_dir: Path | None = None,
     resume: bool = False,
+    keep_checkpoint: bool = False,
 ) -> TrainResult:
     """Fit `student` on (text, label id) pairs with cross-entropy.
 
@@ -128,6 +131,7 @@ def train_classifier(
         evaluate=evaluate,
         checkpoint_dir=checkpoint_dir,
         resume=resume,
+        keep_checkpoint=keep_checkpoint,
         metrics_path=metrics_path,
         data_fingerprint=data_fingerprint(student, texts, targets, val_idx, spec),
     )

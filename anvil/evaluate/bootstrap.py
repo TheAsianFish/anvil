@@ -50,13 +50,19 @@ def resample_indices(n: int, n_resamples: int, seed: int) -> IntArray:
     return rng.integers(0, n, size=(n_resamples, n), dtype=np.int64)
 
 
-def _check(a_codes: IntArray, b_codes: IntArray, idx: IntArray) -> None:
+def _check(a_codes: IntArray, b_codes: IntArray, n_labels: int, idx: IntArray) -> None:
     if a_codes.shape != b_codes.shape or a_codes.ndim != 1:
         raise ValueError(
             f"rater codes must be 1-d and equal length: {a_codes.shape} vs {b_codes.shape}"
         )
     if idx.ndim != 2 or idx.shape[1] == 0:
         raise ValueError(f"idx must have shape (n_resamples, n) with n > 0, got {idx.shape}")
+    if a_codes.size and (
+        a_codes.min() < 0 or b_codes.min() < 0 or max(a_codes.max(), b_codes.max()) >= n_labels
+    ):
+        # A code outside [0, n_labels) would spill into the next resample's bincount row and
+        # return a wrong kappa silently.
+        raise ValueError(f"label codes must lie in [0, {n_labels})")
 
 
 def accuracy_replicates(
@@ -64,10 +70,10 @@ def accuracy_replicates(
 ) -> FloatArray:
     """Observed agreement p_o = (1/n) * sum_i [a_i == b_i] for every resample (row of `idx`).
 
-    `n_labels` is unused; it keeps the signature interchangeable with `kappa_replicates`.
+    `n_labels` only bounds the codes; it keeps the signature interchangeable with
+    `kappa_replicates`.
     """
-    del n_labels
-    _check(a_codes, b_codes, idx)
+    _check(a_codes, b_codes, n_labels, idx)
     matches = (a_codes == b_codes)[idx]
     out: FloatArray = matches.sum(axis=1) / idx.shape[1]
     return out
@@ -90,7 +96,7 @@ def kappa_replicates(
     counts, so p_e == 1 is detected exactly and handled as in `metrics.cohen_kappa`: kappa is
     1.0 when the raters also agree everywhere and 0.0 otherwise.
     """
-    _check(a_codes, b_codes, idx)
+    _check(a_codes, b_codes, n_labels, idx)
     r, n = idx.shape
     k = n_labels
     offsets = (np.arange(r, dtype=np.int64) * k)[:, None]
@@ -112,13 +118,20 @@ def kappa_replicates(
 
 def encode(a: Sequence[str], b: Sequence[str]) -> tuple[IntArray, IntArray, int]:
     """Integer codes for both raters over the sorted union of their labels."""
-    if len(a) != len(b):
-        raise ValueError(f"rater lengths differ: {len(a)} vs {len(b)}")
-    labels = sorted(set(a) | set(b))
+    (a_codes, b_codes), k = encode_all(a, b)
+    return a_codes, b_codes, k
+
+
+def encode_all(*raters: Sequence[str]) -> tuple[list[IntArray], int]:
+    """Integer codes for any number of equal-length raters over the sorted union of their
+    labels, so replicates of different pairs can be compared code for code."""
+    lengths = {len(r) for r in raters}
+    if len(lengths) != 1:
+        raise ValueError(f"rater lengths differ: {sorted(len(r) for r in raters)}")
+    labels = sorted(set().union(*(set(r) for r in raters)))
     index = {label: i for i, label in enumerate(labels)}
-    a_codes = np.fromiter((index[x] for x in a), dtype=np.int64, count=len(a))
-    b_codes = np.fromiter((index[x] for x in b), dtype=np.int64, count=len(b))
-    return a_codes, b_codes, len(labels)
+    codes = [np.fromiter((index[x] for x in r), dtype=np.int64, count=len(r)) for r in raters]
+    return codes, len(labels)
 
 
 _REPLICATES = {"kappa": kappa_replicates, "accuracy": accuracy_replicates}
@@ -148,6 +161,48 @@ def bootstrap_ci(
     replicates = _REPLICATES[statistic]
     estimate = float(replicates(a_codes, b_codes, k, np.arange(n, dtype=np.int64)[None, :])[0])
     values = replicates(a_codes, b_codes, k, resample_indices(n, n_resamples, seed))
+    low, high = np.percentile(values, [100 * (1 - confidence) / 2, 100 * (1 + confidence) / 2])
+    return Interval(
+        estimate=estimate,
+        low=float(low),
+        high=float(high),
+        confidence=confidence,
+        n_resamples=n_resamples,
+    )
+
+
+def bootstrap_difference_ci(
+    reference: Sequence[str],
+    a: Sequence[str],
+    b: Sequence[str],
+    statistic: Statistic,
+    n_resamples: int = 1000,
+    confidence: float = 0.95,
+    seed: int = 0,
+) -> Interval:
+    """Paired percentile bootstrap interval for statistic(reference, a) - statistic(reference, b).
+
+    Two students scored on the same held-out items are not independent samples, so comparing
+    their separate intervals is only a loose test: overlapping intervals do not mean the two
+    are tied. Here every resample draws one set of items and scores both students on it, so
+    the interval is on the difference itself; it excludes 0 when the paired data separate the
+    two students. Same seed as `bootstrap_ci`, so it uses the same item resamples.
+    """
+    if statistic not in _REPLICATES:
+        raise ValueError(f"unknown statistic {statistic!r}; use 'kappa' or 'accuracy'")
+    if not 0.0 < confidence < 1.0:
+        raise ValueError(f"confidence must be in (0, 1), got {confidence}")
+    (ref_codes, a_codes, b_codes), k = encode_all(reference, a, b)
+    n = len(ref_codes)
+    if n == 0:
+        raise ValueError("bootstrap needs at least one item")
+    replicates = _REPLICATES[statistic]
+    full = np.arange(n, dtype=np.int64)[None, :]
+    estimate = float(
+        replicates(ref_codes, a_codes, k, full)[0] - replicates(ref_codes, b_codes, k, full)[0]
+    )
+    idx = resample_indices(n, n_resamples, seed)
+    values = replicates(ref_codes, a_codes, k, idx) - replicates(ref_codes, b_codes, k, idx)
     low, high = np.percentile(values, [100 * (1 - confidence) / 2, 100 * (1 + confidence) / 2])
     return Interval(
         estimate=estimate,

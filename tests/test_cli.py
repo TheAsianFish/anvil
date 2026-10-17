@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 
 import pytest
+import torch
 import yaml
 from transformers import AutoTokenizer
 from typer.testing import CliRunner
@@ -306,3 +307,61 @@ def test_tiny_vocabulary_never_sees_heldout_text(small_spec: TaskSpec, tmp_path:
     vocab = AutoTokenizer.from_pretrained(trained.path).get_vocab()
     assert "yak" in vocab
     assert "zebra" not in vocab
+
+
+def test_train_resume_continues_an_interrupted_run(
+    toy_copy: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from anvil.students.encoder import EncoderClassifier
+
+    spec_path, inputs = toy_copy
+    spec = load_spec(spec_path)
+    ws = Workspace.for_task(tmp_path / "lib", spec)
+    teacher = FakeTeacher(spec)
+    label(spec, ws, teacher, inputs, pool_n=40, heldout_max=10)
+
+    with pytest.raises(StoreError, match="no checkpoint to resume"):
+        train(spec, ws, teacher.model_id, resume="20260101-000000-n40")
+
+    reference = train(spec, ws, teacher.model_id)
+
+    encode = EncoderClassifier.encode
+    calls = 0
+
+    def failing_encode(self: EncoderClassifier, batch: list[str]) -> dict[str, torch.Tensor]:
+        nonlocal calls
+        calls += 1
+        if calls == 5:  # mid epoch 2: the first epoch-end checkpoint is on disk
+            raise RuntimeError("simulated crash")
+        return encode(self, batch)
+
+    monkeypatch.setattr(EncoderClassifier, "encode", failing_encode)
+    with pytest.raises(RuntimeError, match="simulated crash"):
+        train(spec, ws, teacher.model_id)
+    monkeypatch.setattr(EncoderClassifier, "encode", encode)
+    interrupted = [p for p in ws.students.iterdir() if p.is_dir() and p != reference.path]
+    assert len(interrupted) == 1
+    assert (interrupted[0] / "checkpoint" / "last.pt").exists()
+    assert ws.latest_student() == reference.path  # a crashed run is never the latest
+
+    # A failing save keeps the checkpoint, so the run can still be resumed afterwards.
+    def failing_save(self: EncoderClassifier, path: Path) -> None:
+        raise OSError("disk full")
+
+    monkeypatch.setattr(EncoderClassifier, "save", failing_save)
+    with pytest.raises(OSError, match="disk full"):
+        train(spec, ws, teacher.model_id, resume=interrupted[0].name)
+    monkeypatch.undo()
+    monkeypatch.setattr(EncoderClassifier, "encode", encode)
+    assert (interrupted[0] / "checkpoint" / "last.pt").exists()
+
+    resumed = train(spec, ws, teacher.model_id, resume=interrupted[0].name)
+    assert resumed.path == interrupted[0]
+    assert resumed.result.resumed_at_step is not None
+    assert resumed.result.epoch_losses == reference.result.epoch_losses
+    assert not (interrupted[0] / "checkpoint").exists()
+    assert ws.latest_student() == interrupted[0]
+    first = EncoderClassifier.load(reference.path)
+    second = EncoderClassifier.load(interrupted[0])
+    for a, b in zip(first.model.parameters(), second.model.parameters(), strict=True):
+        assert torch.equal(a, b)

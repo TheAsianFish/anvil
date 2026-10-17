@@ -164,13 +164,21 @@ class EncoderClassifier:
         *,
         checkpoint_dir: Path | None = None,
         resume: bool = False,
+        keep_checkpoint: bool = False,
     ) -> TrainResult:
         """Train on (text, label id) pairs; see `anvil.train.classifier.train_classifier`."""
         # Imported here: the training module imports this one for its type hints.
         from anvil.train.classifier import train_classifier
 
         return train_classifier(
-            self, texts, targets, spec, metrics_path, checkpoint_dir=checkpoint_dir, resume=resume
+            self,
+            texts,
+            targets,
+            spec,
+            metrics_path,
+            checkpoint_dir=checkpoint_dir,
+            resume=resume,
+            keep_checkpoint=keep_checkpoint,
         )
 
     @torch.no_grad()

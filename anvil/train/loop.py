@@ -271,9 +271,7 @@ def fit(
         model.load_state_dict(state.best_state)
     model.eval()
     if checkpoint_dir is not None and not keep_checkpoint:
-        _remove_checkpoint_files(checkpoint_dir)
-        with contextlib.suppress(OSError):
-            checkpoint_dir.rmdir()  # only if nothing else lives there
+        remove_checkpoint(checkpoint_dir)
     result = TrainResult(
         examples=n_examples,
         epochs=state.epoch,
@@ -438,6 +436,13 @@ def _remove_checkpoint_files(directory: Path) -> None:
         path.unlink(missing_ok=True)
 
 
+def remove_checkpoint(directory: Path) -> None:
+    """Delete a run's checkpoint files, and the directory if nothing else lives there."""
+    _remove_checkpoint_files(directory)
+    with contextlib.suppress(OSError):
+        directory.rmdir()
+
+
 def _save(
     directory: Path,
     fingerprint: str,
@@ -519,11 +524,17 @@ def _load(
             " restore the original settings to resume, or delete the checkpoint (or resume"
             " without --resume) to start over"
         )
-    model.load_state_dict(ckpt["model"])
-    optimizer.load_state_dict(ckpt["optimizer"])
-    scheduler.load_state_dict(ckpt["scheduler"])
-    if ckpt["scaler"]:
-        scaler.load_state_dict(ckpt["scaler"])
+    try:
+        model.load_state_dict(ckpt["model"])
+        optimizer.load_state_dict(ckpt["optimizer"])
+        scheduler.load_state_dict(ckpt["scheduler"])
+        if ckpt["scaler"]:
+            scaler.load_state_dict(ckpt["scaler"])
+    except (RuntimeError, KeyError, ValueError) as exc:
+        raise StudentError(
+            f"checkpoint {path} does not fit this model ({str(exc).splitlines()[0]}); the"
+            " student changed since the run started, so delete the checkpoint to start over"
+        ) from exc
     torch.set_rng_state(ckpt["rng_cpu"])
     if ckpt["rng_cuda"] is not None and device.type == "cuda":
         torch.cuda.set_rng_state(ckpt["rng_cuda"], device)

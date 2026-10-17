@@ -15,7 +15,7 @@ from anvil.store import Split, Store, read_inputs
 from anvil.students.encoder import EncoderClassifier
 from anvil.teacher.base import BatchAbortedError, Failure, LabelBatch, Teacher
 from anvil.train.classifier import train_classifier
-from anvil.train.loop import TrainResult
+from anvil.train.loop import LAST, TrainResult, remove_checkpoint
 
 log = get_logger(__name__)
 
@@ -154,7 +154,7 @@ def train(
     if resume is not None:
         run_id = resume
         out = ws.students / run_id
-        if not (out / "checkpoint").is_dir():
+        if not (out / "checkpoint" / LAST).exists():
             raise StoreError(
                 f"no checkpoint to resume under {out}; it finished or never started"
                 " (run `anvil train` without --resume)"
@@ -177,6 +177,7 @@ def train(
         out / "metrics.jsonl",
         checkpoint_dir=out / "checkpoint",
         resume=resume is not None,
+        keep_checkpoint=True,  # removed below, once the student is on disk
     )
     student.meta.update(
         {
@@ -191,6 +192,7 @@ def train(
     )
     student.save(out)
     (ws.students / "LATEST").write_text(run_id + "\n", encoding="utf-8")
+    remove_checkpoint(out / "checkpoint")  # only now: a failed save must stay resumable
     return TrainReport(run_id, out, teacher_model, result)
 
 

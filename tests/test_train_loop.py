@@ -424,3 +424,42 @@ def test_encoder_resume_on_other_data_of_the_same_size_is_refused(
     student = EncoderClassifier.build(spec, LABELS, texts)
     result = student.fit(texts, targets, spec, checkpoint_dir=tmp_path / "ckpt", resume=True)
     assert result.resumed_at_step is not None
+
+
+def test_encoder_resume_with_another_max_length_or_model_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    texts, targets = _toy_set()
+    spec = TINY.model_copy(update={"epochs": 3, "grad_accum": 2, "batch_size": 4})
+    student = EncoderClassifier.build(spec, LABELS, texts)
+    encode = EncoderClassifier.encode
+    calls = 0
+
+    def failing_encode(self: EncoderClassifier, batch: list[str]) -> dict[str, torch.Tensor]:
+        nonlocal calls
+        calls += 1
+        if calls == 15:
+            raise SimulatedCrashError
+        return encode(self, batch)
+
+    monkeypatch.setattr(EncoderClassifier, "encode", failing_encode)
+    with pytest.raises(SimulatedCrashError):
+        student.fit(texts, targets, spec, checkpoint_dir=tmp_path / "ckpt")
+    monkeypatch.setattr(EncoderClassifier, "encode", encode)
+    # Same data and loop settings, but the model sees a different prefix of every text.
+    shorter = spec.model_copy(update={"max_length": 4})
+    student = EncoderClassifier.build(shorter, LABELS, texts)
+    with pytest.raises(StudentError, match="different training config or dataset"):
+        student.fit(texts, targets, shorter, checkpoint_dir=tmp_path / "ckpt", resume=True)
+
+
+def test_resume_into_a_model_of_another_shape_is_a_student_error(tmp_path: Path) -> None:
+    with pytest.raises(SimulatedCrashError):
+        _run_resumable(tmp_path, 20, resume=False)
+    torch.manual_seed(5)
+    narrower = torch.nn.Sequential(torch.nn.Linear(2, 16), torch.nn.ReLU(), torch.nn.Linear(16, 3))
+    with pytest.raises(StudentError, match="does not fit this model"):
+        fit(
+            narrower, N, _loss_fn(), RESUME, evaluate=_neg_loss,
+            checkpoint_dir=tmp_path / "ckpt", resume=True,
+        )  # fmt: skip
