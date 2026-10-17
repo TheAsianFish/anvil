@@ -241,6 +241,19 @@ class Store:
         ).fetchall()
         return {input_id: label for input_id, label in rows}
 
+    def label_records(self, teacher_model: str, prompt_hash: str) -> list[Label]:
+        """The latest label per input under one key, with its tokens and cost (for export)."""
+        rows = self._db.execute(
+            "SELECT input_id, label, input_tokens, output_tokens, cost_usd, cached FROM labels"
+            " WHERE teacher_model = ? AND prompt_hash = ? ORDER BY seq",
+            (teacher_model, prompt_hash),
+        ).fetchall()
+        latest = {
+            r[0]: Label(r[0], r[1], teacher_model, prompt_hash, r[2], r[3], r[4], bool(r[5]))
+            for r in rows
+        }
+        return [latest[k] for k in sorted(latest)]
+
     def teacher_models(self, prompt_hash: str) -> list[str]:
         """Every teacher model that has labelled inputs under this prompt hash."""
         rows = self._db.execute(
