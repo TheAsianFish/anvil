@@ -14,6 +14,7 @@ from anvil.evaluate.bootstrap import (
     Interval,
     accuracy_replicates,
     bootstrap_ci,
+    bootstrap_difference_ci,
     encode,
     kappa_replicates,
     resample_indices,
@@ -167,3 +168,51 @@ def test_bad_input_raises() -> None:
         resample_indices(5, 0, 0)
     with pytest.raises(ValueError, match="unknown statistic"):
         bootstrap_ci(["a"], ["a"], "f1")  # type: ignore[arg-type]
+
+
+def test_paired_difference_interval() -> None:
+    rng = np.random.default_rng(10)
+    ref, a = raters(rng, 300, 5, 0.8)
+    _, b = raters(rng, 300, 5, 0.6)
+    sr, sa, sb = ([f"l{x}" for x in v] for v in (ref, a, b))
+    diff = bootstrap_difference_ci(sr, sa, sb, "kappa", n_resamples=400, seed=2)
+    assert diff.estimate == pytest.approx(cohen_kappa(sr, sa) - cohen_kappa(sr, sb))
+    # The same item resamples as the two marginal intervals, so the difference of the
+    # per-resample kappas is exactly what is summarised.
+    idx = resample_indices(300, 400, 2)
+    ka = kappa_replicates(ref, a, 5, idx)
+    kb = kappa_replicates(ref, b, 5, idx)
+    low, high = np.percentile(ka - kb, [2.5, 97.5])
+    assert (diff.low, diff.high) == (low, high)
+    assert diff.low > 0  # rho 0.8 vs 0.6 on 300 items separates
+    same = bootstrap_difference_ci(sr, sa, sa, "accuracy", n_resamples=50)
+    assert (same.estimate, same.low, same.high) == (0.0, 0.0, 0.0)
+    with pytest.raises(ValueError, match="lengths differ"):
+        bootstrap_difference_ci(sr, sa, sb[:-1], "kappa")
+
+
+def test_paired_difference_is_sharper_than_overlap_on_paired_data() -> None:
+    # Two students that differ on a handful of items, both at kappa ~0.7: the marginal
+    # intervals overlap almost entirely, the paired interval on the difference excludes 0.
+    rng = np.random.default_rng(12)
+    ref, a = raters(rng, 400, 4, 0.7)
+    b = a.copy()
+    disagree = np.flatnonzero(a != ref)[:20]
+    b[disagree] = ref[disagree]  # b fixes 20 of a's errors, nothing else changes
+    sr, sa, sb = ([str(x) for x in v] for v in (ref, a, b))
+    ca, cb = bootstrap_ci(sr, sa, "kappa"), bootstrap_ci(sr, sb, "kappa")
+    assert ca.low < cb.high  # the marginal intervals overlap...
+    assert cb.low < ca.high
+    diff = bootstrap_difference_ci(sr, sb, sa, "kappa")
+    assert diff.low > 0
+
+
+def test_codes_outside_the_label_range_are_rejected() -> None:
+    a = np.array([0, 1, 2], dtype=np.int64)
+    b = np.array([0, 1, 1], dtype=np.int64)
+    idx = np.arange(3, dtype=np.int64)[None, :]
+    assert kappa_replicates(a, b, 3, idx)[0] == pytest.approx(sklearn_kappa(a, b))
+    with pytest.raises(ValueError, match=r"codes must lie in \[0, 2\)"):
+        kappa_replicates(a, b, 2, idx)
+    with pytest.raises(ValueError, match="codes must lie"):
+        accuracy_replicates(a, b - 1, 3, idx)
