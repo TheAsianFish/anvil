@@ -22,7 +22,8 @@ Raw output goes to `eval/results/classify-<dataset>-<teacher>/`: `report.json` (
 `meta.json` (command, git SHA, models, seed, wall time, dollars), `train-metrics.jsonl`.
 `python -m eval.render` turns those into RESULTS.md tables. A run with `--student`, `--epochs`,
 `--size` or a non-default `--resamples` is a smoke run: it writes to `...-smoke/`, which the
-renderer ignores, so it can never overwrite the numbers RESULTS.md is built from.
+renderer ignores, so it can never overwrite the numbers RESULTS.md is built from (`--out` is
+refused for a smoke run unless it names a `...-smoke` directory too).
 """
 
 from __future__ import annotations
@@ -270,12 +271,14 @@ def _git(*args: str) -> str:
 
 
 def git_provenance() -> dict[str, object]:
-    """The commit and whether tracked files differ from it. Taken once per invocation, before
+    """The commit and whether the tree differs from it: a modified tracked file or an untracked
+    one (ignored files such as `.anvil/` do not count), since a harness edit that has not been
+    committed yet is exactly what a run's SHA must not hide. Taken once per invocation, before
     any result is written: a multi-dataset run would otherwise see its own earlier output as
     uncommitted changes."""
     return {
         "git_sha": _git("rev-parse", "HEAD"),
-        "git_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
+        "git_dirty": bool(_git("status", "--porcelain")),
     }
 
 
@@ -532,6 +535,12 @@ def main(argv: list[str] | None = None) -> int:
         any(v is not None for v in (args.student, args.epochs, args.size))
         or args.resamples != DEFAULT_RESAMPLES
     )
+    if smoke and args.out is not None and not args.out.name.endswith(SMOKE_SUFFIX):
+        parser.error(
+            f"--out {args.out} with overrides (a smoke run) must name a directory ending in"
+            f" {SMOKE_SUFFIX}: the renderer skips those, so a smoke run can never replace a"
+            " result RESULTS.md is built from"
+        )
     try:
         for name in args.datasets:
             config = load_config(CONFIG_DIR / f"{name}.yaml")

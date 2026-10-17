@@ -12,8 +12,9 @@ import yaml
 from anvil.errors import ConfigError
 from anvil.evaluate.metrics import cohen_kappa
 from anvil.settings import Settings
+from anvil.spec import TaskSpec
 from anvil.store import Split, read_inputs
-from anvil.teacher.base import Label
+from anvil.teacher.base import Item, Label, LabelBatch
 from anvil.teacher.fake import FakeTeacher
 from anvil.teacher.labelfile import RecordedLabel, read_label_file, write_label_file
 from eval import classify, render
@@ -416,3 +417,110 @@ def test_render_replaces_only_marked_blocks() -> None:
 
 def test_results_md_is_rendered_from_the_committed_raw_output() -> None:
     assert render.main(["--check"]) == 0
+
+
+class _LiveStub:
+    """Stands in for `ClaudeTeacher` in the paid path: gold with flips, billed per label and
+    never cached, under the live model id. `calls` records every (prompt hash, input id) it is
+    asked for, so a test can see exactly what a run would have paid for."""
+
+    COST = 3.25e-5
+
+    def __init__(
+        self, config: EvalConfig, data: Sample, spec: TaskSpec, calls: list[tuple[str, str]]
+    ) -> None:
+        main = spec.prompt_hash == config.spec.prompt_hash
+        rows = _flipped(config, data, 7, 0) if main else _flipped(config, data, 5, 1)
+        self.model_id = spec.teacher.model
+        self._rows = {r.input_id: r for r in rows}
+        self._calls = calls
+
+    def label(self, items: list[Item]) -> LabelBatch:
+        batch = LabelBatch()
+        for it in items:
+            r = self._rows[it.id]
+            self._calls.append((r.prompt_hash, it.id))
+            batch.labels.append(
+                Label(it.id, r.label, r.teacher_model, r.prompt_hash, 300, 5, self.COST)
+            )
+        return batch
+
+
+def test_claude_run_pays_only_for_unrecorded_labels_and_records_them(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, data = _toy_config(tmp_path)
+    monkeypatch.setattr(classify, "LABELS_DIR", tmp_path / "labels")
+    spec, para = config.spec, config.paraphrase_spec()
+    model = spec.teacher.model
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        classify,
+        "build_teacher",
+        lambda s, settings, provider=None: _LiveStub(config, data, s, calls),
+    )
+    # A committed recording from an earlier, smaller run: a fresh checkout has this file but
+    # no store and no disk cache, and must not buy these 60 labels a second time.
+    main_rows = _flipped(config, data, 7, 0)
+    recorded = {r.input_id for r in main_rows[:60]}
+    write_label_file(
+        classify.label_file("toy", model, spec.prompt_hash), _as_labels(main_rows[:60])
+    )
+
+    settings = _settings(tmp_path)
+    out = tmp_path / "results" / "classify-toy-haiku"
+    report = classify.run(config, data, "claude", out, settings, n_resamples=100)
+    teacher = report["teacher"]
+    assert isinstance(teacher, dict)
+    assert teacher["kind"] == "claude"
+    assert teacher["pool_labels"] == 160
+    ws = classify.workspace(settings, spec, data)
+    with ws.open_store(spec) as store:
+        labelled = set(store.labels(model, spec.prompt_hash))
+    bought_main = {i for h, i in calls if h == spec.prompt_hash}
+    bought_para = [i for h, i in calls if h == para.prompt_hash]
+    assert bought_main == labelled - recorded  # only the inputs the file did not cover
+    assert len(bought_para) == config.ceiling.n
+    assert report["spent_usd"] == pytest.approx((len(bought_main) + 40) * _LiveStub.COST)
+    assert teacher["label_cost_usd"] == pytest.approx(len(labelled) * _LiveStub.COST)
+    # Both prompts' labels are recorded, merged with the rows that were already there.
+    main_file = read_label_file(classify.label_file("toy", model, spec.prompt_hash))
+    assert {r.input_id for r in main_file} == labelled | recorded
+    assert all(r.teacher_model == model and r.cost_usd == _LiveStub.COST for r in main_file)
+    para_file = read_label_file(classify.label_file("toy", model, para.prompt_hash))
+    assert sorted(r.input_id for r in para_file) == sorted(bought_para)
+    assert resolve_teacher_kind("auto", config) == "replay"
+
+    # A fresh checkout (new home: no store, no cache) now replays the whole run for free.
+    bought_before = len(calls)
+    again = classify.run(config, data, "auto", out, _settings(tmp_path / "again"), 100)
+    assert len(calls) == bought_before
+    assert again["spent_usd"] == 0
+    assert again["teacher"]["kind"] == "replay"  # type: ignore[index]
+    assert again["teacher"]["label_cost_usd"] == teacher["label_cost_usd"]  # type: ignore[index]
+    assert again["ceiling"] == report["ceiling"]
+    assert again["agreement"]["kappa"] == report["agreement"]["kappa"]  # type: ignore[index]
+
+
+def test_main_refuses_a_smoke_run_pointed_at_a_results_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setattr(classify, "RESULTS_DIR", tmp_path / "results")
+    monkeypatch.setattr(classify, "run", lambda *a, **k: pytest.fail("must not run"))
+    target = tmp_path / "results" / "classify-ag_news-gold"
+    with pytest.raises(SystemExit):
+        classify.main(["ag_news", "--teacher", "gold", "--size", "100", "--out", str(target)])
+    assert "-smoke" in capsys.readouterr().err
+
+
+def test_results_md_check_fails_when_a_rendered_number_changes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    stale = tmp_path / "RESULTS.md"
+    text = render.RESULTS_MD.read_text(encoding="utf-8")
+    assert "0.844 [0.805, 0.882]" in text
+    stale.write_text(
+        text.replace("0.844 [0.805, 0.882]", "0.944 [0.905, 0.982]"), encoding="utf-8"
+    )
+    monkeypatch.setattr(render, "RESULTS_MD", stale)
+    assert render.main(["--check"]) == 1
