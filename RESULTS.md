@@ -70,7 +70,9 @@ Findings so far (from the table below):
 Training-seed spread (only the student seed changes: weight init, data order, validation slice):
 
 <!-- BEGIN generated:classify-seeds -->
-No seed repeats yet: run `python -m eval.classify <dataset> --seed N`.
+| Dataset | Teacher | Student | Seeds | Kappa per seed | Mean | Range (max - min) | Mean 95% CI width |
+|---|---|---|---|---|---|---|---|
+| ag_news | gold | ModernBERT-base | 2 | 0: 0.844, 1: 0.896 | 0.870 | 0.053 | 0.073 |
 <!-- END generated:classify-seeds -->
 
 ### ONNX export spike: ModernBERT-base on CPU (M1)
