@@ -418,7 +418,7 @@ def test_encoder_resume_on_other_data_of_the_same_size_is_refused(
     # Same texts and count, different teacher answers: the count alone would not notice.
     relabelled = [(t + 1) % 4 for t in targets]
     student = EncoderClassifier.build(spec, LABELS, texts)
-    with pytest.raises(StudentError, match="different training config or dataset"):
+    with pytest.raises(StudentError, match="different training config"):
         student.fit(texts, relabelled, spec, checkpoint_dir=tmp_path / "ckpt", resume=True)
     # The original data still resumes.
     student = EncoderClassifier.build(spec, LABELS, texts)
@@ -449,7 +449,7 @@ def test_encoder_resume_with_another_max_length_or_model_is_refused(
     # Same data and loop settings, but the model sees a different prefix of every text.
     shorter = spec.model_copy(update={"max_length": 4})
     student = EncoderClassifier.build(shorter, LABELS, texts)
-    with pytest.raises(StudentError, match="different training config or dataset"):
+    with pytest.raises(StudentError, match="different training config"):
         student.fit(texts, targets, shorter, checkpoint_dir=tmp_path / "ckpt", resume=True)
 
 
@@ -463,3 +463,15 @@ def test_resume_into_a_model_of_another_shape_is_a_student_error(tmp_path: Path)
             narrower, N, _loss_fn(), RESUME, evaluate=_neg_loss,
             checkpoint_dir=tmp_path / "ckpt", resume=True,
         )  # fmt: skip
+
+
+def test_resume_under_another_resolved_precision_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # `amp: auto` resolves per machine: a checkpoint written where it meant bf16 must not
+    # resume where it means fp32 (or the reverse) under the same config.
+    with pytest.raises(SimulatedCrashError):
+        _run_resumable(tmp_path, 20, resume=False)
+    monkeypatch.setattr("anvil.train.loop._resolve_amp", lambda mode, device: torch.bfloat16)
+    with pytest.raises(StudentError, match="precision"):
+        _run_resumable(tmp_path, None, resume=True)

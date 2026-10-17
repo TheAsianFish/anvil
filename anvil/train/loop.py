@@ -77,17 +77,20 @@ class TrainConfig:
             patience=spec.patience if spec.validation_fraction > 0 else None,
         )
 
-    def fingerprint(self, n_examples: int, data: str = "") -> str:
+    def fingerprint(self, n_examples: int, data: str = "", precision: str = "") -> str:
         """Hash of everything that changes the trajectory. `checkpoint_every` only changes how
         often state is written, so a resume may use a different value. `data` is the caller's
         digest of the training examples: the example count alone would let a resume silently
-        continue on other data of the same size."""
+        continue on other data of the same size. `precision` is the resolved device and
+        autocast dtype: `amp: auto` means bf16 on one machine and fp32 on another."""
         payload: dict[str, object] = {
             k: v for k, v in asdict(self).items() if k != "checkpoint_every"
         }
         payload["n_examples"] = n_examples
         if data:  # absent when not given, so older checkpoints keep their fingerprint
             payload["data"] = data
+        if precision:
+            payload["precision"] = precision
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(blob).hexdigest()[:16]
 
@@ -169,7 +172,7 @@ def fit(
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, _linear_schedule(warmup, total))
     scaler = torch.amp.GradScaler(device.type, enabled=amp_dtype == torch.float16)
     params = [p for p in model.parameters() if p.requires_grad]
-    fingerprint = config.fingerprint(n_examples, data_fingerprint)
+    fingerprint = config.fingerprint(n_examples, data_fingerprint, f"{device.type}:{amp_name}")
 
     state = _State()
     resumed_at: int | None = None
@@ -520,7 +523,8 @@ def _load(
         )
     if ckpt["fingerprint"] != fingerprint:
         raise StudentError(
-            f"checkpoint {path} was written with a different training config or dataset;"
+            f"checkpoint {path} was written with a different training config, dataset or"
+            " precision (device and AMP dtype);"
             " restore the original settings to resume, or delete the checkpoint (or resume"
             " without --resume) to start over"
         )
