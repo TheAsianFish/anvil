@@ -1,0 +1,35 @@
+{
+  "command": "uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export",
+  "git_sha": "94389b5cfced7f5720560e6e2fca37f02235994f",
+  "model": "answerdotai/ModernBERT-base",
+  "num_labels": 4,
+  "versions": {
+    "python": "3.12.3",
+    "torch": "2.14.1+cpu",
+    "transformers": "5.20.1",
+    "onnx": "1.23.2",
+    "onnxruntime": "1.31.0"
+  },
+  "machine": {
+    "cpu_count": 4,
+    "processor": "x86_64",
+    "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39"
+  },
+  "threads": {
+    "torch": 4,
+    "ort_intra_op": 4
+  },
+  "latency": {
+    "batch_size": 1,
+    "warmup_runs": 5,
+    "timed_runs": 20
+  },
+  "n_sentences": 32,
+  "token_lengths": {
+    "min": 3,
+    "max": 108
+  },
+  "seed": 0,
+  "wall_time_s": 309.8,
+  "dollars_spent": 0.0
+}

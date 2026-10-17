@@ -67,16 +67,16 @@ tool. Anvil is the open-source end-to-end CLI with the measurement built in.
 | Component | Module | Responsibility |
 |---|---|---|
 | Task spec | `anvil/spec.py` | Pydantic model of a task: `kind` (`classify`, `extract`, `generate`), instructions, labels / entity types / output JSON schema, teacher and student settings. Loaded from `anvil.yaml`. |
-| Teacher | `anvil/teacher/` | `Teacher` protocol with `label(batch) -> list[Label]`. `ClaudeTeacher` uses the `anthropic` SDK with structured outputs (`output_config.format`), low effort, optional Message Batches for large pools, a content-addressed on-disk cache (model + prompt hash + input hash), token and dollar accounting. `OllamaTeacher` is the offline fallback. `FakeTeacher` (deterministic rules) is for tests. |
-| Data store | `anvil/store.py` | JSONL + SQLite under `.anvil/`: inputs, labels (append-only, with teacher model and prompt hash), splits (pool / train / held-out are fixed by seeded hash so re-runs are stable), round records. |
-| Students | `anvil/students/` | `Student` protocol: `fit`, `predict_proba` / `predict_spans` / `generate`, `save`, `load`. `EncoderClassifier` and `EncoderTagger` wrap any Hugging Face encoder (default `answerdotai/ModernBERT-base`); `LoraGenerator` wraps Qwen2.5-0.5B-Instruct with PEFT LoRA. CI and unit tests use tiny random-init models built from a config, no download. |
+| Teacher | `anvil/teacher/` | `Teacher` protocol with `label(items) -> LabelBatch` (labels plus failures, each with its tokens and cost). `ClaudeTeacher` uses the `anthropic` SDK with structured outputs (`output_config.format`), low effort, optional Message Batches for large pools (M3), a content-addressed on-disk cache keyed by the hash of the full request, token and dollar accounting. `OllamaTeacher` is the offline fallback. `FakeTeacher` (deterministic rules) is for tests. |
+| Data store | `anvil/store.py` | SQLite under `.anvil/`: inputs, labels and failed calls (append-only, with teacher model and prompt hash), splits (held-out / pool are fixed by a seeded hash of the input text so re-runs are stable), round records (M3). |
+| Students | `anvil/students/` | `Student` protocol (M2; M1 has `Classifier` with `predict_proba` and `save`): `fit`, `predict_proba` / `predict_spans` / `generate`, `save`, `load`. `EncoderClassifier` and `EncoderTagger` wrap any Hugging Face encoder (default `answerdotai/ModernBERT-base`); `LoraGenerator` wraps Qwen2.5-0.5B-Instruct with PEFT LoRA. CI and unit tests use tiny random-init models built from a config, no download. |
 | Trainer | `anvil/train/loop.py` | One PyTorch training loop for all students: seeded, AMP when a GPU is present, gradient accumulation, linear warmup + decay, early stopping on held-out agreement, checkpointing, structured JSONL metrics per step. |
 | Alignment | `anvil/align.py` | Turns teacher outputs into training targets: label ids; character-offset spans to BIO tags over the student tokenizer's offsets (with a report of spans that could not be aligned); chat-template formatting for generation. |
 | Evaluation | `anvil/evaluate/` | Agreement metrics vs the teacher: Cohen's kappa with bootstrap CI, accuracy, macro F1, confusion matrix, majority baseline, teacher self-agreement ceiling; entity-level F1 for extraction; exact match / field match for generation plus an optional judge sample. Error slices by class, confidence bucket and length. |
 | Selection | `anvil/select.py` | Acquisition strategies over the unlabeled pool: `random`, `uncertainty` (entropy), `margin`, `diverse` (uncertainty with cluster coverage). One function: `select_batch(pool, k, strategy, seed)`. |
 | Loop | `anvil/loop.py` | `label -> train -> eval -> select` rounds under a label or dollar budget; writes `frontier.jsonl` (round, labels, cost, kappa and CI, selection strategy, seed). |
 | Calibration | `anvil/calibrate.py` | Temperature scaling on held-out logits, expected calibration error, and the confidence threshold that keeps a target kappa at the largest coverage; emits the coverage-vs-parity curve. |
-| Export | `anvil/export.py` | ONNX export through optimum-onnx (fallback: `torch.onnx.export`), int8 dynamic quantization, a logit parity check against PyTorch on held-out inputs, LoRA merge for the generator. |
+| Export | `anvil/export.py` | ONNX export through `torch.onnx.export(dynamo=True)` (TorchScript exporter as the fallback), opt-in int8 dynamic quantization (per-tensor, MLP down-projections kept fp32), a logit parity check against PyTorch on held-out inputs, LoRA merge for the generator. |
 | Server | `anvil/serve.py` | FastAPI app over ONNX Runtime: `/predict` returns label, confidence and `source: student | teacher`; inputs under the threshold escalate to the teacher when a key is present. Structured logs, `/healthz`, `/metrics`. |
 | Hub | `anvil/hub.py` | Pushes the student with a model card rendered from the measured results (parity table, dataset, teacher, cost). |
 | CLI | `anvil/cli.py` | Typer: `init`, `label`, `train`, `eval`, `select`, `loop`, `calibrate`, `export`, `serve`, `bench`, `push`. |
@@ -123,10 +123,10 @@ flowchart LR
    `transformers.Trainer` (hides the mechanics the project exists to show,
    and its callback surface makes the frontier loop awkward); PyTorch
    Lightning (another dependency for the same lines of code).
-3. **Fixed, hash-based splits and an append-only label store.** Pool,
-   train and held-out membership is decided by a seeded hash of the input
-   id, so adding inputs or re-running a round never moves an item across
-   splits. Labels are never overwritten; each carries the teacher model and
+3. **Fixed, hash-based splits and an append-only label store.** Held-out
+   and pool membership is decided by a seeded hash of the input text, so
+   adding inputs or re-running a round never moves an item across splits
+   and two copies of the same text never sit on both sides. Labels are never overwritten; each carries the teacher model and
    prompt hash so a prompt change creates new labels rather than silently
    mixing. *Rejected:* random splits per run (irreproducible curves).
 4. **Active learning retrains from scratch each round.** Warm-starting
@@ -156,14 +156,15 @@ flowchart LR
    *Rejected:* TorchScript (deprecated path), serving PyTorch directly
    (slower on CPU, a heavier image).
 8. **Structured outputs for every teacher call.** The teacher returns a
-   JSON object validated against the task's schema (`messages.parse` with
-   a Pydantic model), never free text parsed by regex. For extraction the
+   JSON object constrained by the task's schema (`output_config.format`
+   with an enum over the label names) and re-validated on the client,
+   never free text parsed by regex. For extraction the
    schema carries character offsets, which `align.py` verifies against the
    input before accepting a span. *Rejected:* prompting for BIO tags
    directly (LLMs tokenise differently from the student).
 9. **Offline by default, live by flag.** Unit tests use `FakeTeacher` and
    tiny random-init students; integration tests replay committed Claude
-   recordings; live tests and evals run only with `ANTHROPIC_API_KEY` and
+   recordings (made by `make record`; none until a key is available); live tests and evals run only with `ANTHROPIC_API_KEY` and
    are marked. Teacher calls are cached on disk so a re-run of an eval
    costs nothing.
 10. **Students are pluggable.** `--student` accepts any Hugging Face
@@ -173,13 +174,16 @@ flowchart LR
 
 ### Stack and versions (checked 2026-10-16)
 
-Python 3.12, uv; torch 2.14, transformers 5.20, peft 0.21, optimum 2.3 +
-optimum-onnx 0.1, onnxruntime 1.31, anthropic 1.15, datasets 5.1,
+Python 3.12, uv; torch 2.14, transformers 5.20, peft 0.21, onnx 1.23 +
+onnxscript 0.7, onnxruntime 1.31, anthropic 1.15, datasets 5.1,
 huggingface-hub 2.2, scikit-learn 1.9, pydantic 2.14, typer 0.27,
-fastapi 0.143; ruff 0.17, mypy 2.4 (strict), pytest 9.1. ModernBERT, Qwen2
-and Qwen3 are in optimum-onnx's supported export list. Known hazard: ModernBERT
-export fails when `reference_compile` is on; Anvil loads students with it
-off and falls back to `torch.onnx.export` if optimum's exporter breaks.
+fastapi 0.143; ruff 0.17, mypy 2.4 (strict), pytest 9.1. optimum-onnx 0.1
+requires `transformers<4.58` and cannot be installed next to transformers 5,
+so export goes through `torch.onnx` directly; the M1 spike
+(`docs/notes/onnx-export-spike.md`) measured fp32 parity of 8e-06 for
+ModernBERT-base with both exporters. The `reference_compile` hazard is gone
+in transformers 5.20 (the argument now raises `TypeError`), so Anvil does not
+pass it.
 
 ## Evaluation
 
@@ -254,7 +258,7 @@ Batches halve the cost of large pools and are used when a batch exceeds
 | Risk | Mitigation |
 |---|---|
 | CPU training is slow: ModernBERT-base on 2,000 × 64 tokens × 3 epochs is roughly 40 minutes on 4 cores, and the frontier needs several retrains | Frontier on CPU uses the MiniLM fast student and 64-token inputs; the ModernBERT frontier runs on Colab (T4) from a committed notebook; results say which student produced each row |
-| ModernBERT ONNX export breaks (tracing with `reference_compile`) | Load with `reference_compile=False`; fall back to `torch.onnx.export`; parity check gates serving; a spike in M1 confirms the path before it is relied on |
+| ModernBERT ONNX export breaks | M1 spike: both `torch.onnx` exporters export ModernBERT-base with max logit diff 8e-06; parity check gates serving. int8 is the weak part (per-tensor 0.906 argmax agreement on an untrained head, per-channel broken, dynamo graphs need stale `value_info` stripped before quantizing), so int8 is opt-in and gated on the trained model |
 | Teacher labels are noisy, so the kappa ceiling is below 1 | Measure and report the teacher self-agreement ceiling; the error analysis separates "student disagrees with a consistent teacher" from "teacher is inconsistent" |
 | Span alignment loses entities (teacher offsets off by one, overlapping spans) | Verify each span's text against the input, snap to token boundaries, report the unaligned rate; refuse to train when it exceeds 5% |
 | Active learning gain is small on easy tasks | Report it honestly on AG News; the hard dataset (Banking77) is where the claim is made; the synthetic study isolates the mechanism |
@@ -262,9 +266,26 @@ Batches halve the cost of large pools and are used when a batch exceeds
 | Dataset licences | Banking77 CC-BY-4.0, WikiSQL BSD, MIT Restaurant public; AG News is used under its common academic terms; the loader records the licence in the run metadata and the model card |
 | Dependency weight (torch + transformers + onnxruntime) | `uv` lockfile, CPU-only torch index in CI, a runtime extra (`anvil-distil[serve]`) that excludes torch |
 
+## Plan changes
+
+- **M1 (2026-10-16).** Export moves from optimum-onnx to `torch.onnx`
+  (optimum-onnx 0.1 pins `transformers<4.58`; verified with uv's resolver).
+  The `reference_compile` workaround is dropped (removed upstream in
+  transformers 5.20; measured in the spike). int8 becomes opt-in with a gate
+  on the trained student instead of a logit tolerance (spike: per-tensor int8
+  logit diffs around 1 even in the best variant). The `tiny` test student uses
+  a hand-built word-level vocabulary because the `tokenizers` trainers are not
+  deterministic across processes. The RESULTS.md renderer moves to M2, where
+  the first eval produces numbers to render; until then RESULTS.md cites its
+  raw files table by table. Recorded fixtures: the recording and replay
+  transports and the replay test are in place, but no real Claude recording
+  is committed yet because the build environment has no key; `make record`
+  creates them (under $0.01). Held-out membership hashes the input text
+  rather than its id, so duplicate texts cannot leak across the split.
+
 ## Milestones
 
-- [ ] M1: Scaffold, CI and a thin vertical slice — package layout, `uv` lockfile, ruff + mypy strict + pytest + GitHub Actions (lint, type, test on 3.12), Dockerfile, Makefile, MIT licence; `anvil.yaml` spec; `Teacher` protocol with `ClaudeTeacher` (structured outputs, disk cache, cost accounting, recorded fixtures, live test skipped without a key) and `FakeTeacher`; store with hash splits; `anvil label | train | eval` end to end on a toy classify task with a tiny random-init encoder; ModernBERT ONNX export spike recorded in `docs/notes/`. Done when `make check` is green in CI and `make demo` runs the slice offline in under two minutes.
+- [x] M1: Scaffold, CI and a thin vertical slice — package layout, `uv` lockfile, ruff + mypy strict + pytest + GitHub Actions (lint, type, test on 3.12), Dockerfile, Makefile, MIT licence; `anvil.yaml` spec; `Teacher` protocol with `ClaudeTeacher` (structured outputs, disk cache, cost accounting, recorded fixtures, live test skipped without a key) and `FakeTeacher`; store with hash splits; `anvil label | train | eval` end to end on a toy classify task with a tiny random-init encoder; ModernBERT ONNX export spike recorded in `docs/notes/`. Done when `make check` is green in CI and `make demo` runs the slice offline in under two minutes.
 - [ ] M2: Training and evaluation core — `train/loop.py` (seeded, AMP, accumulation, warmup/decay, early stopping, checkpoints, JSONL metrics) with tests that assert loss decreases and resumes are exact; `EncoderClassifier` on ModernBERT-base; `evaluate/` with kappa + bootstrap CI, majority baseline, teacher self-agreement ceiling, confusion matrix and error slices; `make eval-classify` on AG News and Banking77 writing RESULTS.md (measured with Haiku if a key is present, otherwise harness + "To measure"). Done when the eval runs offline on recorded labels and the stats are verified against scikit-learn in tests.
 - [ ] M3: Active learning and the frontier — `select.py` interface with the `random` baseline, property tests and the synthetic selection study; `anvil loop` with label and dollar budgets, from-scratch retrains and `frontier.jsonl`; `make eval-frontier` (3 seeds, 5 budgets, every strategy present) and `make eval-select`; RESULTS.md frontier table with "labels to kappa 0.8 / 0.9". Done when the loop runs end to end offline with the fake teacher and the frontier table is produced from real labels where a key exists.
 - [ ] M4: Extraction — teacher schema with character-offset spans, `align.py` (verification, token snapping, unaligned-rate report), `EncoderTagger`, entity-level F1 and token kappa vs teacher, `make eval-extract` on MIT Restaurant. Done when alignment has tests for off-by-one, overlapping and unicode cases and the extraction eval writes its table.

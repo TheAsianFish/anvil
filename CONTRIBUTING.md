@@ -10,9 +10,10 @@ uv sync --all-extras          # Python 3.12, creates .venv and installs dev tool
 uv run anvil --help
 ```
 
-CPU-only torch is enough for everything except the GPU frontier run; CI
-installs it from the CPU wheel index (see `pyproject.toml` `[tool.uv.sources]`
-once M1 lands). Set `ANTHROPIC_API_KEY` only when you intend to spend money:
+CPU-only torch is enough for everything except the GPU frontier run; the lock
+file pins it to the PyTorch CPU wheel index (`[tool.uv.sources]` in
+`pyproject.toml`), so local installs, CI and the Docker image all get the same
+CPU build. Set `ANTHROPIC_API_KEY` only when you intend to spend money:
 live tests and evals are skipped without it and nothing else needs it.
 
 ## Commands
@@ -23,26 +24,39 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make fmt` | ruff format + autofix |
 | `make test` | offline unit and integration tests (fake teacher, tiny models, replayed recordings) |
 | `make test-live` | tests that call Claude; skipped without `ANTHROPIC_API_KEY` |
+| `make record` | re-record the Claude fixtures under `tests/recordings/` (a few cents with Haiku) |
 | `make demo` | the offline vertical slice on the toy task (under two minutes) |
-| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals; write `eval/results/` and refresh RESULTS.md |
-| `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection, calibration and export studies |
-| `make bench` | latency, throughput and cost table |
-| `make docker` | build the serving image |
+| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md |
+| `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies |
+| `make bench` | latency, throughput and cost table (M5) |
+| `make docker` | build the CLI image (M5 adds the slim serving image) |
+| `make spike-onnx` | the M1 ModernBERT ONNX export spike (downloads ModernBERT-base) |
 
 Every eval and bench writes raw output under `eval/results/<name>/` with the
 command, git SHA, models, seed, wall time and dollars spent. RESULTS.md is
-regenerated from those files, never edited by hand for numbers.
+regenerated from those files, never edited by hand for numbers (until the
+renderer lands with the first eval in M2, numbers are copied verbatim from
+the raw files and each table names its source file).
+
+Environment variables (all optional, read in `anvil/settings.py`):
+`ANVIL_HOME` (state directory, default `.anvil`), `ANVIL_TEACHER_WORKERS`
+(concurrent teacher requests, default 4), `ANVIL_RECORD_DIR` (also write
+every live teacher response there as a replayable recording),
+`ANVIL_LOG_LEVEL` (default `INFO`; logs are JSON lines on stderr).
 
 ## Layout
 
 ```
-anvil/            package (spec, teacher/, store, students/, train/, align,
-                  evaluate/, select, loop, calibrate, export, serve, hub, cli)
+anvil/            package: spec, teacher/, store, students/, train/, evaluate/,
+                  pipeline, cli (M2+ add align, select, loop, calibrate, export,
+                  serve, hub)
+examples/toy/     the toy ticket-triage task used by the demo and the tests
+scripts/          demo.sh
 tests/            unit + integration; tests/recordings/ holds real Claude
-                  responses replayed offline
-eval/             datasets loaders, study scripts, results/
-docs/             notes/ (spikes), screenshots, architecture
-notebooks/        the Colab GPU run
+                  responses replayed offline (empty until `make record`)
+eval/             spikes/ and results/ (M2 adds dataset loaders and studies)
+docs/             notes/ (spikes); M7 adds screenshots
+notebooks/        the Colab GPU run (M6)
 ```
 
 ## Conventions

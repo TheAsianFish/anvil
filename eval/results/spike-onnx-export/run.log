@@ -1,0 +1,334 @@
+2026-10-16 16:48:22,281 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base "HTTP/1.1 200 OK"
+2026-10-16 16:48:22,385 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base/tree/main/additional_chat_templates?recursive=false&expand=false "HTTP/1.1 404 Not Found"
+2026-10-16 16:48:22,483 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base/tree/main?recursive=true&expand=false "HTTP/1.1 200 OK"
+2026-10-16 16:48:22,652 INFO config dynamo-sdpa
+2026-10-16 16:48:22,746 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base "HTTP/1.1 200 OK"
+[transformers] ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+2026-10-16 16:48:23,027 WARNING ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+W1016 16:48:35.096000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::nms
+W1016 16:48:35.097000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::roi_align
+W1016 16:48:35.097000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::roi_pool
+W1016 16:48:35.097000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::deform_conv2d
+2026-10-16 16:48:48,965 INFO No unused functions to remove
+2026-10-16 16:48:49,021 INFO Removed 6 unused nodes
+2026-10-16 16:48:49,024 INFO No unused functions to remove
+2026-10-16 16:48:49,033 INFO Skipping constant folding for node 'node_Shape_1' because it is graph input to preserve graph signature
+2026-10-16 16:48:49,033 INFO Skipping constant folding for node 'node_Shape_2' because it is graph input to preserve graph signature
+2026-10-16 16:48:49,038 INFO Skipping constant folding for node 'node_embedding' because it is graph input to preserve graph signature
+2026-10-16 16:48:49,038 INFO Skipping constant folding for node 'node__to_copy' because it is graph input to preserve graph signature
+2026-10-16 16:48:49,047 INFO Skipping constant folding for node 'node__to_copy_1' because it is graph input to preserve graph signature
+2026-10-16 16:48:49,957 INFO Skipping constant folding for node 'node_unsqueeze_71' because it is graph input to preserve graph signature
+2026-10-16 16:48:49,957 INFO Skipping constant folding for node 'node_sum_2' because it is graph input to preserve graph signature
+2026-10-16 16:48:53,882 INFO Removed 495 unused nodes
+2026-10-16 16:48:53,887 INFO Applied 113 of general pattern rewrite rules.
+2026-10-16 16:48:53,905 INFO No unused functions to remove
+2026-10-16 16:48:53,908 INFO Skipping constant folding for node 'node_Shape_1' because it is graph input to preserve graph signature
+2026-10-16 16:48:53,908 INFO Skipping constant folding for node 'node_Shape_2' because it is graph input to preserve graph signature
+2026-10-16 16:48:53,909 INFO Skipping constant folding for node 'node_embedding' because it is graph input to preserve graph signature
+2026-10-16 16:48:53,909 INFO Skipping constant folding for node 'node__to_copy' because it is graph input to preserve graph signature
+2026-10-16 16:48:53,912 INFO Skipping constant folding for node 'node__to_copy_1' because it is graph input to preserve graph signature
+2026-10-16 16:48:54,104 INFO Skipping constant folding for node 'node_unsqueeze_71' because it is graph input to preserve graph signature
+2026-10-16 16:48:54,104 INFO Skipping constant folding for node 'node_sum_2' because it is graph input to preserve graph signature
+2026-10-16 16:48:56,927 INFO Removed 100 unused nodes
+2026-10-16 16:48:56,944 INFO No unused functions to remove
+2026-10-16 16:49:06,477 INFO fp32 Variant(ok=True, error_type=None, error_message=None, seconds=24.8, size_mb=601.3, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=1e-06, max_abs_diff_batch=5e-06, max_abs_diff_single=8e-06, max_abs_diff=8e-06, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=36.26, min=35.87, max=45.83), opset=20, n_nodes=1250)
+2026-10-16 16:49:06,608 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:49:07,097 ERROR failed: Traceback (most recent call last):
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 438, in quantize_and_evaluate
+    quantize_dynamic(
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quantize.py", line 1000, in quantize_dynamic
+    quantizer = ONNXQuantizer(
+                ^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/onnx_quantizer.py", line 72, in __init__
+    model = save_and_reload_model_with_shape_infer(self.model.model)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1253, in save_and_reload_model_with_shape_infer
+    return load_model_with_shape_infer(model_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1241, in load_model_with_shape_infer
+    onnx.shape_inference.infer_shapes_path(str(model_path), str(inferred_model_path))
+  File "<repo>/.venv/lib/python3.12/site-packages/onnx/shape_inference.py", line 108, in infer_shapes_path
+    C.infer_shapes_path(model_path, output_path, check_type, strict_mode, data_prop)
+onnx.onnx_cpp2py_export.shape_inference.InferenceError: [ShapeInferenceError] Inferred shape and existing shape differ in dimension 0: (768) vs (4)
+
+2026-10-16 16:49:07,112 INFO int8 Variant(ok=False, error_type='InferenceError', error_message='[ShapeInferenceError] Inferred shape and existing shape differ in dimension 0: (768) vs (4)', seconds=0.6, size_mb=None, parity=None, ort_latency_ms=None, opset=None, n_nodes=None)
+2026-10-16 16:49:07,665 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:49:13,580 INFO int8 (stripped value_info) Variant(ok=True, error_type=None, error_message=None, seconds=1.5, size_mb=152.4, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.340675, max_abs_diff_batch=1.386243, max_abs_diff_single=1.206515, max_abs_diff=1.386243, argmax_agreement=0.9062, n_compared=64), ort_latency_ms=Latency(median=22.09, min=21.84, max=23.61), opset=20, n_nodes=1611)
+2026-10-16 16:49:13,681 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:49:26,949 INFO int8 per-channel Variant(ok=True, error_type=None, error_message=None, seconds=8.8, size_mb=153.1, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.737311, max_abs_diff_batch=3.547329, max_abs_diff_single=3.578933, max_abs_diff=3.578933, argmax_agreement=0.0938, n_compared=64), ort_latency_ms=Latency(median=22.76, min=22.61, max=25.2), opset=20, n_nodes=1611)
+2026-10-16 16:49:27,051 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:49:33,278 INFO int8 excluding MLP Wo Variant(ok=True, error_type=None, error_message=None, seconds=1.3, size_mb=210.8, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.114727, max_abs_diff_batch=1.072377, max_abs_diff_single=0.365521, max_abs_diff=1.072377, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=24.29, min=24.07, max=24.71), opset=20, n_nodes=1523)
+2026-10-16 16:49:33,427 INFO config dynamo-eager
+2026-10-16 16:49:33,565 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base "HTTP/1.1 200 OK"
+[torch.onnx] Obtain model graph for `LogitsOnly([...]` with `torch.export.export(..., strict=False)`...
+[torch.onnx] Obtain model graph for `LogitsOnly([...]` with `torch.export.export(..., strict=False)`... ✅
+[torch.onnx] Run decompositions...
+[torch.onnx] Run decompositions... ✅
+[torch.onnx] Translate the graph into ONNX...
+[torch.onnx] Translate the graph into ONNX... ✅
+[torch.onnx] Optimize the ONNX graph...
+[torch.onnx] Optimize the ONNX graph... ✅
+[transformers] ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+2026-10-16 16:49:33,639 WARNING ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+W1016 16:49:43.802000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::nms
+W1016 16:49:43.802000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::roi_align
+W1016 16:49:43.802000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::roi_pool
+W1016 16:49:43.802000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::deform_conv2d
+2026-10-16 16:50:00,181 INFO No unused functions to remove
+2026-10-16 16:50:00,235 INFO Removed 10 unused nodes
+2026-10-16 16:50:00,240 INFO No unused functions to remove
+2026-10-16 16:50:00,249 INFO Skipping constant folding for node 'node_Shape_2' because it is graph input to preserve graph signature
+2026-10-16 16:50:00,250 INFO Skipping constant folding for node 'node_Shape_3' because it is graph input to preserve graph signature
+2026-10-16 16:50:00,252 INFO Skipping constant folding for node 'node_embedding' because it is graph input to preserve graph signature
+2026-10-16 16:50:00,252 INFO Skipping constant folding for node 'node__to_copy' because it is graph input to preserve graph signature
+2026-10-16 16:50:00,262 INFO Skipping constant folding for node 'node__to_copy_1' because it is graph input to preserve graph signature
+2026-10-16 16:50:00,706 INFO Skipping constant folding for node 'node_unsqueeze_71' because it is graph input to preserve graph signature
+2026-10-16 16:50:00,707 INFO Skipping constant folding for node 'node_sum_2' because it is graph input to preserve graph signature
+2026-10-16 16:50:03,463 INFO Removed 538 unused nodes
+2026-10-16 16:50:03,466 INFO Applied 113 of general pattern rewrite rules.
+2026-10-16 16:50:03,482 INFO No unused functions to remove
+2026-10-16 16:50:03,484 INFO Skipping constant folding for node 'node_Shape_2' because it is graph input to preserve graph signature
+2026-10-16 16:50:03,484 INFO Skipping constant folding for node 'node_Shape_3' because it is graph input to preserve graph signature
+2026-10-16 16:50:03,485 INFO Skipping constant folding for node 'node_embedding' because it is graph input to preserve graph signature
+2026-10-16 16:50:03,485 INFO Skipping constant folding for node 'node__to_copy' because it is graph input to preserve graph signature
+2026-10-16 16:50:03,489 INFO Skipping constant folding for node 'node__to_copy_1' because it is graph input to preserve graph signature
+2026-10-16 16:50:03,645 INFO Skipping constant folding for node 'node_unsqueeze_71' because it is graph input to preserve graph signature
+2026-10-16 16:50:03,645 INFO Skipping constant folding for node 'node_sum_2' because it is graph input to preserve graph signature
+2026-10-16 16:50:05,455 INFO Removed 100 unused nodes
+2026-10-16 16:50:05,469 INFO No unused functions to remove
+2026-10-16 16:50:14,532 INFO fp32 Variant(ok=True, error_type=None, error_message=None, seconds=24.0, size_mb=600.7, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=1e-06, max_abs_diff_batch=6e-06, max_abs_diff_single=6e-06, max_abs_diff=6e-06, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=35.4, min=35.21, max=36.64), opset=20, n_nodes=1008)
+2026-10-16 16:50:14,641 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:50:15,105 ERROR failed: Traceback (most recent call last):
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 438, in quantize_and_evaluate
+    quantize_dynamic(
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quantize.py", line 1000, in quantize_dynamic
+    quantizer = ONNXQuantizer(
+                ^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/onnx_quantizer.py", line 72, in __init__
+    model = save_and_reload_model_with_shape_infer(self.model.model)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1253, in save_and_reload_model_with_shape_infer
+    return load_model_with_shape_infer(model_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1241, in load_model_with_shape_infer
+    onnx.shape_inference.infer_shapes_path(str(model_path), str(inferred_model_path))
+  File "<repo>/.venv/lib/python3.12/site-packages/onnx/shape_inference.py", line 108, in infer_shapes_path
+    C.infer_shapes_path(model_path, output_path, check_type, strict_mode, data_prop)
+onnx.onnx_cpp2py_export.shape_inference.InferenceError: [ShapeInferenceError] Inferred shape and existing shape differ in dimension 0: (768) vs (4)
+
+2026-10-16 16:50:15,116 INFO int8 Variant(ok=False, error_type='InferenceError', error_message='[ShapeInferenceError] Inferred shape and existing shape differ in dimension 0: (768) vs (4)', seconds=0.6, size_mb=None, parity=None, ort_latency_ms=None, opset=None, n_nodes=None)
+2026-10-16 16:50:15,670 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:50:21,709 INFO int8 (stripped value_info) Variant(ok=True, error_type=None, error_message=None, seconds=1.8, size_mb=151.8, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.322899, max_abs_diff_batch=1.301896, max_abs_diff_single=1.206515, max_abs_diff=1.301896, argmax_agreement=0.9062, n_compared=64), ort_latency_ms=Latency(median=21.66, min=21.23, max=25.65), opset=20, n_nodes=1369)
+2026-10-16 16:50:21,857 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:50:35,130 INFO int8 per-channel Variant(ok=True, error_type=None, error_message=None, seconds=9.0, size_mb=152.5, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.747801, max_abs_diff_batch=3.589137, max_abs_diff_single=3.578933, max_abs_diff=3.589137, argmax_agreement=0.0781, n_compared=64), ort_latency_ms=Latency(median=22.41, min=22.09, max=22.63), opset=20, n_nodes=1369)
+2026-10-16 16:50:35,226 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:50:41,285 INFO int8 excluding MLP Wo Variant(ok=True, error_type=None, error_message=None, seconds=1.3, size_mb=210.2, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.119143, max_abs_diff_batch=1.060423, max_abs_diff_single=0.365522, max_abs_diff=1.060423, argmax_agreement=0.9688, n_compared=64), ort_latency_ms=Latency(median=23.71, min=23.46, max=24.69), opset=20, n_nodes=1281)
+2026-10-16 16:50:41,433 INFO config torchscript-sdpa
+2026-10-16 16:50:41,592 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base "HTTP/1.1 200 OK"
+[torch.onnx] Obtain model graph for `LogitsOnly([...]` with `torch.export.export(..., strict=False)`...
+[torch.onnx] Obtain model graph for `LogitsOnly([...]` with `torch.export.export(..., strict=False)`... ✅
+[torch.onnx] Run decompositions...
+[torch.onnx] Run decompositions... ✅
+[torch.onnx] Translate the graph into ONNX...
+[torch.onnx] Translate the graph into ONNX... ✅
+[torch.onnx] Optimize the ONNX graph...
+[torch.onnx] Optimize the ONNX graph... ✅
+[transformers] ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+2026-10-16 16:50:41,667 WARNING ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+2026-10-16 16:51:02,178 INFO fp32 Variant(ok=True, error_type=None, error_message=None, seconds=2.6, size_mb=599.1, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=1e-06, max_abs_diff_batch=5e-06, max_abs_diff_single=8e-06, max_abs_diff=8e-06, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=36.99, min=36.42, max=37.83), opset=17, n_nodes=3156)
+2026-10-16 16:51:02,920 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:51:09,561 INFO int8 Variant(ok=True, error_type=None, error_message=None, seconds=2.2, size_mb=150.7, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.33653, max_abs_diff_batch=1.420806, max_abs_diff_single=1.206515, max_abs_diff=1.420806, argmax_agreement=0.9219, n_compared=64), ort_latency_ms=Latency(median=23.21, min=22.83, max=30.96), opset=17, n_nodes=3518)
+2026-10-16 16:51:10,578 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:51:24,611 INFO int8 per-channel Variant(ok=True, error_type=None, error_message=None, seconds=9.8, size_mb=151.4, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.749118, max_abs_diff_batch=3.524364, max_abs_diff_single=3.578933, max_abs_diff=3.578933, argmax_agreement=0.0625, n_compared=64), ort_latency_ms=Latency(median=24.12, min=23.87, max=28.42), opset=17, n_nodes=3518)
+2026-10-16 16:51:25,486 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:51:33,061 INFO int8 excluding MLP Wo Variant(ok=True, error_type=None, error_message=None, seconds=2.7, size_mb=209.1, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.119824, max_abs_diff_batch=0.761606, max_abs_diff_single=0.365521, max_abs_diff=0.761606, argmax_agreement=0.9844, n_compared=64), ort_latency_ms=Latency(median=25.64, min=25.24, max=26.43), opset=17, n_nodes=3430)
+2026-10-16 16:51:33,110 INFO config torchscript-eager
+2026-10-16 16:51:33,253 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base "HTTP/1.1 200 OK"
+[transformers] ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+2026-10-16 16:51:33,329 WARNING ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+2026-10-16 16:51:53,843 INFO fp32 Variant(ok=True, error_type=None, error_message=None, seconds=2.7, size_mb=599.1, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=1e-06, max_abs_diff_batch=6e-06, max_abs_diff_single=6e-06, max_abs_diff=6e-06, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=37.05, min=36.7, max=42.55), opset=17, n_nodes=3030)
+2026-10-16 16:51:54,630 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:52:00,979 INFO int8 Variant(ok=True, error_type=None, error_message=None, seconds=2.2, size_mb=150.7, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.322899, max_abs_diff_batch=1.301896, max_abs_diff_single=1.206515, max_abs_diff=1.301896, argmax_agreement=0.9062, n_compared=64), ort_latency_ms=Latency(median=22.66, min=22.35, max=23.62), opset=17, n_nodes=3392)
+2026-10-16 16:52:01,782 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:52:15,670 INFO int8 per-channel Variant(ok=True, error_type=None, error_message=None, seconds=9.6, size_mb=151.4, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.747801, max_abs_diff_batch=3.589137, max_abs_diff_single=3.578933, max_abs_diff=3.589137, argmax_agreement=0.0781, n_compared=64), ort_latency_ms=Latency(median=23.81, min=23.55, max=24.48), opset=17, n_nodes=3392)
+2026-10-16 16:52:16,637 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:52:23,452 INFO int8 excluding MLP Wo Variant(ok=True, error_type=None, error_message=None, seconds=2.2, size_mb=209.1, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.119143, max_abs_diff_batch=1.060423, max_abs_diff_single=0.365521, max_abs_diff=1.060423, argmax_agreement=0.9688, n_compared=64), ort_latency_ms=Latency(median=25.14, min=24.83, max=25.99), opset=17, n_nodes=3304)
+2026-10-16 16:52:23,502 INFO config dynamo-sdpa-refcompile-kwarg-false
+2026-10-16 16:52:23,690 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base "HTTP/1.1 200 OK"
+2026-10-16 16:52:23,696 ERROR failed: Traceback (most recent call last):
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 353, in run_config
+    model = load_model(cfg)
+            ^^^^^^^^^^^^^^^
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 216, in load_model
+    model = AutoModelForSequenceClassification.from_pretrained(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/transformers/models/auto/auto_factory.py", line 411, in from_pretrained
+    return model_class.from_pretrained(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/transformers/modeling_utils.py", line 4300, in from_pretrained
+    model = cls(config, *model_args, **model_kwargs)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: ModernBertForSequenceClassification.__init__() got an unexpected keyword argument 'reference_compile'
+
+2026-10-16 16:52:23,697 INFO config dynamo-sdpa-refcompile-config-true
+2026-10-16 16:52:23,802 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base "HTTP/1.1 200 OK"
+2026-10-16 16:52:23,907 INFO HTTP Request: GET https://huggingface.co/api/models/answerdotai/ModernBERT-base "HTTP/1.1 200 OK"
+[transformers] ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+2026-10-16 16:52:23,980 WARNING ModernBertForSequenceClassification LOAD REPORT from: answerdotai/ModernBERT-base
+Key               | Status     | 
+------------------+------------+-
+decoder.bias      | UNEXPECTED | 
+classifier.bias   | MISSING    | 
+classifier.weight | MISSING    | 
+
+Notes:
+- UNEXPECTED:	can be ignored when loading from different task/architecture; not ok if you expect identical arch.
+- MISSING:	those params were newly initialized because missing from the checkpoint. Consider training on your downstream task.
+W1016 16:52:33.993000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::nms
+W1016 16:52:33.994000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::roi_align
+W1016 16:52:33.994000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::roi_pool
+W1016 16:52:33.994000 7259 torch/onnx/_internal/exporter/_registration.py:107] torchvision is not installed. Skipping torchvision::deform_conv2d
+2026-10-16 16:52:47,361 INFO No unused functions to remove
+2026-10-16 16:52:47,420 INFO Removed 6 unused nodes
+2026-10-16 16:52:47,424 INFO No unused functions to remove
+2026-10-16 16:52:47,434 INFO Skipping constant folding for node 'node_Shape_1' because it is graph input to preserve graph signature
+2026-10-16 16:52:47,434 INFO Skipping constant folding for node 'node_Shape_2' because it is graph input to preserve graph signature
+2026-10-16 16:52:47,436 INFO Skipping constant folding for node 'node_embedding' because it is graph input to preserve graph signature
+2026-10-16 16:52:47,436 INFO Skipping constant folding for node 'node__to_copy' because it is graph input to preserve graph signature
+2026-10-16 16:52:47,444 INFO Skipping constant folding for node 'node__to_copy_1' because it is graph input to preserve graph signature
+2026-10-16 16:52:47,937 INFO Skipping constant folding for node 'node_unsqueeze_71' because it is graph input to preserve graph signature
+2026-10-16 16:52:47,938 INFO Skipping constant folding for node 'node_sum_2' because it is graph input to preserve graph signature
+2026-10-16 16:52:51,856 INFO Removed 495 unused nodes
+2026-10-16 16:52:51,860 INFO Applied 113 of general pattern rewrite rules.
+2026-10-16 16:52:51,879 INFO No unused functions to remove
+2026-10-16 16:52:51,882 INFO Skipping constant folding for node 'node_Shape_1' because it is graph input to preserve graph signature
+2026-10-16 16:52:51,882 INFO Skipping constant folding for node 'node_Shape_2' because it is graph input to preserve graph signature
+2026-10-16 16:52:51,883 INFO Skipping constant folding for node 'node_embedding' because it is graph input to preserve graph signature
+2026-10-16 16:52:51,883 INFO Skipping constant folding for node 'node__to_copy' because it is graph input to preserve graph signature
+2026-10-16 16:52:51,886 INFO Skipping constant folding for node 'node__to_copy_1' because it is graph input to preserve graph signature
+2026-10-16 16:52:52,082 INFO Skipping constant folding for node 'node_unsqueeze_71' because it is graph input to preserve graph signature
+2026-10-16 16:52:52,083 INFO Skipping constant folding for node 'node_sum_2' because it is graph input to preserve graph signature
+2026-10-16 16:52:54,928 INFO Removed 100 unused nodes
+2026-10-16 16:52:54,946 INFO No unused functions to remove
+2026-10-16 16:53:04,333 INFO fp32 Variant(ok=True, error_type=None, error_message=None, seconds=23.3, size_mb=601.3, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=1e-06, max_abs_diff_batch=5e-06, max_abs_diff_single=8e-06, max_abs_diff=8e-06, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=36.21, min=35.81, max=45.26), opset=20, n_nodes=1250)
+2026-10-16 16:53:04,449 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:53:04,932 ERROR failed: Traceback (most recent call last):
+  File "<repo>/eval/spikes/onnx_export_spike.py", line 438, in quantize_and_evaluate
+    quantize_dynamic(
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quantize.py", line 1000, in quantize_dynamic
+    quantizer = ONNXQuantizer(
+                ^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/onnx_quantizer.py", line 72, in __init__
+    model = save_and_reload_model_with_shape_infer(self.model.model)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1253, in save_and_reload_model_with_shape_infer
+    return load_model_with_shape_infer(model_path)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<repo>/.venv/lib/python3.12/site-packages/onnxruntime/quantization/quant_utils.py", line 1241, in load_model_with_shape_infer
+    onnx.shape_inference.infer_shapes_path(str(model_path), str(inferred_model_path))
+  File "<repo>/.venv/lib/python3.12/site-packages/onnx/shape_inference.py", line 108, in infer_shapes_path
+    C.infer_shapes_path(model_path, output_path, check_type, strict_mode, data_prop)
+onnx.onnx_cpp2py_export.shape_inference.InferenceError: [ShapeInferenceError] Inferred shape and existing shape differ in dimension 0: (768) vs (4)
+
+2026-10-16 16:53:04,950 INFO int8 Variant(ok=False, error_type='InferenceError', error_message='[ShapeInferenceError] Inferred shape and existing shape differ in dimension 0: (768) vs (4)', seconds=0.6, size_mb=None, parity=None, ort_latency_ms=None, opset=None, n_nodes=None)
+2026-10-16 16:53:05,498 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:53:11,819 INFO int8 (stripped value_info) Variant(ok=True, error_type=None, error_message=None, seconds=1.8, size_mb=152.4, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.340675, max_abs_diff_batch=1.386243, max_abs_diff_single=1.206515, max_abs_diff=1.386243, argmax_agreement=0.9062, n_compared=64), ort_latency_ms=Latency(median=22.34, min=22.1, max=25.76), opset=20, n_nodes=1611)
+2026-10-16 16:53:11,929 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:53:25,256 INFO int8 per-channel Variant(ok=True, error_type=None, error_message=None, seconds=8.8, size_mb=153.1, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.737311, max_abs_diff_batch=3.547329, max_abs_diff_single=3.578933, max_abs_diff=3.578933, argmax_agreement=0.0938, n_compared=64), ort_latency_ms=Latency(median=23.06, min=22.86, max=24.0), opset=20, n_nodes=1611)
+2026-10-16 16:53:25,368 WARNING Please consider to run pre-processing before quantization. Refer to example: https://github.com/microsoft/onnxruntime-inference-examples/blob/main/quantization/image_classification/cpu/ReadMe.md 
+2026-10-16 16:53:31,750 INFO int8 excluding MLP Wo Variant(ok=True, error_type=None, error_message=None, seconds=1.4, size_mb=210.8, parity=Parity(ref_abs_max=1.839453, mean_abs_diff=0.114727, max_abs_diff_batch=1.072377, max_abs_diff_single=0.365521, max_abs_diff=1.072377, argmax_agreement=1.0, n_compared=64), ort_latency_ms=Latency(median=24.8, min=24.3, max=32.01), opset=20, n_nodes=1523)
+[torch.onnx] Obtain model graph for `LogitsOnly([...]` with `torch.export.export(..., strict=False)`...
+[torch.onnx] Obtain model graph for `LogitsOnly([...]` with `torch.export.export(..., strict=False)`... ✅
+[torch.onnx] Run decompositions...
+[torch.onnx] Run decompositions... ✅
+[torch.onnx] Translate the graph into ONNX...
+[torch.onnx] Translate the graph into ONNX... ✅
+[torch.onnx] Optimize the ONNX graph...
+[torch.onnx] Optimize the ONNX graph... ✅
+dynamo-sdpa  fp32: diff=8e-06 agree=1  int8: FAIL InferenceError  int8-stripvi: diff=1.38624 agree=0.9062  int8-pc: diff=3.57893 agree=0.0938  int8-excl-mlp-wo: diff=1.07238 agree=1
+dynamo-eager  fp32: diff=6e-06 agree=1  int8: FAIL InferenceError  int8-stripvi: diff=1.3019 agree=0.9062  int8-pc: diff=3.58914 agree=0.0781  int8-excl-mlp-wo: diff=1.06042 agree=0.9688
+torchscript-sdpa  fp32: diff=8e-06 agree=1  int8: diff=1.42081 agree=0.9219  int8-pc: diff=3.57893 agree=0.0625  int8-excl-mlp-wo: diff=0.761606 agree=0.9844
+torchscript-eager  fp32: diff=6e-06 agree=1  int8: diff=1.3019 agree=0.9062  int8-pc: diff=3.58914 agree=0.0781  int8-excl-mlp-wo: diff=1.06042 agree=0.9688
+dynamo-sdpa-refcompile-kwarg-false  fp32: FAIL TypeError
+dynamo-sdpa-refcompile-config-true  fp32: diff=8e-06 agree=1  int8: FAIL InferenceError  int8-stripvi: diff=1.38624 agree=0.9062  int8-pc: diff=3.57893 agree=0.0938  int8-excl-mlp-wo: diff=1.07238 agree=1

@@ -5,14 +5,93 @@ on:
     branches: [main]
   pull_request:
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+permissions:
+  contents: read
+
+env:
+  UV_PYTHON: "3.12"
+
 jobs:
-  plan:
-    name: plan is present
+  lint:
+    name: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - name: Check planning documents
-        run: |
-          test -f PLAN.md && test -f CONTRIBUTING.md && test -f LICENSE
-          grep -q '^## Milestones' PLAN.md
-  # M1 replaces this job with lint, type-check and test jobs (see CONTRIBUTING.md).
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - run: uv run ruff format --check .
+      - run: uv run ruff check .
+
+  typecheck:
+    name: type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - run: uv run mypy
+
+  test:
+    name: test (3.12)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - run: uv run pytest -q
+
+  demo:
+    name: demo (offline slice)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - name: make demo (must finish in under two minutes)
+        run: timeout 120 make demo
+
+  docker:
+    name: docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: docker build -t anvil:ci .
+      - run: docker run --rm anvil:ci --help
+
+  live:
+    name: live teacher tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      # `secrets` is not available in step `if:`, so one probe step with the key in its own
+      # env reports whether it exists; only that step and pytest ever see the secret.
+      - id: key
+        run: echo "present=$([ -n "$ANTHROPIC_API_KEY" ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - uses: actions/checkout@v5
+        if: steps.key.outputs.present == 'true'
+      - uses: astral-sh/setup-uv@v6
+        if: steps.key.outputs.present == 'true'
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+        if: steps.key.outputs.present == 'true'
+      - run: uv run pytest -q -m live
+        if: steps.key.outputs.present == 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - run: echo "ANTHROPIC_API_KEY secret not set; live tests skipped"
+        if: steps.key.outputs.present != 'true'

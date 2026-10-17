@@ -1,0 +1,43 @@
+# Toy task for the offline demo: route support tickets to a queue.
+name: ticket-triage
+kind: classify
+instructions: |
+  You route customer support tickets to the team that should handle them.
+  Read the ticket and pick the queue it belongs in.
+labels:
+  - name: billing
+    description: charges, invoices, refunds, payment methods, plans and pricing
+  - name: bug
+    description: something in the product is broken, crashes or returns an error
+  - name: feature_request
+    description: a request for new functionality or an improvement
+  - name: account
+    description: login, passwords, two-factor, users, ownership and account deletion
+
+teacher:
+  provider: claude
+  model: claude-opus-5-5
+  effort: low
+
+student:
+  model: tiny          # a 2-layer random-init ModernBERT; use answerdotai/ModernBERT-base for real runs
+  max_length: 48
+  epochs: 10
+  batch_size: 16
+  learning_rate: 0.002
+  seed: 0
+
+splits:
+  heldout_fraction: 0.25
+  seed: 0
+
+# Keyword rules for `--teacher fake` (offline demo and tests). Not used with Claude.
+fake:
+  rules:
+    billing: [charged, charge, invoice, refund, payment, receipt, billing]
+    bug: [crashes, error, freezes, fails, stopped, "500"]
+    feature_request: [add, support, wish, love, great, "could you"]
+    account: [password, email, account, teammate, two-factor, ownership]
+  default: account
+  noise: 0.05
+  seed: 0
