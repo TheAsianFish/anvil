@@ -174,7 +174,8 @@ item, and every label carries its cost so a curve can be drawn in dollars.
   gradient scaler, both RNGs, the epoch's data order and position, and the
   early-stopping state, fingerprinted with the config and the training data;
   an interrupted run resumed from it ends with bit-identical weights (tested
-  at five crash points).
+  at five crash points on CPU; on CUDA that holds only with deterministic
+  kernels).
 - **No key, no fake parity.** Without a key, `make eval-classify
   TEACHER=gold` uses the dataset's own labels as the teacher under the model
   id `gold`, so the harness and the student are measured on real data while
@@ -211,7 +212,7 @@ Training randomness matters as much as the held-out sample: re-training on
 AG News with another student seed moved kappa from 0.844 to 0.896, about 70%
 of one run's interval width; on Banking77 two seeds tie at 0.842 but disagree
 on 15% of items. That is why the frontier milestone runs three seeds per
-point. On Banking77 the least confident tenth of predictions agrees
+point. On Banking77 the least confident tenth of predictions (50 items) agrees
 40% of the time against 98-100% for the top six tenths, which is what the
 active-selection and cascade milestones build on. Parity with Claude and the
 teacher's self-agreement ceiling are listed under "To measure" with their

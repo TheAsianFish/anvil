@@ -18,9 +18,15 @@ they are not parity-with-Claude numbers, which are listed under "To measure".
   held-out and 2,000 pool inputs; a fresh student trains on the pool labels (10% of them held
   back by text hash for early stopping) and is scored against the teacher on the held-out
   labels. Kappa intervals are 95% percentile bootstrap intervals over held-out items (1,000
-  resamples, seed 0). The TF-IDF baseline is a bag-of-bigrams logistic regression trained on
-  the same teacher labels. The ceiling is the teacher labelling 200 held-out inputs again
-  under a paraphrased prompt.
+  resamples; the bootstrap seed is the run's student seed, so a `--seed 1` repeat also redraws
+  its resamples). They cover held-out sampling only, not training randomness, and the coverage
+  check in the tests is for one regime (kappa 0.7, 200 items, 5 labels); percentile intervals
+  of a statistic bounded at 1 sit high when kappa is near 1 or the sample is small, which is
+  how the ceiling's interval (200 items, high kappa) should be read once it is measured. The
+  TF-IDF baseline is a bag-of-bigrams logistic regression (default regularisation, untuned)
+  trained on all 2,000 teacher labels, including the 10% the encoder holds back to pick its
+  epoch. The ceiling is the teacher labelling 200 held-out inputs again under a paraphrased
+  prompt.
 
 Findings so far (from the table below):
 
@@ -32,8 +38,9 @@ Findings so far (from the table below):
   and 3 of 477 AG News ones share at least 80% of their words with a labelled pool input.
   Every report counts them, so a leak would show up as the count grows rather than hide.
 - Student confidence tracks agreement: on Banking77 the lowest-confidence tenth of held-out
-  inputs agrees 40% of the time and the top six tenths 98-100%. That is the signal the
-  uncertainty selection (M3) and the escalating cascade (M5) depend on.
+  inputs (50 items) agrees 40% of the time and the top six tenths 98-100%; the seed-1 run
+  puts the lowest tenth at 30%, so the slope is the finding, not the exact figure. That is
+  the signal the uncertainty selection (M3) and the escalating cascade (M5) depend on.
 - Training randomness moves the headline about as much as the held-out sample does. On AG
   News, changing only the student seed (initialisation, data order, validation slice) took
   held-out kappa from 0.844 to 0.896: a 0.053 swing, about 70% of one run's 95% interval
