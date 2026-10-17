@@ -410,7 +410,7 @@ def run(
     student = EncoderClassifier.load(trained.path)
     probs = student.predict_proba(texts)
     predicted = [student.labels[i] for i in probs.argmax(axis=1)]
-    gmerged_labels = [data.gold[it.id] for it, _ in heldout]
+    gold_labels = [data.gold[it.id] for it, _ in heldout]
     baseline, tfidf_predicted = _tfidf_baseline(
         [it.text for it, _ in pool],
         [lab for _, lab in pool],
@@ -421,10 +421,10 @@ def run(
         seed,
     )
     gold: dict[str, object] = {
-        "student_vs_gold": _pair_stats(gmerged_labels, predicted, n_resamples, seed),
+        "student_vs_gold": _pair_stats(gold_labels, predicted, n_resamples, seed),
     }
     if kind != "gold":
-        gold["teacher_vs_gold"] = _pair_stats(gmerged_labels, teacher_labels, n_resamples, seed)
+        gold["teacher_vs_gold"] = _pair_stats(gold_labels, teacher_labels, n_resamples, seed)
 
     with ws.open_store(spec) as store:
         stats = store.stats(teacher.model_id, spec.prompt_hash)
@@ -486,7 +486,7 @@ def run(
             "student": predicted,
             "student_confidence": [round(float(c), 4) for c in probs.max(axis=1)],
             "tfidf": tfidf_predicted,
-            "gold": gmerged_labels,
+            "gold": gold_labels,
         },
         "spent_usd": spent,
         "wall_seconds": wall,
