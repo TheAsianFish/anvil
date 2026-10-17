@@ -12,14 +12,16 @@ the student need to agree with the teacher, and where does it still disagree?**
 Anvil takes a task spec and a file of unlabeled inputs. It labels them with
 Claude (structured outputs, cached, every call costed), fine-tunes a small
 model in PyTorch, and measures the student's agreement with the teacher on a
-held-out, teacher-labelled split as Cohen's kappa. Later milestones add
-uncertainty-driven selection of the next batch to label, calibration, ONNX
-export with a parity gate, and a server that escalates low-confidence inputs
-back to the teacher.
+held-out, teacher-labelled split as Cohen's kappa. `anvil loop` grows the
+training set round by round (pick, label, retrain from scratch, score) under
+a label and a dollar budget and records the labels-vs-kappa-vs-cost frontier.
+Later milestones add calibration, ONNX export with a parity gate, and a
+server that escalates low-confidence inputs back to the teacher.
 
-Status: **M2 of 7** (Claude teacher, label store, a full PyTorch training
-loop with exact resume, kappa with bootstrap intervals and error slices, and
-the `make eval-classify` harness on AG News and Banking77). See
+Status: **M3 of 7** (Claude teacher, label store, a full PyTorch training
+loop with exact resume, kappa with bootstrap intervals and error slices, the
+active-learning loop with resumable rounds, and the `make eval-classify`,
+`make eval-frontier` and `make eval-select` harnesses). See
 [PLAN.md](PLAN.md) for the milestones.
 
 ## Demo
@@ -59,9 +61,15 @@ uv run anvil train                                   # student.model: answerdota
 uv run anvil eval
 uv run anvil train --resume <run-id>                 # continue an interrupted run from its checkpoint
 
+# Active learning: 100, 200, 400 labels, a fresh student each round, stop at $1 of labels
+uv run anvil loop --budgets 100,200,400 --max-usd 1.00 --strategy random --id first
+uv run anvil loop --budgets 100,200,400 --max-usd 1.00 --strategy random --id first  # resumes
+
 # The parity eval on AG News and Banking77 (downloads the datasets and ModernBERT-base):
 make eval-classify                    # with a key: labels with Claude Haiku once, replays after
 make eval-classify TEACHER=gold       # no key: dataset gold labels as the teacher
+make eval-frontier TEACHER=gold       # kappa vs labels, 3 seeds x 5 budgets per strategy (CPU, ~2 h)
+make eval-select                      # the strategies on synthetic blobs (seconds)
 ```
 
 A task is a YAML file:
@@ -107,6 +115,9 @@ flowchart LR
     ST -->|held-out, teacher-labelled| EV[evaluate/<br/>kappa + bootstrap CI,<br/>per-class, slices]
     S --> EV
     EV --> R[reports/eval-*.json]
+    S -->|probabilities + embeddings<br/>on the unlabelled pool| SEL[select.py<br/>next batch]
+    SEL -->|picks, recorded first| ST
+    EV --> FR[loops/*/frontier.jsonl<br/>labels vs kappa vs $]
     LF[eval/labels/<br/>recorded labels] -.->|replay| T
     EV --> RES[eval/results/ -> RESULTS.md]
 ```
@@ -122,7 +133,10 @@ flowchart LR
 | `anvil/evaluate/` | Kappa and accuracy with vectorised percentile bootstrap CIs, macro F1, per-class scores, top confusions, teacher self-agreement, slices by confidence and input length |
 | `anvil/teacher/labelfile.py` | Replays recorded labels (or a dataset's gold labels, as model `gold`) offline |
 | `eval/classify.py`, `eval/render.py` | `make eval-classify` and the RESULTS.md renderer |
-| `anvil/pipeline.py`, `anvil/cli.py` | `label`, `train`, `eval` as a library API and a Typer CLI |
+| `anvil/select.py` | `select_batch(pool, k, strategy, seed)`: `random` (the reference curve); `uncertainty`, `margin` and `diverse` are declared with a contract test suite and not written yet |
+| `anvil/loop.py` | `anvil loop`: rounds of select, label, retrain from scratch, score; label, dollar and target-kappa stops; picks stored before labelling so an interrupted loop resumes to the same rows |
+| `eval/frontier.py`, `eval/select_study.py` | `make eval-frontier` (3 seeds x 5 budgets per strategy) and `make eval-select` (synthetic blobs, logistic student) |
+| `anvil/pipeline.py`, `anvil/cli.py` | `label`, `train`, `eval`, `loop` as a library API and a Typer CLI |
 
 **The hard part** (the core of the project, built over M2 and M3) is the
 cost-versus-quality frontier: how few teacher labels reach a target kappa
@@ -180,6 +194,26 @@ item, and every label carries its cost so a curve can be drawn in dollars.
   TEACHER=gold` uses the dataset's own labels as the teacher under the model
   id `gold`, so the harness and the student are measured on real data while
   Claude parity stays under "To measure".
+- **Every round retrains from scratch.** A warm-started student at 400
+  labels has had more updates than a fresh one, so its kappa would mix "more
+  labels" with "more training". Each round trains a new student with the same
+  seed and settings on every label so far; CPU time is the price.
+- **Round 0 is shared.** The first batch is a random draw that depends only
+  on the seed, so every strategy of a seed starts from the same student and
+  the curves differ only from the first selected batch on (a paired
+  comparison, not two unrelated runs).
+- **Picks are written before labels.** A loop records each round's picks in
+  the store, then labels them. An interrupted loop resumes with the same
+  picks and, training being seeded, ends with the same rows as one that never
+  stopped (tested by crashing a round). A refused pick keeps its slot in the
+  budget and is never paid for twice.
+- **Dollar budgets count label cost, not spend.** A label replayed from the
+  cache or a recording counts what it cost to make, so a replay stops at the
+  same round as the live run it reproduces.
+- **Fixed-length training on the frontier.** At 100 labels a 10% validation
+  slice is ten inputs for up to 77 classes; in a pilot, early stopping on it
+  quit at epoch 4 and kept an untrained epoch 1. Frontier rounds train for at
+  least 600 optimizer steps instead (`min_steps`).
 - **A deterministic tiny student.** `tiny` uses a word-level vocabulary built
   by hand: the `tokenizers` WordPiece trainer breaks frequency ties in
   hash-map order, which gave a different vocabulary, and a different trained
@@ -222,7 +256,7 @@ commands and cost (about $0.35 with Haiku 5.5).
 
 - [x] M1: scaffold, CI, Claude teacher with cache and cost accounting, label store, offline slice, ONNX export spike
 - [x] M2: full training loop and evaluation core (bootstrap CI, teacher self-agreement ceiling, error slices); AG News and Banking77 harness (Claude parity to measure)
-- [ ] M3: active learning and the labels-vs-kappa-vs-cost frontier
+- [x] M3: active-learning loop, selection interface with the random baseline and contract tests, frontier and synthetic selection evals (Claude frontier and the non-random strategies to measure)
 - [ ] M4: span extraction with character-offset alignment
 - [ ] M5: calibration, ONNX export with a parity gate, FastAPI server with teacher escalation, benchmarks
 - [ ] M6: Qwen2.5-0.5B LoRA generation student
