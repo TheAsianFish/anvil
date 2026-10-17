@@ -1,0 +1,44 @@
+# `make eval-classify` on AG News: 4 news topics, long-ish inputs (about 40 words).
+dataset:
+  name: ag_news
+  repo: fancyzhx/ag_news
+  revision: eb185aade064a813bc0b7f42de02595523103ca4
+  split: train
+  license: "AG's corpus, used under its academic terms (http://groups.di.unipi.it/~gulli/AG_corpus_of_news_articles.html)"
+sample:
+  size: 2500        # distinct inputs drawn from the train split; the store's hash split puts ~20% in held-out
+  pool_labels: 2000
+  heldout_labels: 500
+  seed: 0
+ceiling:
+  n: 200            # held-out inputs labelled a second time under a paraphrased prompt
+  instructions: |
+    Read this news story and decide which section of a newspaper it belongs in.
+spec:
+  name: ag_news
+  kind: classify
+  instructions: |
+    Classify the news article by its main topic.
+  labels:
+    - name: world
+      description: international news, politics, conflicts and diplomacy
+    - name: sports
+      description: sport results, athletes, teams and competitions
+    - name: business
+      description: companies, markets, the economy and finance
+    - name: sci_tech
+      description: science, technology, computing, the internet and space
+  teacher:
+    provider: claude
+    model: claude-haiku-5-5
+    effort: low
+  student:
+    model: answerdotai/ModernBERT-base
+    max_length: 96
+    epochs: 4
+    batch_size: 16
+    learning_rate: 5.0e-5
+    seed: 0
+  splits:
+    heldout_fraction: 0.2
+    seed: 0

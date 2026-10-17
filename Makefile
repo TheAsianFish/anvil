@@ -1,4 +1,5 @@
-.PHONY: help sync check fmt lint typecheck test test-live record demo docker spike-onnx clean
+.PHONY: help sync check fmt lint typecheck test test-live record demo docker spike-onnx \
+	eval-classify results clean
 
 UV ?= uv
 RUN := $(UV) run
@@ -37,6 +38,14 @@ demo: ## offline vertical slice on the toy task: label -> train -> eval
 
 docker: ## build the CLI image
 	docker build -t anvil:dev .
+
+TEACHER ?= auto
+eval-classify: ## M2 parity on AG News and Banking77 (TEACHER=auto|claude|replay|gold), then RESULTS.md
+	$(RUN) --group eval python -m eval.classify ag_news banking77 --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+results: ## regenerate the RESULTS.md tables from eval/results/
+	$(RUN) python -m eval.render
 
 spike-onnx: ## M1 spike: export ModernBERT-base to ONNX and check parity (downloads ~600 MB)
 	$(RUN) python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export

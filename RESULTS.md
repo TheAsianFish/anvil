@@ -7,6 +7,23 @@ environment yet.
 
 ## Measured
 
+### Classification parity: AG News and Banking77 (M2)
+
+- Command: `make eval-classify` (`python -m eval.classify ag_news banking77`, then
+  `python -m eval.render`, which writes the block below from `eval/results/classify-*/`).
+- Method: a seeded sample of 2,500 distinct inputs from each dataset's train split at a pinned
+  revision; the store's hash split puts about 20% in held-out. The teacher labels up to 500
+  held-out and 2,000 pool inputs; a fresh student trains on the pool labels (10% of them held
+  back by text hash for early stopping) and is scored against the teacher on the held-out
+  labels. Kappa intervals are 95% percentile bootstrap intervals over held-out items (1,000
+  resamples, seed 0). The TF-IDF baseline is a bag-of-bigrams logistic regression trained on
+  the same teacher labels. The ceiling is the teacher labelling 200 held-out inputs again
+  under a paraphrased prompt.
+
+<!-- BEGIN generated:classify -->
+No classification runs yet: run `make eval-classify`.
+<!-- END generated:classify -->
+
 ### ONNX export spike: ModernBERT-base on CPU (M1)
 
 - Command: `make spike-onnx` (`uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export`)
