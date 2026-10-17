@@ -56,7 +56,7 @@ from anvil.teacher import Teacher, build_teacher
 from anvil.teacher.base import Label
 from anvil.teacher.labelfile import GOLD, LabelFileTeacher, read_label_file, write_label_file
 from eval.data import DatasetRef, Sample, load_rows, sample, write_inputs
-from eval.render import SMOKE_SUFFIX
+from eval.render import SEED_SUFFIX, SMOKE_SUFFIX
 
 ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "eval" / "classify"
@@ -433,8 +433,12 @@ def _versions() -> dict[str, str]:
     return out
 
 
-def results_dir(dataset: str, teacher_model: str, smoke: bool = False) -> Path:
-    suffix = SMOKE_SUFFIX if smoke else ""
+def results_dir(
+    dataset: str, teacher_model: str, smoke: bool = False, seed: int | None = None
+) -> Path:
+    """`classify-<dataset>-<teacher>`, plus `-seed<N>` for a training-seed repeat (rendered
+    in the seed-spread table) or `-smoke` for a run with overridden settings (never rendered)."""
+    suffix = SMOKE_SUFFIX if smoke else (f"{SEED_SUFFIX}{seed}" if seed is not None else "")
     return RESULTS_DIR / f"classify-{dataset}-{teacher_model}{suffix}"
 
 
@@ -445,6 +449,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--student", help="override student.model (e.g. tiny for a smoke run)")
     parser.add_argument("--epochs", type=int, help="override student.epochs")
     parser.add_argument("--size", type=int, help="override sample.size (smoke runs)")
+    parser.add_argument(
+        "--seed",
+        type=int,
+        help="repeat with another student seed (init, data order, validation slice)",
+    )
     parser.add_argument("--resamples", type=int, default=1000)
     parser.add_argument("--out", type=Path, help="results directory (one dataset only)")
     args = parser.parse_args(argv)
@@ -459,16 +468,23 @@ def main(argv: list[str] | None = None) -> int:
         for name in args.datasets:
             config = load_config(CONFIG_DIR / f"{name}.yaml")
             config = _override(config, args.student, args.epochs, args.size)
+            seed = args.seed if args.seed != config.spec.student.seed else None
+            if seed is not None:
+                student = config.spec.student.model_copy(update={"seed": seed})
+                config = config.model_copy(
+                    update={"spec": config.spec.model_copy(update={"student": student})}
+                )
             rows = load_rows(config.dataset.ref())
             data = sample(name, *rows, n=config.sample.size, seed=config.sample.seed)
             kind = resolve_teacher_kind(args.teacher, config)
             model = GOLD if kind == "gold" else config.spec.teacher.model
-            out = args.out or results_dir(name, model, smoke=smoke)
+            out = args.out or results_dir(name, model, smoke=smoke, seed=seed)
             report = run(
                 config, data, kind, out, settings, args.resamples, command, provenance=provenance
             )
             print(summary_line(report, out))  # noqa: T201 - the final summary
     except AnvilError as exc:
+        print(f"error: {exc}", file=sys.stderr)  # noqa: T201 - the CLI's error line
         return exc.exit_code
     return 0
 

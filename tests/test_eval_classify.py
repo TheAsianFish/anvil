@@ -248,7 +248,8 @@ def test_recording_merges_into_the_existing_label_file(
 @pytest.mark.parametrize(
     ("flags", "suffix"),
     [([], ""), (["--size", "100"], "-smoke"), (["--student", "tiny"], "-smoke"),
-     (["--epochs", "1"], "-smoke")],
+     (["--epochs", "1"], "-smoke"), (["--seed", "2"], "-seed2"), (["--seed", "0"], ""),
+     (["--seed", "2", "--size", "100"], "-smoke")],
 )  # fmt: skip
 def test_main_sends_override_runs_to_a_smoke_directory(
     tmp_path: Path,
@@ -298,6 +299,30 @@ def test_render_skips_smoke_runs(tmp_path: Path) -> None:
     for name in ("report.json", "meta.json"):
         (out / name).rename(out.parent / "classify-toy-gold" / name)
     assert [name for name, _, _ in render.load_runs(tmp_path / "results")] == ["classify-toy-gold"]
+
+
+def _seed_report(seed: int, kappa: float, low: float, high: float) -> dict[str, object]:
+    return {
+        "dataset": {"name": "toy"},
+        "teacher": {"model": "gold"},
+        "student": {"model": "org/enc", "settings": {"seed": seed}},
+        "agreement": {"kappa": kappa, "kappa_ci": {"low": low, "high": high}},
+    }
+
+
+def test_seed_spread_groups_repeats_with_the_canonical_run() -> None:
+    runs: list[tuple[str, render.Report, render.Report]] = [
+        ("classify-toy-gold", _seed_report(0, 0.80, 0.75, 0.85), {}),
+        ("classify-toy-gold-seed2", _seed_report(2, 0.70, 0.66, 0.74), {}),
+        ("classify-toy-gold-seed1", _seed_report(1, 0.90, 0.86, 0.94), {}),
+        ("classify-other-gold", _seed_report(0, 0.5, 0.4, 0.6), {}),
+    ]
+    table = render.render_seed_spread(runs)
+    assert (
+        "| toy | gold | enc | 3 | 0: 0.800, 1: 0.900, 2: 0.700 | 0.800 | 0.200 | 0.087 |" in table
+    )
+    assert "other" not in table  # a dataset without repeats has no spread to show
+    assert "No seed repeats" in render.render_seed_spread(runs[3:])
 
 
 def test_render_replaces_only_marked_blocks() -> None:

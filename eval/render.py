@@ -49,12 +49,21 @@ SMOKE_SUFFIX = "-smoke"
 """Results directories ending in this hold smoke runs (`eval.classify` with overrides)."""
 
 
-def load_runs(results_dir: Path, prefix: str = "classify-") -> list[tuple[str, Report, Report]]:
+SEED_SUFFIX = "-seed"
+"""Results directories ending in `-seed<N>` repeat a run with another student seed."""
+_SEED_DIR = re.compile(rf"^(?P<base>.+){SEED_SUFFIX}(?P<seed>\d+)$")
+
+
+def load_runs(
+    results_dir: Path, prefix: str = "classify-", seeds: bool = False
+) -> list[tuple[str, Report, Report]]:
     """Every run under `results_dir`, except smoke runs (`...-smoke/`): those used overridden
-    settings (another student, fewer epochs, a smaller sample) and are not results."""
+    settings (another student, fewer epochs, a smaller sample) and are not results. Seed
+    repeats (`...-seed<N>/`) are returned only with `seeds=True`."""
     runs = []
     for path in sorted(results_dir.glob(f"{prefix}*/report.json")):
-        if path.parent.name.endswith(SMOKE_SUFFIX):
+        name = path.parent.name
+        if name.endswith(SMOKE_SUFFIX) or (not seeds and _SEED_DIR.match(name)):
             continue
         meta_path = path.parent / "meta.json"
         report = json.loads(path.read_text(encoding="utf-8"))
@@ -169,8 +178,51 @@ def render(text: str, blocks: Mapping[str, str]) -> str:
     return BLOCK.sub(sub, text)
 
 
+def render_seed_spread(runs: list[tuple[str, Report, Report]]) -> str:
+    """How far held-out kappa moves when only the student seed changes (weight init, data
+    order, validation slice), next to the width of one run's bootstrap interval. The bootstrap
+    covers which items landed in held-out; it says nothing about training randomness."""
+    groups: dict[str, list[Report]] = {}
+    for name, report, _ in runs:
+        m = _SEED_DIR.match(name)
+        groups.setdefault(m.group("base") if m else name, []).append(report)
+    lines = [
+        "| Dataset | Teacher | Student | Seeds | Kappa per seed | Mean | Range (max - min)"
+        " | Mean 95% CI width |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    rows = 0
+    for _, reports in sorted(groups.items()):
+        if len(reports) < 2:
+            continue
+        reports = sorted(reports, key=lambda r: int(r["student"]["settings"]["seed"]))
+        kappas = [float(r["agreement"]["kappa"]) for r in reports]
+        widths = [
+            float(r["agreement"]["kappa_ci"]["high"]) - float(r["agreement"]["kappa_ci"]["low"])
+            for r in reports
+        ]
+        first = reports[0]
+        per_seed = ", ".join(
+            f"{r['student']['settings']['seed']}: {_f(k)}"
+            for r, k in zip(reports, kappas, strict=True)
+        )
+        lines.append(
+            f"| {first['dataset']['name']} | {first['teacher']['model']}"
+            f" | {_student_name(first['student']['model'])} | {len(reports)} | {per_seed}"
+            f" | {_f(sum(kappas) / len(kappas))} | {_f(max(kappas) - min(kappas))}"
+            f" | {_f(sum(widths) / len(widths))} |"
+        )
+        rows += 1
+    if not rows:
+        return "No seed repeats yet: run `python -m eval.classify <dataset> --seed N`.\n"
+    return "\n".join(lines) + "\n"
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
-    return {"classify": render_classify(load_runs(results_dir))}
+    return {
+        "classify": render_classify(load_runs(results_dir)),
+        "classify-seeds": render_seed_spread(load_runs(results_dir, seeds=True)),
+    }
 
 
 def main(argv: list[str] | None = None) -> int:
