@@ -202,17 +202,20 @@ teacher (no key yet, so not a Claude parity number):
 
 | Dataset | Student kappa [95% CI] | TF-IDF + LR kappa [95% CI] | Student minus TF-IDF [95% paired CI] | Majority accuracy |
 |---|---|---|---|---|
-| AG News (4 topics) | 0.844 [0.805, 0.882] | 0.835 [0.795, 0.873] | see RESULTS.md | 0.260 |
-| Banking77 (77 intents) | 0.842 [0.807, 0.873] | 0.662 [0.621, 0.702] | see RESULTS.md | 0.024 |
+| AG News (4 topics) | 0.844 [0.805, 0.882] | 0.835 [0.795, 0.873] | +0.009 [-0.033, 0.054] | 0.260 |
+| Banking77 (77 intents) | 0.842 [0.807, 0.873] | 0.662 [0.621, 0.702] | +0.180 [0.141, 0.223] | 0.024 |
 
 The encoder's gain over a bag of words is large on short, fine-grained
-intents and small on long news articles, where the paired comparison in
-RESULTS.md says how much of that small gap is noise. On Banking77 the least
-confident tenth of predictions agrees 40% of the time against 98-100% for the
-top six tenths, which is what the active-selection and cascade milestones
-build on. Parity with Claude, the teacher's self-agreement ceiling and the
-seed spread are listed under "To measure" with their commands and cost (about
-$0.35 with Haiku 5.5).
+intents and nil on long news articles (the paired interval includes zero).
+Training randomness matters as much as the held-out sample: re-training on
+AG News with another student seed moved kappa from 0.844 to 0.896, about 70%
+of one run's interval width; on Banking77 two seeds tie at 0.842 but disagree
+on 15% of items. That is why the frontier milestone runs three seeds per
+point. On Banking77 the least confident tenth of predictions agrees
+40% of the time against 98-100% for the top six tenths, which is what the
+active-selection and cascade milestones build on. Parity with Claude and the
+teacher's self-agreement ceiling are listed under "To measure" with their
+commands and cost (about $0.35 with Haiku 5.5).
 
 ## Roadmap
 

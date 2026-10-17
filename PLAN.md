@@ -302,7 +302,13 @@ Batches halve the cost of large pools and are used when a batch exceeds
   config and the training data, so a resume on other data is refused. The
   student and the TF-IDF baseline are scored on the same held-out items, so
   the eval compares them with a paired bootstrap of the kappa difference
-  rather than by whether two separate intervals overlap.
+  rather than by whether two separate intervals overlap. A second training
+  seed moved AG News kappa by 0.053 (about 70% of one run's interval width)
+  and left Banking77's unchanged while flipping 15% of its predictions, which
+  confirms M3's three seeds per frontier point. Known gap: a recorded Claude
+  run with a refused input cannot be replayed (the replay teacher treats any
+  missing label as an incomplete recording); M3 records refusals alongside
+  labels before the first paid frontier run.
 
 ## Milestones
 
