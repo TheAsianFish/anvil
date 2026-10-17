@@ -15,7 +15,7 @@ import torch
 from anvil.errors import StudentError
 from anvil.spec import StudentSpec
 from anvil.students.encoder import EncoderClassifier
-from anvil.train.classifier import train_classifier, validation_split
+from anvil.train.classifier import data_fingerprint, train_classifier, validation_split
 from anvil.train.loop import (
     LAST,
     TrainConfig,
@@ -451,6 +451,13 @@ def test_encoder_resume_with_another_max_length_or_model_is_refused(
     student = EncoderClassifier.build(shorter, LABELS, texts)
     with pytest.raises(StudentError, match="different training config"):
         student.fit(texts, targets, shorter, checkpoint_dir=tmp_path / "ckpt", resume=True)
+    # Another model id changes the fingerprint even when the architecture (and so the
+    # checkpoint's tensor shapes) would match: the weights would come from another model.
+    one = spec.model_copy(update={"model": "org/one-encoder"})
+    other = spec.model_copy(update={"model": "org/another-encoder"})
+    assert data_fingerprint(student, texts, targets, [], one) != data_fingerprint(
+        student, texts, targets, [], other
+    )
 
 
 def test_resume_into_a_model_of_another_shape_is_a_student_error(tmp_path: Path) -> None:

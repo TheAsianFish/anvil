@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -322,6 +323,14 @@ def test_train_resume_continues_an_interrupted_run(
 
     with pytest.raises(StoreError, match="no checkpoint to resume"):
         train(spec, ws, teacher.model_id, resume="20260101-000000-n40")
+    # A crash during the very first save leaves the directory without `last.pt`: resuming
+    # it must not quietly retrain from scratch under the old run id.
+    stale = ws.students / "20260101-000001-n40" / "checkpoint"
+    stale.mkdir(parents=True)
+    (stale / "best-epoch1.pt").write_bytes(b"")
+    with pytest.raises(StoreError, match="no checkpoint to resume"):
+        train(spec, ws, teacher.model_id, resume="20260101-000001-n40")
+    shutil.rmtree(stale.parent)
 
     reference = train(spec, ws, teacher.model_id)
 
