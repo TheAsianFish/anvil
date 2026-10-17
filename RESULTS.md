@@ -40,8 +40,11 @@ Findings so far (from the table below):
   width (0.073 on average). The bootstrap interval covers "which held-out items", not "which
   training run", so a single run's interval understates the uncertainty of the recipe. The
   epoch choice is part of it: seed 0's validation kappa went 0.821, 0.780, 0.821 and it kept
-  epoch 1; seed 1 went 0.752, 0.707, 0.773, 0.773 and kept epoch 4. Two seeds show the size
-  of the effect, not its distribution, so M3 runs three seeds per frontier point.
+  epoch 1; seed 1 went 0.752, 0.707, 0.773, 0.773 and kept epoch 4. On Banking77 the two
+  seeds land on the same kappa (0.842; both 419 of 496 correct) yet disagree with each other
+  on 72 held-out items (15%, from the `predictions` in the two `report.json` files): a stable
+  aggregate over item-level churn, so which inputs look uncertain depends on the training run.
+  Two seeds show the size of the effect, not its distribution; M3 runs three per point.
 
 <!-- BEGIN generated:classify -->
 | Dataset | Teacher | Student | Teacher labels | Held-out | Student kappa [95% CI] | Accuracy | Macro F1 | Majority acc. | TF-IDF kappa [95% CI] | Student minus TF-IDF kappa [95% paired CI] | Teacher ceiling kappa | Label cost | Wall time |
@@ -82,6 +85,7 @@ Training-seed spread (only the student seed changes: weight init, data order, va
 | Dataset | Teacher | Student | Seeds | Kappa per seed | Mean | Range (max - min) | Mean 95% CI width |
 |---|---|---|---|---|---|---|---|
 | ag_news | gold | ModernBERT-base | 2 | 0: 0.844, 1: 0.896 | 0.870 | 0.053 | 0.073 |
+| banking77 | gold | ModernBERT-base | 2 | 0: 0.842, 1: 0.842 | 0.842 | 0.000 | 0.067 |
 <!-- END generated:classify-seeds -->
 
 ### ONNX export spike: ModernBERT-base on CPU (M1)
@@ -115,7 +119,7 @@ on a trained student.
 | Live teacher test and the replay recordings (8 toy inputs) | `make record` | `ANTHROPIC_API_KEY` | under $0.01 with `claude-haiku-5-5` |
 | Student vs Claude on the toy task (91 held-out + 200 pool labels) | set `teacher.model` in `examples/toy/anvil.yaml`, then `anvil label -i inputs.jsonl -n 200 && anvil train && anvil eval` from `examples/toy/` | `ANTHROPIC_API_KEY` | about $0.04 with Haiku 5.5, about $1.60 with Opus 5.5 (300 labels at roughly 300 input and 200 output tokens each) |
 | Parity with Claude on AG News and Banking77: student vs `claude-haiku-5-5` kappa with CIs, the teacher's self-agreement ceiling (200 items, paraphrased prompt) and teacher vs gold. Labels are written to `eval/labels/` so later runs replay them offline | `make eval-classify` (with `ANTHROPIC_API_KEY` set; `TEACHER=auto` then calls Claude once and replays afterwards) | key; about 1.5 h CPU for the two students | about $0.35 with Haiku 5.5 effort `low` (5,400 labels at ~180 input tokens for AG News, ~540 for Banking77 with its 77 label names, ~50 output tokens each); under $1 if thinking doubles the output |
-| Training-seed spread vs the bootstrap interval (seeds 1 and 2 next to seed 0) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 1` and `--seed 2`, then `make results` | about 3 h CPU (4 ModernBERT-base runs); started in this build and stopped when the session ran out of time | $0 |
+| A third training seed on both datasets (seeds 0 and 1 are in the table above) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 2`, then `make results` | about 1.5 h CPU (2 ModernBERT-base runs) | $0 |
 
 The toy task is synthetic and only exercises the pipeline; real parity numbers come from the
 M2 datasets.
