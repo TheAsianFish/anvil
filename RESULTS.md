@@ -177,10 +177,59 @@ The teacher here is the dataset's gold labels (no API key in this run): the curv
 - The stress table corrupts the held-out gold mentions the ways a language model gets offsets
   wrong and counts the spans plain verification (exact offset or nothing) and the repair
   ladder recover. It is synthetic noise on real sentences, run on every invocation; it
-  measures the alignment code, not a teacher.
+  measures the alignment code, not a teacher. Only the spans a corruption actually changes are
+  scored (offset zero leaves a span that starts at 0 alone). A trailing full stop on a mention
+  that really ends a sentence ("late.") matches exactly as written and counts as misplaced:
+  the ladder cannot tell it from a correct answer, by design.
+
+Findings so far (from the block below; the teacher is the gold annotation, not Claude):
+
+- Plain verification of offsets is useless against the errors language models make: an off
+  by one, a few characters off, a word index or offset 0 leaves 0 of the ~960 changed spans
+  usable, and the repair ladder recovers 99.8-100% of them. The few it misses come from words
+  repeated in one sentence, where the nearest occurrence to a wrong offset is the wrong one.
+- The tagger reaches entity F1 0.727 [0.696, 0.757] and token kappa 0.831 [0.810, 0.850]
+  from 1,442 clean labels, 0.254 [0.222, 0.288] above a gazetteer of the same training
+  spans. The gap is widest on open-ended types (`Restaurant_Name` 0.82 vs 0.35, `Dish` 0.68 vs
+  0.38) and narrowest on small closed vocabularies (`Price` 0.85 vs 0.78, `Cuisine` 0.83 vs
+  0.72), where memorising surface forms nearly suffices.
+- Boundaries, not types, are where the student fails: of the 237 teacher entities it does not
+  match exactly, 127 have the right type and an overlapping span with the wrong extent, 43 the
+  right extent and the wrong type, and 42 are missed outright. `Hours` (0.50) and `Amenity`
+  (0.55) are the weakest types; their gold spans are loose phrases ("open late", "good for
+  kids") whose edges vary across the annotation. Exact-match F1 charges every one of these in
+  full, which is why token kappa, with partial credit, sits 0.10 higher.
+- Longer queries are harder: F1 falls from 0.80 on 1-7 word queries to 0.62 on 11-23 words.
 
 <!-- BEGIN generated:extract -->
-No extraction runs yet: run `make eval-extract`.
+| Dataset | Teacher | Student | Teacher labels | Held-out | Entity F1 [95% CI] | Precision | Recall | Token kappa [95% CI] | All-O token acc. | Gazetteer F1 [95% CI] | Student minus gazetteer F1 [95% paired CI] | Teacher ceiling F1 | Unaligned (pool) | Label cost | Wall time |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| mit_restaurant | gold | ModernBERT-base | 1442 | 500 | 0.727 [0.696, 0.757] | 0.698 | 0.757 | 0.831 [0.810, 0.850] | 0.623 | 0.472 [0.445, 0.499] | +0.254 [0.222, 0.288] | n/a | 0.0% | $0.00 | 15 min |
+
+#### mit_restaurant, teacher `gold`, student `ModernBERT-base`
+
+- Raw output: `eval/results/extract-mit_restaurant-gold/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
+- Command: `python -m eval.extract mit_restaurant --teacher gold` at `8aaf1c4`; seed 0, 1000 bootstrap resamples (by input); 4 CPUs; wall 902 s; spent $0.0000
+- Data: tner/mit_restaurant@5386634 `dataset/train.json` (MIT Restaurant corpus (Liu et al., 2013, MIT CSAIL SLS), T-NER copy; the dataset card lists the licence as other), 2000 sentences sampled (seed 0, sha256 6548296409fe)
+- Training: 1291 examples and 151 held back to pick the epoch (entity F1), out of 1442 teacher labels; 6 epochs, 486 steps, best epoch 4, 882 s
+- Alignment, pool: 2895 teacher mentions; matched exact 2895; dropped none (unaligned 0.0%); 0 duplicates; 0 snapped to a token boundary
+- Alignment, heldout: 976 teacher mentions; matched exact 976; dropped none (unaligned 0.0%); 0 duplicates; 0 snapped to a token boundary
+- Near-duplicates: 7 of 500 held-out sentences share at least 80% of their words with a labelled pool sentence
+- The teacher here is the dataset's gold annotation (no API key in this run), so this row measures the harness and how well the tagger learns from 1,442 clean labels; it is not a parity-with-Claude number.
+- Entity F1 by type (student / gazetteer, held-out support, types with at least 5): `Hours` 0.50 / 0.35 (56), `Amenity` 0.55 / 0.33 (164), `Rating` 0.63 / 0.61 (70), `Dish` 0.68 / 0.38 (105), `Restaurant_Name` 0.82 / 0.35 (148), `Location` 0.83 / 0.50 (235), `Cuisine` 0.83 / 0.72 (149), `Price` 0.85 / 0.78 (49)
+- Teacher entities by outcome: correct 739, wrong boundary 127, wrong type 43, wrong both 25, missed 42; spurious student entities 65
+- Entity F1 by length (words): 1-7: 0.80 (n=125), 7-9: 0.79 (n=125), 9-11: 0.75 (n=125), 11-23: 0.62 (n=125)
+
+Alignment stress on the 976 held-out gold spans: every mention corrupted the same way; only the spans a corruption changes are scored, and a span counts when alignment returns it exactly:
+
+| Corruption | Spans changed | Verify only | Repair ladder | Repair: misplaced |
+|---|---|---|---|---|
+| off_by_one | 976 | 0 (0.0%) | 976 (100.0%) | 0 |
+| off_by_2_to_5 | 976 | 0 (0.0%) | 976 (100.0%) | 0 |
+| word_index_as_offset | 958 | 0 (0.0%) | 957 (99.9%) | 0 |
+| offset_zero | 958 | 0 (0.0%) | 956 (99.8%) | 1 |
+| title_case | 973 | 0 (0.0%) | 973 (100.0%) | 0 |
+| trailing_full_stop | 976 | 0 (0.0%) | 976 (100.0%) | 0 |
 <!-- END generated:extract -->
 
 ### Selection on synthetic data (M3)
@@ -255,6 +304,7 @@ on a trained student.
 | Live teacher test and the replay recordings (8 toy inputs) | `make record` | `ANTHROPIC_API_KEY` | under $0.01 with `claude-haiku-5-5` |
 | Student vs Claude on the toy task (91 held-out + 200 pool labels) | set `teacher.model` in `examples/toy/anvil.yaml`, then `anvil label -i inputs.jsonl -n 200 && anvil train && anvil eval` from `examples/toy/` | `ANTHROPIC_API_KEY` | about $0.04 with Haiku 5.5, about $1.60 with Opus 5.5 (300 labels at roughly 300 input and 200 output tokens each) |
 | Parity with Claude on AG News and Banking77: student vs `claude-haiku-5-5` kappa with CIs, the teacher's self-agreement ceiling (200 items, paraphrased prompt) and teacher vs gold. Labels are written to `eval/labels/` so later runs replay them offline | `make eval-classify` (with `ANTHROPIC_API_KEY` set; `TEACHER=auto` then calls Claude once and replays afterwards) | key; about 1.5 h CPU for the two students | about $0.35 with Haiku 5.5 effort `low` (5,400 labels at ~180 input tokens for AG News, ~540 for Banking77 with its 77 label names, ~50 output tokens each); under $1 if thinking doubles the output |
+| Extraction parity with Claude on MIT Restaurant: entity F1 and token kappa against `claude-haiku-5-5`, the alignment report on real Claude offsets (how many needed repair, how many were lost), the paraphrase ceiling (200 sentences) and teacher vs gold | `make eval-extract` with `ANTHROPIC_API_KEY` set (`TEACHER=auto` calls Claude once and replays afterwards) | key; about 15 min CPU | about $0.30 with Haiku 5.5 effort `low` (2,200 requests at ~350 input tokens and ~170 output tokens); under $0.60 if thinking doubles the output |
 | The frontier with Claude Haiku as the teacher (both datasets, every implemented strategy) | `make eval-classify` with `ANTHROPIC_API_KEY` set records the labels, then `make eval-frontier` replays them | key; about 2.5 h CPU per strategy | $0 beyond the `make eval-classify` labels: the frontier uses the same 2,500 inputs and prompt per dataset |
 | The `uncertainty`, `margin` and `diverse` curves, synthetic and text | write them in `anvil/select.py` (the tests in `tests/test_select.py` turn from expected failures into passes), then `make eval-select` and `make eval-frontier TEACHER=gold` | about 2.5 h CPU per strategy for the text frontier; seconds for the synthetic study | $0 |
 | A third training seed on both datasets (seeds 0 and 1 are in the table above) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 2`, then `make results` | about 1.5 h CPU (2 ModernBERT-base runs) | $0 |
