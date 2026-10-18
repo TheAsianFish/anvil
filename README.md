@@ -325,7 +325,7 @@ Most of the student's misses are boundaries (127 of 237), not types (43). The
 alignment stress study shows why offsets cannot be trusted as given: with
 offsets off by one, a few characters, a word index or zero, plain
 verification keeps none of the ~960 changed spans and the repair ladder
-recovers 99.8-100%. Claude parity on this task is under "To measure"
+recovers all of them. Claude parity on this task is under "To measure"
 (about $0.30 with Haiku 5.5).
 
 ## Roadmap

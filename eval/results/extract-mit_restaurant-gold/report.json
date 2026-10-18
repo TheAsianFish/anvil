@@ -24,7 +24,7 @@
   },
   "student": {
     "model": "answerdotai/ModernBERT-base",
-    "run": "20261018-070220-n1442",
+    "run": "20261018-080309-n1442",
     "settings": {
       "model": "answerdotai/ModernBERT-base",
       "max_length": 48,
@@ -53,7 +53,7 @@
         0.032904407528887694,
         0.01218186295356841
       ],
-      "seconds": 882.4524732640002,
+      "seconds": 881.5548525240001,
       "best_epoch": 4,
       "best_metric": 0.7308970099667774,
       "stopped_early": false,
@@ -81,6 +81,7 @@
         "invalid": 0,
         "overlap": 0,
         "no_token": 0,
+        "truncated": 0,
         "token_conflict": 0
       },
       "unaligned": 0,
@@ -105,6 +106,7 @@
         "invalid": 0,
         "overlap": 0,
         "no_token": 0,
+        "truncated": 0,
         "token_conflict": 0
       },
       "unaligned": 0,
@@ -448,10 +450,10 @@
           "recovered_rate": 0.0
         },
         "repair": {
-          "recovered": 957,
+          "recovered": 958,
           "misplaced": 0,
-          "lost": 1,
-          "recovered_rate": 0.9989561586638831
+          "lost": 0,
+          "recovered_rate": 1.0
         }
       },
       "offset_zero": {
@@ -464,10 +466,10 @@
           "recovered_rate": 0.0
         },
         "repair": {
-          "recovered": 956,
-          "misplaced": 1,
-          "lost": 1,
-          "recovered_rate": 0.9979123173277662
+          "recovered": 958,
+          "misplaced": 0,
+          "lost": 0,
+          "recovered_rate": 1.0
         }
       },
       "title_case": {
@@ -26799,5 +26801,5 @@
     ]
   },
   "spent_usd": 0.0,
-  "wall_seconds": 901.7093461510001
+  "wall_seconds": 900.919579722
 }

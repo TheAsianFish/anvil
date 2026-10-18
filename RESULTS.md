@@ -178,16 +178,24 @@ The teacher here is the dataset's gold labels (no API key in this run): the curv
   wrong and counts the spans plain verification (exact offset or nothing) and the repair
   ladder recover. It is synthetic noise on real sentences, run on every invocation; it
   measures the alignment code, not a teacher. Only the spans a corruption actually changes are
-  scored (offset zero leaves a span that starts at 0 alone). A trailing full stop on a mention
-  that really ends a sentence ("late.") matches exactly as written and counts as misplaced:
-  the ladder cannot tell it from a correct answer, by design.
+  scored (offset zero leaves a span that starts at 0 alone), and each changed span is matched
+  to at most one aligned span: recovered when one equals it, misplaced when one of its type
+  overlaps it or carries the same words elsewhere, lost otherwise. MIT Restaurant queries are
+  lower-case and carry no punctuation, so the title-case and trailing-full-stop rows are a
+  smoke check of those two rules: on a corpus with sentence-final full stops, a mention that
+  really ends a sentence ("late.") would match as written and come back one character long,
+  which the ladder cannot tell from a correct answer, by design.
 
 Findings so far (from the block below; the teacher is the gold annotation, not Claude):
 
 - Plain verification of offsets is useless against the errors language models make: an off
   by one, a few characters off, a word index or offset 0 leaves 0 of the ~960 changed spans
-  usable, and the repair ladder recovers 99.8-100% of them. The few it misses come from words
-  repeated in one sentence, where the nearest occurrence to a wrong offset is the wrong one.
+  usable, and the repair ladder recovers every one of them. Two rules earn the last few: a
+  shifted match prefers an occurrence on word boundaries (a two-letter "in" is otherwise found
+  inside "dining" and lost to the overlap rule), and two identical mentions take two
+  occurrences when the sentence has two (both "pancakes" moved to offset 0 would otherwise
+  collapse into one). An earlier run without those rules recovered 99.8-99.9% on the
+  word-index and offset-zero rows.
 - The tagger reaches entity F1 0.727 [0.696, 0.757] and token kappa 0.831 [0.810, 0.850]
   from 1,442 clean labels, 0.254 [0.222, 0.288] above a gazetteer of the same training
   spans. The gap is widest on open-ended types (`Restaurant_Name` 0.82 vs 0.35, `Dish` 0.68 vs
@@ -195,10 +203,14 @@ Findings so far (from the block below; the teacher is the gold annotation, not C
   0.72), where memorising surface forms nearly suffices.
 - Boundaries, not types, are where the student fails: of the 237 teacher entities it does not
   match exactly, 127 have the right type and an overlapping span with the wrong extent, 43 the
-  right extent and the wrong type, and 42 are missed outright. `Hours` (0.50) and `Amenity`
-  (0.55) are the weakest types; their gold spans are loose phrases ("open late", "good for
-  kids") whose edges vary across the annotation. Exact-match F1 charges every one of these in
-  full, which is why token kappa, with partial credit, sits 0.10 higher.
+  right extent and the wrong type, 25 both wrong, and 42 are missed outright. `Hours` (0.50)
+  and `Amenity` (0.55) are the weakest types; their gold spans are loose phrases ("open late",
+  "good for kids") whose edges vary across the annotation. Not every boundary error is the
+  annotation's: 26 of the student's 1,058 spans are sub-word fragments ("up" and "scale" for
+  "upscale") where neighbouring subword tokens got different tags, which a word-boundary
+  snap at decode time would remove (not done; the number above is without it). Exact-match
+  F1 charges every boundary error in full; token kappa is on a different scale (4,508 word
+  tags, 62% of them `O`, against 976 entities), so the two are not directly comparable.
 - Longer queries are harder: F1 falls from 0.80 on 1-7 word queries to 0.62 on 11-23 words.
 
 <!-- BEGIN generated:extract -->
@@ -209,7 +221,7 @@ Findings so far (from the block below; the teacher is the gold annotation, not C
 #### mit_restaurant, teacher `gold`, student `ModernBERT-base`
 
 - Raw output: `eval/results/extract-mit_restaurant-gold/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
-- Command: `python -m eval.extract mit_restaurant --teacher gold` at `8aaf1c4`; seed 0, 1000 bootstrap resamples (by input); 4 CPUs; wall 902 s; spent $0.0000
+- Command: `python -m eval.extract mit_restaurant --teacher gold` at `7dace8b` (dirty tree); seed 0, 1000 bootstrap resamples (by input); 4 CPUs; wall 901 s; spent $0.0000
 - Data: tner/mit_restaurant@5386634 `dataset/train.json` (MIT Restaurant corpus (Liu et al., 2013, MIT CSAIL SLS), T-NER copy; the dataset card lists the licence as other), 2000 sentences sampled (seed 0, sha256 6548296409fe)
 - Training: 1291 examples and 151 held back to pick the epoch (entity F1), out of 1442 teacher labels; 6 epochs, 486 steps, best epoch 4, 882 s
 - Alignment, pool: 2895 teacher mentions; matched exact 2895; dropped none (unaligned 0.0%); 0 duplicates; 0 snapped to a token boundary
@@ -226,8 +238,8 @@ Alignment stress on the 976 held-out gold spans: every mention corrupted the sam
 |---|---|---|---|---|
 | off_by_one | 976 | 0 (0.0%) | 976 (100.0%) | 0 |
 | off_by_2_to_5 | 976 | 0 (0.0%) | 976 (100.0%) | 0 |
-| word_index_as_offset | 958 | 0 (0.0%) | 957 (99.9%) | 0 |
-| offset_zero | 958 | 0 (0.0%) | 956 (99.8%) | 1 |
+| word_index_as_offset | 958 | 0 (0.0%) | 958 (100.0%) | 0 |
+| offset_zero | 958 | 0 (0.0%) | 958 (100.0%) | 0 |
 | title_case | 973 | 0 (0.0%) | 973 (100.0%) | 0 |
 | trailing_full_stop | 976 | 0 (0.0%) | 976 (100.0%) | 0 |
 <!-- END generated:extract -->
