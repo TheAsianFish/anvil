@@ -339,13 +339,38 @@ Batches halve the cost of large pools and are used when a batch exceeds
   Message Batches are deferred: a frontier buys at most about 2,500 labels
   per dataset, shared by every strategy and seed, which the per-input cached
   requests handle; batching returns when a pool is large enough to need it.
+- **M4 (2026-10-18).** The teacher returns each mention's `text`, `type` and
+  claimed `start` (no `end`: the end is the start plus the text's length, so
+  the two cannot disagree); the schema has no `minimum` on `start` because
+  structured outputs do not support numeric bounds. The text is trusted and
+  the offset is only a hint: `align.py` matches each mention by the strictest
+  of six rules that finds it (exact, shifted to the nearest occurrence, case,
+  whitespace, NFC, trimmed punctuation) and never lets a match split a letter
+  from its combining accent. Answers are stored raw (the mentions' canonical
+  JSON in the label column), so alignment runs at train and eval time and can
+  change without paying for labels again; the store, cache, label files and
+  replay needed no change. Overlapping spans keep the longer (BIO cannot nest).
+  The 5% unaligned gate counts drops at both stages, text and tokens, and runs
+  before the first training step. Token kappa is computed over whitespace
+  words, not the student's subword tokens, so it is comparable across
+  students; both extraction intervals resample sentences, not words. MIT
+  Restaurant is read from the T-NER copy's raw JSON files at a pinned revision
+  with `huggingface_hub` (its loader script does not run under `datasets` 5),
+  sampled at 2,000 sentences with a 25% held-out fraction (about 500 held-out,
+  1,500 pool). The baseline is a gazetteer of the teacher's training spans
+  rather than TF-IDF, which does not tag spans. An alignment stress study
+  (gold offsets corrupted the ways a model gets them wrong) runs on every
+  invocation and measures the repair rules on real sentences. `anvil loop`
+  refuses extract tasks: selection over spans is not in this milestone. No key
+  exists in the build environment, so the extraction table uses the gold
+  annotation as the teacher; Claude parity is under "To measure".
 
 ## Milestones
 
 - [x] M1: Scaffold, CI and a thin vertical slice — package layout, `uv` lockfile, ruff + mypy strict + pytest + GitHub Actions (lint, type, test on 3.12), Dockerfile, Makefile, MIT licence; `anvil.yaml` spec; `Teacher` protocol with `ClaudeTeacher` (structured outputs, disk cache, cost accounting, recorded fixtures, live test skipped without a key) and `FakeTeacher`; store with hash splits; `anvil label | train | eval` end to end on a toy classify task with a tiny random-init encoder; ModernBERT ONNX export spike recorded in `docs/notes/`. Done when `make check` is green in CI and `make demo` runs the slice offline in under two minutes.
 - [x] M2: Training and evaluation core — `train/loop.py` (seeded, AMP, accumulation, warmup/decay, early stopping, checkpoints, JSONL metrics) with tests that assert loss decreases and resumes are exact; `EncoderClassifier` on ModernBERT-base; `evaluate/` with kappa + bootstrap CI, majority baseline, teacher self-agreement ceiling, confusion matrix and error slices; `make eval-classify` on AG News and Banking77 writing RESULTS.md (measured with Haiku if a key is present, otherwise harness + "To measure"). Done when the eval runs offline on recorded labels and the stats are verified against scikit-learn in tests.
 - [x] M3: Active learning and the frontier — `select.py` interface with the `random` baseline, property tests and the synthetic selection study; `anvil loop` with label and dollar budgets, from-scratch retrains and `frontier.jsonl`; `make eval-frontier` (3 seeds, 5 budgets, every strategy present) and `make eval-select`; RESULTS.md frontier table with "labels to kappa 0.8 / 0.9". Done when the loop runs end to end offline with the fake teacher and the frontier table is produced from real labels where a key exists.
-- [ ] M4: Extraction — teacher schema with character-offset spans, `align.py` (verification, token snapping, unaligned-rate report), `EncoderTagger`, entity-level F1 and token kappa vs teacher, `make eval-extract` on MIT Restaurant. Done when alignment has tests for off-by-one, overlapping and unicode cases and the extraction eval writes its table.
+- [x] M4: Extraction — teacher schema with character-offset spans, `align.py` (verification, token snapping, unaligned-rate report), `EncoderTagger`, entity-level F1 and token kappa vs teacher, `make eval-extract` on MIT Restaurant. Done when alignment has tests for off-by-one, overlapping and unicode cases and the extraction eval writes its table.
 - [ ] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
 - [ ] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.
 - [ ] M7: Release readiness — `anvil push` with the rendered model card, PyPI and GHCR workflows with `if:` guards, RELEASE.md with the secrets to add, README (architecture, results table, demo, roadmap), final RESULTS.md with every measured number and its cost, CONTRIBUTING.md refreshed. Done when a clean-venv wheel install runs `anvil --help` and the demo, and every README number traces to a RESULTS.md entry.

@@ -12,17 +12,22 @@ the student need to agree with the teacher, and where does it still disagree?**
 Anvil takes a task spec and a file of unlabeled inputs. It labels them with
 Claude (structured outputs, cached, every call costed), fine-tunes a small
 model in PyTorch, and measures the student's agreement with the teacher on a
-held-out, teacher-labelled split as Cohen's kappa. `anvil loop` grows the
+held-out, teacher-labelled split as Cohen's kappa. For extraction the teacher
+returns each entity's text and character offset; Anvil verifies every span
+against the input, repairs the offsets a language model gets wrong, refuses
+to train when too many spans cannot be aligned, and scores a token tagger by
+entity F1 and token kappa. `anvil loop` grows the
 training set round by round (pick, label, retrain from scratch, score) under
 a label and a dollar budget and records the labels-vs-kappa-vs-cost frontier.
 Later milestones add calibration, ONNX export with a parity gate, and a
 server that escalates low-confidence inputs back to the teacher.
 
-Status: **M3 of 7** (Claude teacher, label store, a full PyTorch training
+Status: **M4 of 7** (Claude teacher, label store, a full PyTorch training
 loop with exact resume, kappa with bootstrap intervals and error slices, the
-active-learning loop with resumable rounds, and the `make eval-classify`,
-`make eval-frontier` and `make eval-select` harnesses). See
-[PLAN.md](PLAN.md) for the milestones.
+active-learning loop with resumable rounds, span extraction with verified
+character offsets and a token tagger, and the `make eval-classify`,
+`make eval-extract`, `make eval-frontier` and `make eval-select` harnesses).
+See [PLAN.md](PLAN.md) for the milestones.
 
 ## Demo
 
@@ -31,16 +36,31 @@ $ make demo
 == anvil label (fake teacher, offline)
 labelled 91 held-out + 200 pool inputs with fake-rules-c7ee422d (0 from cache, $0.0000 spent); 291 labels in store worth $0.0000
 == anvil train (tiny random-init ModernBERT)
-trained 20261017-072429-n200 on 200 fake-rules-c7ee422d labels (16 held back for early stopping, best epoch 4, kappa 0.916): 6 epochs, loss 1.899 -> 0.196, 0.5s
+trained 20261018-072947-n200 on 200 fake-rules-c7ee422d labels (16 held back for early stopping, best epoch 4, kappa 0.916): 6 epochs, loss 1.899 -> 0.196, 0.6s
 == anvil eval (held-out agreement with the teacher)
-student 20261017-072429-n200 vs fake-rules-c7ee422d on 91 held-out inputs: kappa 1.000 [1.000, 1.000], accuracy 1.000 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261017-072429-n200.json
-== demo finished in 17s
+student 20261018-072947-n200 vs fake-rules-c7ee422d on 91 held-out inputs: kappa 1.000 [1.000, 1.000], accuracy 1.000 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261018-072947-n200.json
+== anvil loop (random selection, three rounds, fresh student each round)
+  round  labels  kappa [95% CI]          label cost  spent
+      0      50  0.582 [0.452, 0.697]  $   0.0000  $0.0000
+      1     100  0.881 [0.793, 0.955]  $   0.0000  $0.0000
+      2     200  0.836 [0.738, 0.923]  $   0.0000  $0.0000
+== anvil label (extraction, fake teacher with off-by-one offsets)
+labelled 72 held-out + 240 pool inputs with fake-rules-a25234ff (0 from cache, $0.0000 spent); 312 labels in store worth $0.0000
+== anvil train (tiny random-init ModernBERT tagger; aligns every answer first)
+aligned 548 teacher mentions: 430 at their offset, 118 repaired (shifted 118), 0 dropped (0.0%), 0 snapped to token boundaries
+trained 20261018-073012-n240 on 240 fake-rules-a25234ff labels (21 held back for early stopping, best epoch 3, entity F1 1.000): 5 epochs, loss 1.752 -> 0.015, 0.5s
+== anvil eval (entity F1 and token kappa against the teacher)
+student 20261018-073012-n240 vs fake-rules-a25234ff on 72 held-out inputs: entity F1 0.929 [0.885, 0.968] (precision 0.904, recall 0.955), token kappa 0.968 [0.949, 0.985]; report .anvil/demo/restaurant-slots/reports/eval-20261018-073012-n240.json
+== demo finished in 42s
 ```
 
-The demo runs offline: the teacher is a keyword-rule `FakeTeacher` with 5%
-injected label noise and the student is a two-layer random-init ModernBERT
-with a vocabulary built from the pool, so it finishes quickly on
-a laptop CPU (17 s here, most of it Python start-up across three commands). Its kappa is a smoke check of the pipeline, not a result.
+The demo runs offline (loop warnings trimmed above): the teacher is a
+keyword-rule `FakeTeacher` with 5% injected label noise for classification
+and, for extraction, a fifth of its offsets moved by one character, which
+alignment repairs (118 of 548 here). The students are two-layer random-init
+ModernBERTs with a vocabulary built from the pool, so the demo finishes in
+42 s on a laptop CPU, most of it Python start-up across seven commands. Its
+numbers are a smoke check of the pipeline, not results.
 
 <!-- GIF placeholder: record `anvil label/train/eval` against Claude with
 `vhs docs/demo.tape` (or asciinema + agg) once real labels exist, save it as
@@ -70,6 +90,13 @@ make eval-classify                    # with a key: labels with Claude Haiku onc
 make eval-classify TEACHER=gold       # no key: dataset gold labels as the teacher
 make eval-frontier TEACHER=gold       # kappa vs labels, 3 seeds x 5 budgets per strategy (CPU, ~2.5 h)
 make eval-select                      # the strategies on synthetic blobs (seconds)
+make eval-extract TEACHER=gold        # span extraction on MIT Restaurant (ModernBERT-base tagger, CPU)
+
+# Extraction: the same three commands on a `kind: extract` spec
+cd examples/toy-extract
+uv run anvil label --inputs inputs.jsonl --n 200 --teacher fake
+uv run anvil train --teacher fake     # aligns every answer first; refuses above 5% unaligned
+uv run anvil eval                     # entity F1 and token kappa with bootstrap intervals
 ```
 
 A task is a YAML file:
@@ -88,6 +115,9 @@ teacher: {provider: claude, model: claude-opus-5-5, effort: low}
 student: {model: answerdotai/ModernBERT-base, max_length: 64, epochs: 3, learning_rate: 5.0e-5}
 splits: {heldout_fraction: 0.25, seed: 0}
 ```
+
+An extraction task has `kind: extract` and lists entity types under
+`labels`; see [examples/toy-extract/anvil.yaml](examples/toy-extract/anvil.yaml).
 
 Inputs are JSONL, one `{"text": ..., "id": optional}` per line. State lives
 under `ANVIL_HOME` (default `.anvil/`): the SQLite label store, the teacher
@@ -110,8 +140,9 @@ flowchart LR
     SPEC[anvil.yaml] --> T
     ST -->|unlabelled batch| T[Teacher<br/>Claude structured outputs<br/>disk cache + cost]
     T -->|labels + tokens + $| ST
-    ST -->|labelled pool| TR[train/loop.py<br/>AMP, accumulation, warmup,<br/>early stopping, exact resume]
-    TR --> S[Student<br/>ModernBERT classifier]
+    ST -->|labelled pool| AL[align.py<br/>spans verified vs text,<br/>snapped to tokens, 5% gate]
+    AL --> TR[train/loop.py<br/>AMP, accumulation, warmup,<br/>early stopping, exact resume]
+    TR --> S[Student<br/>ModernBERT classifier<br/>or BIO tagger]
     ST -->|held-out, teacher-labelled| EV[evaluate/<br/>kappa + bootstrap CI,<br/>per-class, slices]
     S --> EV
     EV --> R[reports/eval-*.json]
@@ -130,7 +161,10 @@ flowchart LR
 | `anvil/students/encoder.py` | Any Hugging Face encoder with a classification head; `tiny` builds a random-init ModernBERT for tests and the demo |
 | `anvil/train/loop.py` | One generic PyTorch loop: seeded batches, gradient accumulation, AMP, warmup + linear decay, clipping, early stopping, per-epoch checkpoints that resume bit for bit |
 | `anvil/train/classifier.py` | Cross-entropy for the encoder classifier; early stopping on the kappa of a validation slice of the training labels |
-| `anvil/evaluate/` | Kappa and accuracy with vectorised percentile bootstrap CIs, macro F1, per-class scores, top confusions, teacher self-agreement, slices by confidence and input length |
+| `anvil/evaluate/` | Kappa and accuracy with vectorised percentile bootstrap CIs, macro F1, per-class scores, top confusions, teacher self-agreement, slices by confidence and input length; for extraction, exact-match entity F1, word-level tag kappa, an error breakdown (boundary, type, missed, spurious) and intervals that resample inputs |
+| `anvil/spans.py`, `anvil/align.py` | Extraction answers as mentions (text, type, claimed offset); alignment verifies each against the input with a ladder of repair rules, resolves overlaps, snaps spans to student tokens as BIO tags and reports every repair and drop |
+| `anvil/students/tagger.py`, `anvil/train/tagger.py` | `EncoderTagger`: any encoder with a fast tokenizer and a token-classification head, trained by the same loop with early stopping on validation entity F1 |
+| `eval/extract.py` | `make eval-extract` on MIT Restaurant: gazetteer baseline, ceiling, gold comparison and the alignment stress study |
 | `anvil/teacher/labelfile.py` | Replays recorded labels (or a dataset's gold labels, as model `gold`) offline |
 | `eval/classify.py`, `eval/render.py` | `make eval-classify` and the RESULTS.md renderer |
 | `anvil/select.py` | `select_batch(pool, k, strategy, seed)`: `random` (the reference curve); `uncertainty`, `margin` and `diverse` are declared with a contract test suite and not written yet |
@@ -148,7 +182,12 @@ self-agreement, slices that show where the student disagrees, and a training
 loop whose runs are reproducible to the bit. M1 laid the ground it needs:
 labels are keyed by (teacher model, prompt hash) so curves never mix two
 prompts, splits are a pure function of the input text so re-runs never move an
-item, and every label carries its cost so a curve can be drawn in dollars.
+item, and every label carries its cost so a curve can be drawn in dollars. M4
+extends the instrument to extraction, where the hard part is upstream of
+training: a teacher's character offsets are unreliable, so every span is
+verified against the input and repaired by a ladder of matching rules, snapped
+to the student's tokens, and counted; a teacher whose spans cannot be aligned
+stops training instead of silently teaching the student the wrong targets.
 
 ## Design decisions
 
@@ -194,6 +233,27 @@ item, and every label carries its cost so a curve can be drawn in dollars.
   TEACHER=gold` uses the dataset's own labels as the teacher under the model
   id `gold`, so the harness and the student are measured on real data while
   Claude parity stays under "To measure".
+- **For extraction the copied text is evidence, the offset is a hint.** A
+  language model reads tokens, so its character offsets drift (off by one,
+  counted in UTF-16 units past an emoji, counted in words) while the text it
+  copies is usually exact. Alignment matches each mention to an occurrence of
+  its text, from the strictest rule (the exact offset) to the loosest (case,
+  whitespace, Unicode normalisation, trimmed punctuation), takes the occurrence
+  nearest the claimed offset, and records which rule fired. *Rejected:*
+  asking the teacher for BIO tags (it tokenises differently from the student)
+  and trusting offsets (a plain check loses almost every shifted span; see the
+  stress table in RESULTS.md).
+- **Overlaps keep the longer span; training stops above 5% unaligned.** BIO
+  tags cannot hold nested entities, so the longer of two overlapping spans
+  wins and the other is counted as dropped. When more than 5% of a teacher's
+  mentions cannot be aligned to the text or the student's tokens, the prompt
+  or the labels are broken and `anvil train` refuses (exit code 2) before the
+  first step, with examples in the report.
+- **Extraction is scored two ways, with intervals over sentences.** Exact-match
+  entity F1 is what a consumer of the extractions sees; kappa over each word's
+  BIO tag gives partial credit and is chance-corrected like the classification
+  number. The bootstrap resamples sentences, not words: words of one sentence
+  are not independent draws.
 - **Every round retrains from scratch.** A warm-started student at 400
   labels has had more updates than a fresh one, so its kappa would mix "more
   labels" with "more training". Each round trains a new student with the same
@@ -252,12 +312,27 @@ active-selection and cascade milestones build on. Parity with Claude and the
 teacher's self-agreement ceiling are listed under "To measure" with their
 commands and cost (about $0.35 with Haiku 5.5).
 
+Span extraction on MIT Restaurant (8 slot types, ~9-word queries), the same
+setup with a ModernBERT-base BIO tagger on 1,442 gold-teacher labels, scored
+on 500 held-out sentences with intervals that resample sentences:
+
+| Entity F1 [95% CI] | Token kappa [95% CI] | Gazetteer F1 [95% CI] | Student minus gazetteer [95% paired CI] |
+|---|---|---|---|
+| 0.727 [0.696, 0.757] | 0.831 [0.810, 0.850] | 0.472 [0.445, 0.499] | +0.254 [0.222, 0.288] |
+
+Most of the student's misses are boundaries (127 of 237), not types (43). The
+alignment stress study shows why offsets cannot be trusted as given: with
+offsets off by one, a few characters, a word index or zero, plain
+verification keeps none of the ~960 changed spans and the repair ladder
+recovers 99.8-100%. Claude parity on this task is under "To measure"
+(about $0.30 with Haiku 5.5).
+
 ## Roadmap
 
 - [x] M1: scaffold, CI, Claude teacher with cache and cost accounting, label store, offline slice, ONNX export spike
 - [x] M2: full training loop and evaluation core (bootstrap CI, teacher self-agreement ceiling, error slices); AG News and Banking77 harness (Claude parity to measure)
 - [x] M3: active-learning loop, selection interface with the random baseline and contract tests, frontier and synthetic selection evals (Claude frontier and the non-random strategies to measure)
-- [ ] M4: span extraction with character-offset alignment
+- [x] M4: span extraction with character-offset alignment, a BIO tagger, entity F1 and token kappa, MIT Restaurant harness (Claude parity to measure)
 - [ ] M5: calibration, ONNX export with a parity gate, FastAPI server with teacher escalation, benchmarks
 - [ ] M6: Qwen2.5-0.5B LoRA generation student
 - [ ] M7: release (PyPI, GHCR, Hugging Face model cards)

@@ -26,7 +26,7 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make test-live` | tests that call Claude; skipped without `ANTHROPIC_API_KEY` |
 | `make record` | re-record the Claude fixtures under `tests/recordings/` (a few cents with Haiku) |
 | `make demo` | the offline vertical slice on the toy task (under two minutes) |
-| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md. `eval-classify` takes `TEACHER=auto\|claude\|replay\|gold` (`auto` replays committed labels, else calls Claude when a key is set) |
+| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md. `eval-classify` and `eval-extract` take `TEACHER=auto\|claude\|replay\|gold` (`auto` replays committed labels, else calls Claude when a key is set) |
 | `make results` | re-render the RESULTS.md tables from `eval/results/` (a test fails when they are stale) |
 | `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies |
 | `make bench` | latency, throughput and cost table (M5) |
@@ -40,6 +40,8 @@ never edited by hand for numbers: generated tables sit between
 `<!-- BEGIN generated:... -->` markers, and the M1 spike table, which predates
 the renderer, names its source file. Eval dependencies (`datasets`) are in the
 `eval` dependency group, which `make eval-*` installs on demand; CI does not.
+`make eval-extract` reads its dataset's raw files with `huggingface_hub` and
+needs no extra group.
 Labels a live eval pays for are committed under `eval/labels/` so every later
 run replays them offline and for free.
 
@@ -56,13 +58,15 @@ anvil/            package: spec, teacher/, store, students/, train/, evaluate/,
                   pipeline, cli (M2+ add align, select, loop, calibrate, export,
                   serve, hub)
 examples/toy/     the toy ticket-triage task used by the demo and the tests
+examples/toy-extract/  the toy restaurant-slot extraction task (demo and tests)
 scripts/          demo.sh
 tests/            unit + integration; tests/recordings/ holds real Claude
                   responses replayed offline (empty until `make record`)
-eval/             classify.py (the parity harness), data.py (pinned dataset
-                  loaders), render.py (RESULTS.md tables), classify/*.yaml
-                  (dataset, sample, ceiling prompt, task spec), labels/
-                  (recorded teacher labels), results/, spikes/
+eval/             classify.py and extract.py (the parity harnesses), data.py
+                  (pinned dataset loaders), render.py (RESULTS.md tables),
+                  classify/*.yaml and extract/*.yaml (dataset, sample, ceiling
+                  prompt, task spec), labels/ (recorded teacher labels),
+                  results/, spikes/
 docs/             notes/ (spikes); M7 adds screenshots
 notebooks/        the Colab GPU run (M6)
 ```
