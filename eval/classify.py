@@ -44,7 +44,7 @@ from pathlib import Path
 from typing import Literal, Protocol
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from anvil import __version__, log
 from anvil.errors import AnvilError, ConfigError
@@ -654,7 +654,14 @@ def _override(
                 "heldout_labels": max(1, round(smp.heldout_labels * ratio)),
             }
         )
-    return config.model_copy(update={"spec": spec, "sample": smp})
+    # `model_copy` does not validate, so the result goes through the validators again: a
+    # negative epoch count or sample size must fail here, not halfway through a run.
+    try:
+        return EvalConfig.model_validate(
+            config.model_copy(update={"spec": spec, "sample": smp}).model_dump()
+        )
+    except ValidationError as exc:
+        raise ConfigError(f"invalid override: {exc}") from exc
 
 
 def summary_line(report: dict[str, object], out: Path) -> str:

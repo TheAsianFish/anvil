@@ -651,3 +651,22 @@ def test_recorded_refusals_replay_faithfully(
             assert report["teacher"][k] == teacher[k]  # type: ignore[index]
     with sqlite3.connect(ws.db) as db:
         assert db.execute("SELECT COUNT(*) FROM failures").fetchone()[0] == 0
+
+
+def test_override_validates_the_result(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = load_config(classify.CONFIG_DIR / "ag_news.yaml")
+    with pytest.raises(ConfigError, match="epochs"):
+        classify._override(config, None, -3, None)
+    with pytest.raises(ConfigError, match="size"):
+        classify._override(config, None, None, -5)
+
+    def unreachable(*a: object, **k: object) -> None:
+        raise AssertionError("the dataset was loaded for an invalid override")
+
+    monkeypatch.setattr(classify, "load_rows", unreachable)
+    assert classify.main(["ag_news", "--teacher", "gold", "--epochs", "-3"]) == 2
+    err = capsys.readouterr().err
+    assert err.startswith("error: invalid override")
+    assert "Traceback" not in err

@@ -32,6 +32,7 @@ import platform
 import random
 import re
 import shutil
+import string
 import sys
 import time
 from collections import Counter
@@ -40,7 +41,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 import yaml
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError
 
 from anvil import __version__, log
 from anvil.align import MATCH_RULES, align_mentions
@@ -235,6 +236,8 @@ def alignment_stress(
     mentions. A changed span is `recovered` when alignment returns it exactly, `misplaced`
     when its mention was aligned somewhere else (another occurrence of the same words, or
     an exact match of a corrupted text such as "pizza." in "pizza."), and `lost` otherwise.
+    The attribution is one-to-one (`_attribute`): an aligned span accounts for at most one
+    gold span, so two mentions of the same words cannot both claim one aligned span.
     """
     total = sum(len(g) for g in gold)
     out: dict[str, object] = {"spans": total, "inputs": len(texts), "seed": seed}
@@ -255,12 +258,10 @@ def alignment_stress(
             for text, spans, mentions, moved in corrupted:
                 if not moved:
                     continue
-                got = set(align_mentions(text, mentions, types, rules=rules).spans)
-                for i in moved:
-                    if spans[i] in got:
-                        recovered += 1
-                    elif _placed_elsewhere(text, spans[i], got):
-                        misplaced += 1
+                got = align_mentions(text, mentions, types, rules=rules).spans
+                r, m = _attribute(text, spans, moved, got)
+                recovered += r
+                misplaced += m
             row[mode] = {
                 "recovered": recovered,
                 "misplaced": misplaced,
@@ -272,16 +273,42 @@ def alignment_stress(
     return out
 
 
-def _placed_elsewhere(text: str, gold: Span, got: set[Span]) -> bool:
-    """Whether some aligned span of the gold span's type covers other characters with the
-    same words (case-insensitively) or overlaps it with a different extent."""
-    words = gold.text_in(text).lower().strip(".")
-    return any(
-        s != gold
-        and s.type == gold.type
-        and (s.overlaps(gold) or s.text_in(text).lower().strip(".") == words)
-        for s in got
-    )
+_EDGE = string.punctuation + string.whitespace
+
+
+def _words(text: str, span: Span) -> str:
+    return span.text_in(text).strip(_EDGE).lower()
+
+
+def _attribute(
+    text: str, gold: Sequence[Span], moved: set[int], got: Sequence[Span]
+) -> tuple[int, int]:
+    """(recovered, misplaced) among the changed gold spans `moved`, one aligned span each.
+
+    Aligned spans equal to a gold span are consumed first: by the changed ones (recovered)
+    and by the unchanged ones (not scored, but no longer free to explain another span). Each
+    remaining changed span then takes the first unconsumed aligned span of its type that
+    overlaps it or covers the same words, ignoring case and edge punctuation (misplaced);
+    one with nothing left to take was lost.
+    """
+    free = list(got)
+    recovered = 0
+    pending: list[Span] = []
+    for i, span in enumerate(gold):
+        if span in free:
+            free.remove(span)
+            recovered += i in moved
+        elif i in moved:
+            pending.append(span)
+    misplaced = 0
+    for span in pending:
+        words = _words(text, span)
+        for j, s in enumerate(free):
+            if s.type == span.type and (s.overlaps(span) or _words(text, s) == words):
+                del free[j]
+                misplaced += 1
+                break
+    return recovered, misplaced
 
 
 # --- the run ----------------------------------------------------------------------------
@@ -406,6 +433,11 @@ def run(
         heldout = store.labelled(teacher.model_id, spec.prompt_hash, Split.HELDOUT)
         pool = store.labelled(teacher.model_id, spec.prompt_hash, Split.POOL)
         stats = store.stats(teacher.model_id, spec.prompt_hash)
+    if not heldout:
+        raise ConfigError(
+            f"the sample of {len(data.items)} sentences put none in the held-out split, so"
+            " there is nothing to score; raise --size (or sample.size in the config)"
+        )
 
     ceiling, c_spent, c_failures = _ceiling(
         kind, config, data, heldout, ws, settings, n_resamples, seed
@@ -547,7 +579,14 @@ def _override(
                 "heldout_labels": max(1, round(smp.heldout_labels * ratio)),
             }
         )
-    return config.model_copy(update={"spec": spec, "sample": smp})
+    # `model_copy` does not validate, so the result goes through the validators again: a
+    # negative epoch count or sample size must fail here, not halfway through a run.
+    try:
+        return EvalConfig.model_validate(
+            config.model_copy(update={"spec": spec, "sample": smp}).model_dump()
+        )
+    except ValidationError as exc:
+        raise ConfigError(f"invalid override: {exc}") from exc
 
 
 def summary_line(report: Mapping[str, object], out: Path) -> str:
@@ -593,7 +632,13 @@ def main(argv: list[str] | None = None) -> int:
                 load_config(CONFIG_DIR / f"{name}.yaml"), args.student, args.epochs, args.size
             )
             rows = load_tagged_rows(config.dataset.ref())
-            data = sample_tagged(name, rows, n=config.sample.size, seed=config.sample.seed)
+            data = sample_tagged(
+                name,
+                rows,
+                n=config.sample.size,
+                seed=config.sample.seed,
+                types=config.spec.label_names,
+            )
             kind = resolve_teacher_kind(args.teacher, config)
             model = "gold" if kind == "gold" else config.spec.teacher.model
             out = args.out or results_dir(name, model, smoke=smoke)

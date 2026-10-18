@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
+from anvil.errors import ConfigError
 from anvil.spans import Span, encode_answer, spans_to_mentions
 from anvil.teacher.base import Item
 
@@ -117,24 +118,38 @@ def load_tagged_rows(ref: TaggedRef) -> list[tuple[list[str], list[str]]]:
     return rows
 
 
-def bio_to_spans(words: Sequence[str], tags: Sequence[str]) -> tuple[str, list[Span]]:
+def bio_to_spans(
+    words: Sequence[str], tags: Sequence[str], row: object = None
+) -> tuple[str, list[Span]]:
     """The words joined by single spaces and the gold spans as character offsets into it.
 
     Chunks follow the CoNLL convention (as `align.tags_to_spans` does for predictions): `B-x`
     opens a chunk, `I-x` continues a chunk of type `x` and otherwise opens one, `O` closes.
+    Only BIO tags are accepted: an IO tag (`PER`) or a BIOES one (`E-PER`, `S-PER`) would be
+    chunked wrongly without a word of warning, so it raises `ConfigError`, as does an empty
+    word (the joined text would not split back into the same words). `row` names the source
+    row in the message.
     """
+    where = f"row {row}" if row is not None else "a row"
     if len(words) != len(tags):
-        raise ValueError(f"{len(words)} words but {len(tags)} tags")
+        raise ConfigError(f"{where} has {len(words)} words but {len(tags)} tags")
     starts: list[int] = []
     pos = 0
-    for w in words:
+    for i, w in enumerate(words):
+        if not w.strip():
+            raise ConfigError(f"{where} has an empty word at position {i}; fix the dataset")
         starts.append(pos)
         pos += len(w) + 1
     text = " ".join(words)
     spans: list[Span] = []
     open_type: str | None = None  # the type of the chunk the previous word belongs to
     for i, tag in enumerate(tags):
-        prefix, _, kind = tag.partition("-")
+        prefix, dash, kind = tag.partition("-")
+        if tag != "O" and not (dash and prefix in ("B", "I") and kind):
+            raise ConfigError(
+                f"{where} has tag {tag!r} at word {i}: only O, B-<type> and I-<type> are"
+                " understood; convert the dataset to the BIO scheme"
+            )
         end = starts[i] + len(words[i])
         if tag == "O":
             open_type = None
@@ -147,26 +162,44 @@ def bio_to_spans(words: Sequence[str], tags: Sequence[str]) -> tuple[str, list[S
 
 
 def sample_tagged(
-    name: str, rows: Sequence[tuple[list[str], list[str]]], n: int, seed: int
+    name: str,
+    rows: Sequence[tuple[list[str], list[str]]],
+    n: int,
+    seed: int,
+    types: Sequence[str],
 ) -> Sample:
     """`n` distinct, non-empty sentences in a seeded order, like `sample`. The gold label of
     each is its spans as a stored extraction answer (`spans.encode_answer`), so the gold
-    teacher replays them through the same path a Claude answer takes."""
+    teacher replays them through the same path a Claude answer takes.
+
+    Every gold type in the sample must be one of `types` (the spec's labels): alignment would
+    otherwise drop the unknown ones as invalid, and the gold teacher, the student and the
+    stress study would all quietly score a smaller task than the dataset's."""
     order = np.random.default_rng(seed).permutation(len(rows))
     items: list[Item] = []
     gold: dict[str, str] = {}
     seen: set[str] = set()
+    unknown: set[str] = set()
+    known = set(types)
     for i in order.tolist():
         words, tags = rows[i]
-        text, spans = bio_to_spans(words, tags)
-        if not text.strip() or text in seen:
+        if not words:
+            continue
+        text, spans = bio_to_spans(words, tags, row=i)
+        if text in seen:
             continue
         seen.add(text)
+        unknown.update(s.type for s in spans if s.type not in known)
         item = Item(id=f"{name}-{i}", text=text)
         items.append(item)
         gold[item.id] = encode_answer(spans_to_mentions(text, spans))
         if len(items) == n:
             break
+    if unknown:
+        raise ConfigError(
+            f"the {name} gold answers use types the spec does not list:"
+            f" {', '.join(sorted(unknown))}; add them to the spec's labels or fix the label map"
+        )
     return Sample(items, gold, len(rows))
 
 
