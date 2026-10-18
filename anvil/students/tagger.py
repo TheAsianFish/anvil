@@ -303,4 +303,9 @@ class EncoderTagger:
                 f"{path} has tags {tags} that do not match its types {types}; the files were"
                 " edited or come from another version, so retrain the tagger"
             )
+        if int(model.config.num_labels) != len(tags):
+            raise StudentError(
+                f"{path} has a head for {model.config.num_labels} tags but lists {len(tags)};"
+                " the model files and the tagger's metadata do not belong together, so retrain"
+            )
         return cls(model, tokenizer, types, max_length, extra_meta=meta)

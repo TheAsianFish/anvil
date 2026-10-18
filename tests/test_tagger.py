@@ -287,3 +287,14 @@ def test_resume_on_other_spans_or_types_is_refused(
     # The original data still resumes.
     result = _tagger(spec).fit(texts, spans, spec, checkpoint_dir=tmp_path / "ckpt", resume=True)
     assert result.resumed_at_step is not None
+
+
+def test_load_rejects_a_head_of_another_size(tmp_path: Path) -> None:
+    tagger = _tagger()
+    tagger.save(tmp_path)
+    meta = json.loads((tmp_path / META_FILE).read_text(encoding="utf-8"))
+    meta["types"] = [*TYPES, "Dish"]
+    meta["tags"] = [*meta["tags"], "B-Dish", "I-Dish"]
+    (tmp_path / META_FILE).write_text(json.dumps(meta), encoding="utf-8")
+    with pytest.raises(StudentError, match="head for 5 tags but lists 7"):
+        EncoderTagger.load(tmp_path)
