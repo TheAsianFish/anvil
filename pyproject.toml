@@ -42,6 +42,7 @@ dev = [
     "pytest>=9.1",
     "ruff>=0.17",
     "scikit-learn>=1.9",
+    "seqeval>=1.2.2",
     "types-pyyaml>=6.0.12",
 ]
 # Dataset loaders for `make eval-*` (pulls pyarrow; kept out of the default sync and CI).
