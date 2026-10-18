@@ -156,6 +156,33 @@ Classes seen in the training labels (random, mean over seeds): 55.7 at 100, 68.0
 The teacher here is the dataset's gold labels (no API key in this run): the curve measures how the student learns from clean labels, not parity with Claude.
 <!-- END generated:frontier -->
 
+### Extraction parity: MIT Restaurant (M4)
+
+- Command: `make eval-extract TEACHER=gold` (`python -m eval.extract mit_restaurant --teacher
+  gold`, then `python -m eval.render`, which writes the block below from
+  `eval/results/extract-*/`).
+- Method: a seeded sample of 2,000 distinct sentences from the MIT Restaurant train split
+  (T-NER copy at a pinned revision; words joined by single spaces, gold BIO tags turned into
+  character spans). The store's hash split puts about a quarter in held-out. The teacher
+  labels up to 500 held-out and 1,500 pool sentences as mentions (text, type, claimed start
+  offset); every answer is aligned to its sentence and to the student's tokens, and training
+  refuses to start if more than 5% of mentions are lost. A fresh `EncoderTagger`
+  (ModernBERT-base, BIO head) trains on the pool (10% held back by text hash to pick the epoch
+  by entity F1) and is scored against the teacher's held-out answers. Entity F1 is exact match
+  on (start, end, type), micro over all entities; token kappa is Cohen's kappa over the BIO tag
+  of every whitespace word. Both intervals are 95% percentile bootstraps that resample
+  sentences (1,000 resamples), not words or entities. The gazetteer baseline tags every
+  occurrence of a surface form the teacher tagged in the training pool (most frequent type,
+  longest match first); the student-minus-gazetteer interval is paired on the same sentences.
+- The stress table corrupts the held-out gold mentions the ways a language model gets offsets
+  wrong and counts the spans plain verification (exact offset or nothing) and the repair
+  ladder recover. It is synthetic noise on real sentences, run on every invocation; it
+  measures the alignment code, not a teacher.
+
+<!-- BEGIN generated:extract -->
+No extraction runs yet: run `make eval-extract`.
+<!-- END generated:extract -->
+
 ### Selection on synthetic data (M3)
 
 - Command: `make eval-select` (`python -m eval.select_study`, then `python -m eval.render`,

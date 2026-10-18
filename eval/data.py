@@ -16,6 +16,7 @@ from pathlib import Path
 
 import numpy as np
 
+from anvil.spans import Span, encode_answer, spans_to_mentions
 from anvil.teacher.base import Item
 
 
@@ -82,6 +83,91 @@ def sample(name: str, texts: list[str], labels: list[str], n: int, seed: int) ->
         if len(items) == n:
             break
     return Sample(items, gold, len(texts))
+
+
+@dataclass(frozen=True)
+class TaggedRef:
+    """A word-tokenised BIO dataset stored as JSON lines (`{"tokens": [...], "tags": [...]}`
+    with integer tags and a `label.json` tag map), read at a pinned revision. The T-NER
+    copies on the Hugging Face Hub use this layout; reading the raw files directly avoids the
+    loader scripts `datasets` 5 no longer runs."""
+
+    repo: str
+    revision: str
+    filename: str
+    label_map: str
+    license: str = ""
+
+
+def load_tagged_rows(ref: TaggedRef) -> list[tuple[list[str], list[str]]]:
+    """Every (words, BIO tag names) row of the file, in file order."""
+    from huggingface_hub import hf_hub_download
+
+    def fetch(name: str) -> Path:
+        return Path(hf_hub_download(ref.repo, name, repo_type="dataset", revision=ref.revision))
+
+    tag_ids = json.loads(fetch(ref.label_map).read_text(encoding="utf-8"))
+    names = {int(v): str(k) for k, v in tag_ids.items()}
+    rows: list[tuple[list[str], list[str]]] = []
+    for line in fetch(ref.filename).read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        obj = json.loads(line)
+        rows.append(([str(w) for w in obj["tokens"]], [names[int(t)] for t in obj["tags"]]))
+    return rows
+
+
+def bio_to_spans(words: Sequence[str], tags: Sequence[str]) -> tuple[str, list[Span]]:
+    """The words joined by single spaces and the gold spans as character offsets into it.
+
+    Chunks follow the CoNLL convention (as `align.tags_to_spans` does for predictions): `B-x`
+    opens a chunk, `I-x` continues a chunk of type `x` and otherwise opens one, `O` closes.
+    """
+    if len(words) != len(tags):
+        raise ValueError(f"{len(words)} words but {len(tags)} tags")
+    starts: list[int] = []
+    pos = 0
+    for w in words:
+        starts.append(pos)
+        pos += len(w) + 1
+    text = " ".join(words)
+    spans: list[Span] = []
+    open_type: str | None = None  # the type of the chunk the previous word belongs to
+    for i, tag in enumerate(tags):
+        prefix, _, kind = tag.partition("-")
+        end = starts[i] + len(words[i])
+        if tag == "O":
+            open_type = None
+        elif prefix == "I" and open_type == kind:
+            spans[-1] = Span(spans[-1].start, end, kind)
+        else:
+            spans.append(Span(starts[i], end, kind))
+            open_type = kind
+    return text, spans
+
+
+def sample_tagged(
+    name: str, rows: Sequence[tuple[list[str], list[str]]], n: int, seed: int
+) -> Sample:
+    """`n` distinct, non-empty sentences in a seeded order, like `sample`. The gold label of
+    each is its spans as a stored extraction answer (`spans.encode_answer`), so the gold
+    teacher replays them through the same path a Claude answer takes."""
+    order = np.random.default_rng(seed).permutation(len(rows))
+    items: list[Item] = []
+    gold: dict[str, str] = {}
+    seen: set[str] = set()
+    for i in order.tolist():
+        words, tags = rows[i]
+        text, spans = bio_to_spans(words, tags)
+        if not text.strip() or text in seen:
+            continue
+        seen.add(text)
+        item = Item(id=f"{name}-{i}", text=text)
+        items.append(item)
+        gold[item.id] = encode_answer(spans_to_mentions(text, spans))
+        if len(items) == n:
+            break
+    return Sample(items, gold, len(rows))
 
 
 def write_inputs(path: Path, items: list[Item]) -> None:

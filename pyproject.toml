@@ -86,6 +86,7 @@ files = [
     "tests",
     "eval/classify.py",
     "eval/data.py",
+    "eval/extract.py",
     "eval/frontier.py",
     "eval/render.py",
     "eval/select_study.py",

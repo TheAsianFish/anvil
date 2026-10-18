@@ -184,6 +184,169 @@ def _details(name: str, r: Report, meta: Report) -> list[str]:
     return out
 
 
+def _f1_ci(stats: Mapping[str, Any] | None, key: str = "entity_f1_ci") -> str:
+    """`0.812 [0.780, 0.841]` from a block holding `entity` (or `entity_f1`) and its CI."""
+    if not stats:
+        return "n/a"
+    value = (stats.get("entity") or {}).get("f1", stats.get("entity_f1"))
+    ci = stats.get(key) or {}
+    return f"{_f(value)} [{_f(ci.get('low'))}, {_f(ci.get('high'))}]"
+
+
+def _kappa_ci(stats: Mapping[str, Any] | None) -> str:
+    if not stats or "token_kappa" not in stats:
+        return "n/a"
+    ci = stats.get("token_kappa_ci") or {}
+    return f"{_f(stats['token_kappa'])} [{_f(ci.get('low'))}, {_f(ci.get('high'))}]"
+
+
+def _pct(x: object) -> str:
+    return f"{100 * x:.1f}%" if isinstance(x, int | float) else "n/a"
+
+
+def render_extract(runs: list[tuple[str, Report, Report]]) -> str:
+    if not runs:
+        return "No extraction runs yet: run `make eval-extract`.\n"
+    lines = [
+        "| Dataset | Teacher | Student | Teacher labels | Held-out | Entity F1 [95% CI]"
+        " | Precision | Recall | Token kappa [95% CI] | All-O token acc."
+        " | Gazetteer F1 [95% CI] | Student minus gazetteer F1 [95% paired CI]"
+        " | Teacher ceiling F1 | Unaligned (pool) | Label cost | Wall time |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for _, r, meta in runs:
+        ag, t, s = r["agreement"], r["teacher"], r["student"]
+        gaz = r["baselines"]["gazetteer"]
+        ceiling = r.get("ceiling") or {}
+        ceiling_cell = _f1_ci(ceiling) if "entity_f1" in ceiling else "n/a"
+        pool = (r.get("alignment") or {}).get("pool") or {}
+        minutes = meta.get("wall_seconds", r["wall_seconds"]) / 60
+        lines.append(
+            f"| {r['dataset']['name']} | {t['model']} | {_student_name(s['model'])}"
+            f" | {t['pool_labels']} | {ag['n']} | {_f1_ci(ag)}"
+            f" | {_f(ag['entity']['precision'])} | {_f(ag['entity']['recall'])}"
+            f" | {_kappa_ci(ag)} | {_f(ag['all_o_accuracy'])} | {_f1_ci(gaz)}"
+            f" | {_diff(gaz.get('student_minus_gazetteer_f1'))} | {ceiling_cell}"
+            f" | {_pct(pool.get('unaligned_rate'))} | ${t['label_cost_usd']:.2f}"
+            f" | {minutes:.0f} min |"
+        )
+    lines.append("")
+    for name, r, meta in runs:
+        lines += _extract_details(name, r, meta)
+    return "\n".join(lines)
+
+
+def _alignment_line(label: str, a: Mapping[str, Any]) -> str:
+    matched = ", ".join(f"{k} {v}" for k, v in (a.get("matched") or {}).items() if v)
+    dropped = ", ".join(f"{k} {v}" for k, v in (a.get("dropped") or {}).items() if v)
+    return (
+        f"- Alignment, {label}: {a.get('mentions')} teacher mentions; matched {matched or 'none'};"
+        f" dropped {dropped or 'none'} (unaligned {_pct(a.get('unaligned_rate'))});"
+        f" {a.get('duplicates', 0)} duplicates; {a.get('snapped', 0)} snapped to a token boundary"
+    )
+
+
+def _extract_details(name: str, r: Report, meta: Report) -> list[str]:
+    ag, t, s = r["agreement"], r["teacher"], r["student"]
+    train = s.get("train") or {}
+    out = [
+        f"#### {r['dataset']['name']}, teacher `{t['model']}`, student"
+        f" `{_student_name(s['model'])}`",
+        "",
+        f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`,"
+        " `train-metrics.jsonl`)",
+        f"- Command: `{meta.get('command', '')}` at `{str(meta.get('git_sha', ''))[:7]}`"
+        f"{' (dirty tree)' if meta.get('git_dirty') else ''}; seed {meta.get('seed')},"
+        f" {meta.get('n_resamples')} bootstrap resamples (by input); {meta.get('cpus')} CPUs;"
+        f" wall {_f(meta.get('wall_seconds'), 0)} s; spent ${r['spent_usd']:.4f}",
+        f"- Data: {r['dataset']['repo']}@{str(r['dataset']['revision'])[:7]}"
+        f" `{r['dataset'].get('file')}` ({r['dataset']['license']}), {r['dataset']['sampled']}"
+        f" sentences sampled (seed {r['dataset']['sample_seed']}, sha256"
+        f" {str(r['dataset']['sample_sha256'])[:12]})",
+        f"- Training: {train.get('examples')} examples and"
+        f" {train.get('validation_examples')} held back to pick the epoch (entity F1), out of"
+        f" {t['pool_labels']} teacher labels; {train.get('epochs')} epochs,"
+        f" {train.get('steps')} steps, best epoch {train.get('best_epoch')},"
+        f" {_f(train.get('seconds'), 0)} s",
+    ]
+    alignment = r.get("alignment") or {}
+    for key in ("pool", "heldout"):
+        if alignment.get(key):
+            out.append(_alignment_line(key, alignment[key]))
+    if t.get("failures"):
+        out.append(f"- Teacher failures: {t['failures']} inputs got no label")
+    dup = r["dataset"].get("near_duplicate_heldout")
+    if dup is not None:
+        out.append(
+            f"- Near-duplicates: {dup} of {ag['n']} held-out sentences share at least"
+            f" {100 * r['dataset']['near_duplicate_jaccard']:.0f}% of their words with a labelled"
+            " pool sentence"
+        )
+    if t["kind"] == "gold":
+        out.append(
+            "- The teacher here is the dataset's gold annotation (no API key in this run), so"
+            " this row measures the harness and how well the tagger learns from"
+            f" {t['pool_labels']:,} clean labels; it is not a parity-with-Claude number."
+        )
+    gold = r.get("gold") or {}
+    if "teacher_vs_gold" in gold:
+        out.append(
+            f"- Against gold (entity F1): teacher {_f1_ci(gold['teacher_vs_gold'])},"
+            f" student {_f1_ci(gold['student_vs_gold'])}"
+        )
+    types = [c for c in ag.get("per_type", []) if c.get("support", 0) >= MIN_SUPPORT]
+    if types:
+        gaz_types = {c["type"]: c for c in r["baselines"]["gazetteer"].get("per_type", [])}
+        out.append(
+            f"- Entity F1 by type (student / gazetteer, held-out support, types with at least"
+            f" {MIN_SUPPORT}): "
+            + ", ".join(
+                f"`{c['type']}` {_f(c['f1'], 2)} / {_f(gaz_types.get(c['type'], {}).get('f1'), 2)}"
+                f" ({c['support']})"
+                for c in sorted(types, key=lambda c: (c["f1"], c["type"]))
+            )
+        )
+    e = ag.get("errors") or {}
+    if e:
+        out.append(
+            "- Teacher entities by outcome: "
+            + ", ".join(
+                f"{k.replace('_', ' ')} {e[k]}"
+                for k in ("correct", "wrong_boundary", "wrong_type", "wrong_both", "missed")
+            )
+            + f"; spurious student entities {e.get('spurious')}"
+        )
+    slices = ag.get("by_length", [])
+    if slices:
+        cells = ", ".join(
+            f"{_f(sl['lo'], 0)}-{_f(sl['hi'], 0)}: {_f(sl['agreement'], 2)} (n={sl['n']})"
+            for sl in slices
+        )
+        out.append(f"- Entity F1 by length (words): {cells}")
+    stress = r.get("alignment_stress") or {}
+    rows = stress.get("corruptions") or {}
+    if rows:
+        out += [
+            "",
+            f"Alignment stress on the {stress.get('spans')} held-out gold spans: every mention"
+            " corrupted the same way; only the spans a corruption changes are scored, and a"
+            " span counts when alignment returns it exactly:",
+            "",
+            "| Corruption | Spans changed | Verify only | Repair ladder | Repair: misplaced |",
+            "|---|---|---|---|---|",
+        ]
+        for cname, row in rows.items():
+            if not row.get("changed"):
+                continue
+            v, rep = row["verify_only"], row["repair"]
+            out.append(
+                f"| {cname} | {row['changed']} | {v['recovered']} ({_pct(v['recovered_rate'])})"
+                f" | {rep['recovered']} ({_pct(rep['recovered_rate'])}) | {rep['misplaced']} |"
+            )
+    out.append("")
+    return out
+
+
 BLOCK = re.compile(
     r"(<!-- BEGIN generated:(?P<name>[a-z-]+) -->\n)(?P<body>.*?)"
     r"(<!-- END generated:(?P=name) -->)",
@@ -438,6 +601,7 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "classify-seeds": render_seed_spread(load_runs(results_dir, seeds=True)),
         "select": render_select(load_select(results_dir)),
         "frontier": render_frontier(load_frontiers(results_dir)),
+        "extract": render_extract(load_runs(results_dir, prefix="extract-")),
     }
 
 
