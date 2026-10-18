@@ -192,6 +192,35 @@ class EncoderClassifier:
             return np.zeros((0, len(self.labels)), dtype=np.float32)
         return np.concatenate(out).astype(np.float32)
 
+    @torch.no_grad()
+    def predict_with_embeddings(
+        self, texts: Sequence[str], batch_size: int = 64
+    ) -> tuple[npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        """Class probabilities and one vector per text from the same forward pass: the last
+        hidden layer mean-pooled over real (non-padding) tokens. Selection uses the vectors
+        to tell near-duplicate inputs apart from genuinely different ones."""
+        self.model.eval()
+        probs: list[npt.NDArray[np.float32]] = []
+        vectors: list[npt.NDArray[np.float32]] = []
+        for start in range(0, len(texts), batch_size):
+            batch = self.encode(texts[start : start + batch_size])
+            out = self.model(**batch, output_hidden_states=True)
+            probs.append(torch.softmax(out.logits.float(), dim=-1).cpu().numpy())
+            mask = batch["attention_mask"].unsqueeze(-1).float()
+            hidden = out.hidden_states[-1].float()
+            pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
+            vectors.append(pooled.cpu().numpy())
+        if not probs:
+            width = int(self.model.config.hidden_size)
+            return (
+                np.zeros((0, len(self.labels)), dtype=np.float32),
+                np.zeros((0, width), dtype=np.float32),
+            )
+        return (
+            np.concatenate(probs).astype(np.float32),
+            np.concatenate(vectors).astype(np.float32),
+        )
+
     def predict(self, texts: Sequence[str]) -> list[str]:
         probs = self.predict_proba(texts)
         return [self.labels[i] for i in probs.argmax(axis=1)]

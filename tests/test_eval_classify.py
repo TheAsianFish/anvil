@@ -13,10 +13,10 @@ from anvil.errors import ConfigError
 from anvil.evaluate.metrics import cohen_kappa
 from anvil.settings import Settings
 from anvil.spec import TaskSpec
-from anvil.store import Split, read_inputs
-from anvil.teacher.base import Item, Label, LabelBatch
+from anvil.store import Split, Store, read_inputs
+from anvil.teacher.base import Failure, Item, Label, LabelBatch
 from anvil.teacher.fake import FakeTeacher
-from anvil.teacher.labelfile import RecordedLabel, read_label_file, write_label_file
+from anvil.teacher.labelfile import read_label_file, write_label_file
 from eval import classify, render
 from eval.classify import EvalConfig, load_config, resolve_teacher_kind
 from eval.data import Sample, label_name, near_duplicates, sample
@@ -143,13 +143,13 @@ def test_gold_run_writes_a_complete_report_and_renders(tmp_path: Path) -> None:
     assert "not a parity-with-Claude number" in table
 
 
-def _as_labels(rows: list[RecordedLabel]) -> list[Label]:
+def _as_labels(rows: list[Label]) -> list[Label]:
     return [
         Label(r.input_id, r.label, r.teacher_model, r.prompt_hash, 300, 5, 3.25e-5) for r in rows
     ]
 
 
-def _flipped(config: EvalConfig, data: Sample, k: int, offset: int) -> list[RecordedLabel]:
+def _flipped(config: EvalConfig, data: Sample, k: int, offset: int) -> list[Label]:
     """A "recorded" teacher: gold with every k-th answer (from `offset`) moved to the next
     label; offset 0 records the main prompt, any other the paraphrase."""
     spec, para = config.spec, config.paraphrase_spec()
@@ -160,7 +160,7 @@ def _flipped(config: EvalConfig, data: Sample, k: int, offset: int) -> list[Reco
         if i % k == offset:
             lab = names[(names.index(lab) + 1) % len(names)]
         prompt = spec.prompt_hash if offset == 0 else para.prompt_hash
-        rows.append(RecordedLabel(it.id, lab, spec.teacher.model, prompt, 300, 5, 3.25e-5))
+        rows.append(Label(it.id, lab, spec.teacher.model, prompt, 300, 5, 3.25e-5))
     return rows
 
 
@@ -524,3 +524,130 @@ def test_results_md_check_fails_when_a_rendered_number_changes(
     )
     monkeypatch.setattr(render, "RESULTS_MD", stale)
     assert render.main(["--check"]) == 1
+
+
+def test_recording_merges_failures_and_a_label_always_wins(tmp_path: Path) -> None:
+    path = tmp_path / "labels" / "toy" / "haiku.jsonl"
+    key = ("claude-haiku-5-5", "p1")
+
+    def lab(i: str, label: str = "x") -> Label:
+        return Label(i, label, *key, 300, 5, 1e-4)
+
+    def refusal(i: str, reason: str = "refusal (cyber)") -> Failure:
+        return Failure(i, reason, 1000, 50, 0.005)
+
+    write_label_file(path, [lab("a")], [(refusal("b"), *key)])
+    # The store has a newer refusal for an input the file has a label for (the label stays),
+    # a retry that failed differently (it replaces the old failure) and two new inputs.
+    n = classify.record_labels(
+        path, [lab("c")], [refusal("a"), refusal("b", "hit max_tokens"), refusal("d")], key
+    )
+    assert n == 4
+    rows = {r.input_id: (r.label, r.reason) for r in read_label_file(path)}
+    assert rows == {
+        "a": ("x", None),
+        "b": (None, "hit max_tokens"),
+        "c": ("x", None),
+        "d": (None, "refusal (cyber)"),
+    }
+    # A later answer for a refused input replaces its failure row.
+    assert classify.record_labels(path, [lab("b", "y")]) == 4
+    assert {r.input_id: r.label for r in read_label_file(path)}["b"] == "y"
+    with pytest.raises(ValueError, match="teacher model, prompt hash"):
+        classify.record_labels(path, [], [refusal("e")])
+
+
+class _RefusingStub(_LiveStub):
+    """`_LiveStub` that refuses (and bills) the given (prompt hash, input id) pairs."""
+
+    def __init__(
+        self,
+        config: EvalConfig,
+        data: Sample,
+        spec: TaskSpec,
+        calls: list[tuple[str, str]],
+        refuse: set[tuple[str, str]],
+    ) -> None:
+        super().__init__(config, data, spec, calls)
+        self._refuse = refuse
+
+    def label(self, items: list[Item]) -> LabelBatch:
+        batch = super().label(items)
+        refused = [lb for lb in batch.labels if (lb.prompt_hash, lb.input_id) in self._refuse]
+        for lb in refused:
+            batch.labels.remove(lb)
+            batch.failures.append(Failure(lb.input_id, "refusal (cyber)", 300, 5, self.COST))
+        return batch
+
+
+def test_recorded_refusals_replay_faithfully(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config, data = _toy_config(tmp_path)
+    monkeypatch.setattr(classify, "LABELS_DIR", tmp_path / "labels")
+    spec, para = config.spec, config.paraphrase_spec()
+    model = spec.teacher.model
+    with Store(tmp_path / "probe.sqlite", spec.splits.seed, spec.splits.heldout_fraction) as s:
+        s.add_inputs(data.items)
+        heldout_order = [it.id for it in s.inputs(Split.HELDOUT)]
+        pool_order = [it.id for it in s.inputs(Split.POOL)]
+    # The teacher refuses one held-out and one pool input under the main prompt, and one
+    # held-out input of the ceiling subset under the paraphrase.
+    refuse = {
+        (spec.prompt_hash, heldout_order[3]),
+        (spec.prompt_hash, pool_order[5]),
+        (para.prompt_hash, heldout_order[7]),
+    }
+    calls: list[tuple[str, str]] = []
+    monkeypatch.setattr(
+        classify,
+        "build_teacher",
+        lambda s, settings, provider=None: _RefusingStub(config, data, s, calls, refuse),
+    )
+    settings = _settings(tmp_path)
+    out = tmp_path / "results" / "classify-toy-haiku"
+    live = classify.run(config, data, "claude", out, settings, n_resamples=100)
+    teacher = live["teacher"]
+    assert isinstance(teacher, dict)
+    assert teacher["failures"] == 3
+    asked = min(config.sample.heldout_labels, len(heldout_order))
+    assert teacher["heldout_labels"] == asked - 1  # one refused
+    assert teacher["pool_labels"] == 159
+    assert live["spent_usd"] == pytest.approx(len(calls) * _LiveStub.COST)
+    pred = live["predictions"]
+    assert isinstance(pred, dict)
+    assert heldout_order[3] not in pred["input_id"]
+    main_file = read_label_file(classify.label_file("toy", model, spec.prompt_hash))
+    assert {r.input_id: r.reason for r in main_file if r.failed} == {
+        heldout_order[3]: "refusal (cyber)",
+        pool_order[5]: "refusal (cyber)",
+    }
+    para_file = read_label_file(classify.label_file("toy", model, para.prompt_hash))
+    assert [r.input_id for r in para_file if r.failed] == [heldout_order[7]]
+
+    # A fresh checkout replays the run, refusals included, for free and to the same numbers.
+    assert resolve_teacher_kind("auto", config) == "replay"
+    bought = len(calls)
+    fresh = _settings(tmp_path / "again")
+    again = classify.run(config, data, "auto", out, fresh, n_resamples=100)
+    assert len(calls) == bought
+    assert again["spent_usd"] == 0
+    assert again["predictions"] == live["predictions"]  # the same held-out set and labels
+    assert again["agreement"] == live["agreement"]
+    assert again["ceiling"] == live["ceiling"]
+    for k in ("failures", "heldout_labels", "pool_labels", "label_cost_usd"):
+        assert again["teacher"][k] == teacher[k]  # type: ignore[index]
+
+    # Re-running the replay (and the live run, which now has the recording) asks nothing new,
+    # stores no replayed failures and keeps the cost where it was.
+    ws = classify.workspace(fresh, spec, data)
+    third = classify.run(config, data, "auto", out, fresh, n_resamples=100)
+    rerun = classify.run(config, data, "claude", out, settings, n_resamples=100)
+    assert len(calls) == bought
+    for report in (third, rerun):
+        assert report["predictions"] == live["predictions"]
+        assert report["spent_usd"] == 0
+        for k in ("failures", "pool_labels", "label_cost_usd"):
+            assert report["teacher"][k] == teacher[k]  # type: ignore[index]
+    with sqlite3.connect(ws.db) as db:
+        assert db.execute("SELECT COUNT(*) FROM failures").fetchone()[0] == 0

@@ -10,6 +10,7 @@ from anvil.store import Store
 from anvil.teacher.base import BatchAbortedError, Failure, Item, Label, LabelBatch
 from anvil.teacher.labelfile import (
     GOLD,
+    NOT_RECORDED,
     LabelFileTeacher,
     RecordedThenLiveTeacher,
     read_label_file,
@@ -128,3 +129,99 @@ def test_recorded_then_live_keeps_recorded_answers_on_abort(tmp_path: Path) -> N
         ("a", "x"),
         ("c", "live"),
     ]
+
+
+def _refusal(i: str, cost: float = 0.005) -> Failure:
+    return Failure(i, "refusal (cyber)", 1000, 50, cost)
+
+
+def test_failure_rows_roundtrip_and_replay_as_free_failures(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    key = ("claude-haiku-5-5", "p1")
+    assert write_label_file(path, [_label("a", "x")], [(_refusal("b"), *key)]) == 2
+    lines = path.read_text(encoding="utf-8").splitlines()
+    assert '"reason"' not in lines[0]  # label rows keep their old shape
+    assert '"label"' not in lines[1]
+    rows = read_label_file(path)
+    assert [(r.input_id, r.label, r.reason) for r in rows] == [
+        ("a", "x", None),
+        ("b", None, "refusal (cyber)"),
+    ]
+    assert rows[1].failed
+    teacher = LabelFileTeacher(rows, *key)
+    batch = teacher.label([Item("a", "ta"), Item("b", "tb"), Item("zz", "never recorded")])
+    assert [lb.input_id for lb in batch.labels] == ["a"]
+    assert batch.failures == [
+        Failure("b", "refusal (cyber)", 1000, 50, 0.005, cached=True),
+        Failure("zz", NOT_RECORDED),
+    ]
+    assert batch.spent_usd == 0  # the refusal was paid for when it was recorded
+
+
+def test_a_label_supersedes_a_failure_for_the_same_input(tmp_path: Path) -> None:
+    path = tmp_path / "labels.jsonl"
+    key = ("claude-haiku-5-5", "p1")
+    failures = [(_refusal("a"), *key), (_refusal("b"), *key)]
+    assert write_label_file(path, [_label("a", "x")], failures) == 2
+    assert [(r.input_id, r.label) for r in read_label_file(path)] == [("a", "x"), ("b", None)]
+
+
+@pytest.mark.parametrize(
+    "row",
+    [
+        '{"input_id": "a", "label": "x", "reason": "refusal", "teacher_model": "m",'
+        ' "prompt_hash": "p"}',
+        '{"input_id": "a", "teacher_model": "m", "prompt_hash": "p"}',
+        '{"input_id": "a", "label": null, "reason": null, "teacher_model": "m",'
+        ' "prompt_hash": "p"}',
+        '{"input_id": "a", "label": 3, "teacher_model": "m", "prompt_hash": "p"}',
+        '["a", "x"]',
+    ],
+)
+def test_a_row_needs_exactly_one_of_label_and_reason(tmp_path: Path, row: str) -> None:
+    path = tmp_path / "bad.jsonl"
+    ok = '{"input_id": "b", "label": "x", "teacher_model": "m", "prompt_hash": "p"}'
+    path.write_text(f"{ok}\n{row}\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match=r"bad\.jsonl:2"):
+        read_label_file(path)
+
+
+def test_recorded_then_live_keeps_recorded_refusals_and_asks_only_unrecorded(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "l.jsonl"
+    write_label_file(path, [_label("a", "x")], [(_refusal("b"), "claude-haiku-5-5", "p1")])
+    live = _CountingTeacher()
+    teacher = RecordedThenLiveTeacher(
+        LabelFileTeacher.from_file(path, "claude-haiku-5-5", "p1"), live
+    )
+    batch = teacher.label([Item("a", "ta"), Item("b", "tb"), Item("c", "tc")])
+    assert live.asked == [["c"]]  # the recorded refusal is not bought again
+    assert {lb.input_id: lb.label for lb in batch.labels} == {"a": "x", "c": "live"}
+    assert batch.failures == [Failure("b", "refusal (cyber)", 1000, 50, 0.005, cached=True)]
+    assert batch.spent_usd == pytest.approx(2e-4)  # only the live label
+    only_recorded = teacher.label([Item("b", "tb")])
+    assert live.asked == [["c"]]
+    assert [f.reason for f in only_recorded.failures] == ["refusal (cyber)"]
+
+
+def test_store_exports_the_latest_failure_per_unlabelled_input(tmp_path: Path) -> None:
+    with Store(tmp_path / "s.sqlite", 0, 0.5) as store:
+        store.add_inputs([Item("a", "alpha"), Item("b", "beta"), Item("c", "gamma")])
+        store.append_failures([_refusal("b", 0.01), _refusal("a")], "claude-haiku-5-5", "p1")
+        store.append_failures(
+            [Failure("b", "hit max_tokens", 10, 20, 0.02)], "claude-haiku-5-5", "p1"
+        )
+        store.append_failures([_refusal("c")], "claude-haiku-5-5", "p2")
+        store.append_labels([_label("a", "x")])  # a later answer supersedes the refusal
+        records = store.failure_records("claude-haiku-5-5", "p1")
+        assert records == [Failure("b", "hit max_tokens", 10, 20, 0.02)]
+        assert store.failure_records("claude-haiku-5-5", "p3") == []
+        before = store.stats("claude-haiku-5-5", "p1")
+        # A replayed refusal was billed when recorded: storing it on every replay would count
+        # its cost again each run, so it is not stored.
+        replayed = Failure("c", "refusal (cyber)", 1000, 50, 0.005, cached=True)
+        for _ in range(3):
+            store.append_failures([replayed], "claude-haiku-5-5", "p1")
+        assert store.stats("claude-haiku-5-5", "p1") == before
+        assert [f.input_id for f in store.failure_records("claude-haiku-5-5", "p1")] == ["b"]

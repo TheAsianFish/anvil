@@ -1,5 +1,5 @@
 .PHONY: help sync check fmt lint typecheck test test-live record demo docker spike-onnx \
-	eval-classify results clean
+	eval-classify eval-select eval-frontier results clean
 
 UV ?= uv
 RUN := $(UV) run
@@ -42,6 +42,14 @@ docker: ## build the CLI image
 TEACHER ?= auto
 eval-classify: ## M2 parity on AG News and Banking77 (TEACHER=auto|claude|replay|gold), then RESULTS.md
 	$(RUN) --group eval python -m eval.classify ag_news banking77 --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+eval-select: ## M3 selection strategies on synthetic blobs (offline, free), then RESULTS.md
+	$(RUN) python -m eval.select_study
+	$(RUN) python -m eval.render
+
+eval-frontier: ## M3 kappa vs teacher labels per strategy, 3 seeds x 5 budgets (TEACHER=auto|claude|replay|gold), then RESULTS.md
+	$(RUN) --group eval python -m eval.frontier --teacher $(TEACHER)
 	$(RUN) python -m eval.render
 
 results: ## regenerate the RESULTS.md tables from eval/results/

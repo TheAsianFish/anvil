@@ -241,10 +241,203 @@ def render_seed_spread(runs: list[tuple[str, Report, Report]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+SELECT_DIR = "select-synthetic"
+"""Where `python -m eval.select_study` writes, under the results directory."""
+SELECT_AT = (50, 100, 200, 400)
+"""Label counts whose mean test accuracy the selection table shows."""
+
+
+def load_select(results_dir: Path) -> tuple[Report, Report] | None:
+    path = results_dir / SELECT_DIR / "report.json"
+    if not path.exists():
+        return None
+    meta_path = path.parent / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.exists() else {}
+    return json.loads(path.read_text(encoding="utf-8")), meta
+
+
+def _reach(stats: Mapping[str, Any]) -> str:
+    """`98.5 [60-150]`: mean labels to a target over the seeds that reached it, and its range."""
+    if stats.get("mean") is None:
+        return "never"
+    return f"{stats['mean']:g} [{stats['min']}-{stats['max']}]"
+
+
+def render_select(run: tuple[Report, Report] | None) -> str:
+    """The synthetic selection study: per setting, labels to target and accuracy by labels."""
+    if run is None:
+        return "No selection study yet: run `make eval-select`.\n"
+    report, meta = run
+    config = report["config"]
+    max_labels = config["max_labels"]
+    seeds = config["seeds"]
+    lines = [
+        f"- Raw output: `eval/results/{SELECT_DIR}/` (`report.json`, `meta.json`)",
+        f"- Command: `{meta.get('command', '')}` at `{str(meta.get('git_sha', ''))[:7]}`"
+        f"{' (dirty tree)' if meta.get('git_dirty') else ''}; {seeds} seeds, data seed"
+        f" {report['data']['data_seed']}; {meta.get('cpus')} CPUs;"
+        f" wall {_f(meta.get('wall_seconds', report.get('wall_seconds')), 0)} s;"
+        f" spent ${report.get('spent_usd', 0):.2f}",
+        "",
+    ]
+    for name, setting in report["settings"].items():
+        targets = setting["targets"]
+        lines += [
+            f"**{name}**: {setting['pool_size']:,} pool points"
+            f" ({setting['distinct_pool_points']:,} distinct), {setting['test_size']:,} test"
+            f" points; a student trained on the whole pool scores"
+            f" {_f(setting['full_pool_accuracy'])} test accuracy (95% of it:"
+            f" {_f(targets['relative'])}).",
+            "",
+            f"| Strategy | Labels to {targets['accuracy']:.2f} accuracy, mean [min-max]"
+            f" | Seeds not reaching {targets['accuracy']:.2f} by {max_labels}"
+            f" | Labels to {_f(targets['relative'])} (95% of full pool), mean [min-max]"
+            f" | Seeds not reaching it | "
+            + " | ".join(f"Accuracy at {n}" for n in SELECT_AT)
+            + " |",
+            "|---|---|---|---|---|" + "---|" * len(SELECT_AT),
+        ]
+        for strategy, result in setting["strategies"].items():
+            if result.get("status") != "ok":
+                lines.append(
+                    f"| {strategy} | not implemented yet: run `make eval-select` once it is"
+                    " written | | | | " + " | ".join("" for _ in SELECT_AT) + " |"
+                )
+                continue
+            accuracy = dict(zip(result["label_counts"], result["accuracy"]["mean"], strict=True))
+            to = result["labels_to_target"]
+            lines.append(
+                f"| {strategy} | {_reach(to['accuracy'])} | {to['accuracy']['never']} of {seeds}"
+                f" | {_reach(to['relative'])} | {to['relative']['never']} of {seeds} | "
+                + " | ".join(_f(accuracy.get(n)) for n in SELECT_AT)
+                + " |"
+            )
+        lines.append("")
+    return "\n".join(lines)
+
+
+def load_frontiers(results_dir: Path) -> list[tuple[str, Report, Report]]:
+    """Every `frontier-*` run except smoke runs."""
+    return load_runs(results_dir, prefix="frontier-")
+
+
+def _target(value: object, budgets: list[int]) -> str:
+    return str(value) if isinstance(value, int) else f"> {max(budgets)}"
+
+
+def _heldout(dataset: Report, settings: Report) -> str:
+    """The held-out inputs a frontier scores: the hash split's share of the sample, capped."""
+    cap = int(settings["heldout_labels"])
+    inputs = dataset.get("heldout_inputs")
+    if not isinstance(inputs, int) or inputs <= cap:
+        return str(inputs if isinstance(inputs, int) else cap)
+    return f"{cap} (of {inputs})"
+
+
+def _resumed(name: str, meta: Report) -> str:
+    """Training plus selection time summed over the rows, flagged when it exceeds the wall:
+    the run then finished an earlier invocation's loops (`anvil loop` resumes by id)."""
+    path = RESULTS_DIR / name / "frontier.jsonl"
+    compute = 0.0
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                row = json.loads(line)
+                compute += float(row.get("train_seconds", 0)) + float(row.get("select_seconds", 0))
+    note = f" (training + selection {_f(compute / 60, 0)} min"
+    if compute > float(meta.get("wall_seconds", 0)):
+        note += ", so this invocation resumed an earlier one"
+    return note + ")"
+
+
+def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
+    """Held-out kappa per label budget and strategy (mean and range over seeds), and the labels
+    each target kappa needs, from `eval/frontier.py` runs."""
+    if not runs:
+        return "No frontier runs yet: run `make eval-frontier`.\n"
+    out: list[str] = []
+    for name, r, meta in runs:
+        settings = r["settings"]
+        budgets = [int(b) for b in settings["budgets"]]
+        targets = [f"{float(t):g}" for t in settings["targets"]]
+        d, t = r["dataset"], r["teacher"]
+        out += [
+            f"#### {d['name']}, teacher `{t['model']}`, student"
+            f" `{_student_name(str(r['student']['model']))}`",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`frontier.jsonl`, `report.json`, `meta.json`)",
+            f"- Command: `{meta.get('command', '')}` at `{str(meta.get('git_sha', ''))[:7]}`"
+            f"{' (dirty tree)' if meta.get('git_dirty') else ''}; seeds"
+            f" {', '.join(str(x) for x in settings['seeds'])}; {meta.get('cpus')} CPUs;"
+            f" wall {_f(meta.get('wall_seconds', 0) / 60, 0)} min"
+            f"{_resumed(name, meta)}; spent ${r['spent_usd']:.4f}",
+            f"- Data: {d['repo']}@{str(d['revision'])[:7]}, {d['sampled']} inputs sampled"
+            f" (sha256 {str(d['sample_sha256'])[:12]}): a pool of {d['pool']} to select from,"
+            f" {_heldout(d, settings)} held-out inputs scored every round",
+            "",
+            "| Strategy | "
+            + " | ".join(f"{b} labels" for b in budgets)
+            + " | "
+            + " | ".join(f"Labels to kappa {x} (mean / every seed's CI)" for x in targets)
+            + f" | Label cost at {budgets[-1]} |",
+            "|---|" + "---|" * (len(budgets) + len(targets) + 1),
+        ]
+        for strategy, status in r["status"].items():
+            if status != "measured":
+                out.append(
+                    f"| {strategy} | "
+                    + " | ".join("not implemented yet" for _ in budgets)
+                    + " | "
+                    + " | ".join("n/a" for _ in targets)
+                    + " | n/a |"
+                )
+                continue
+            s = r["strategies"][strategy]
+            by_budget = {int(pt["budget"]): pt for pt in s["points"]}
+            cells = []
+            for b in budgets:
+                pt = by_budget.get(b)
+                cells.append(
+                    "n/a"
+                    if pt is None
+                    else f"{_f(pt['kappa_mean'])} [{_f(pt['kappa_min'])}, {_f(pt['kappa_max'])}]"
+                )
+            reach = [
+                f"{_target(s['labels_to_target'][x]['mean_kappa'], budgets)}"
+                f" / {_target(s['labels_to_target'][x]['every_seed_ci'], budgets)}"
+                for x in targets
+            ]
+            last = by_budget.get(budgets[-1])
+            cost = f"${last['label_cost_usd_mean']:.2f}" if last else "n/a"
+            out.append(f"| {strategy} | " + " | ".join([*cells, *reach, cost]) + " |")
+        measured = [k for k, v in r["status"].items() if v == "measured"]
+        if measured:
+            pts = r["strategies"][measured[0]]["points"]
+            out += [
+                "",
+                f"Classes seen in the training labels ({measured[0]}, mean over seeds): "
+                + ", ".join(f"{_f(pt['classes_covered_mean'], 1)} at {pt['budget']}" for pt in pts)
+                + "; training time per round: "
+                + ", ".join(f"{_f(pt['train_seconds_mean'], 0)} s" for pt in pts)
+                + ".",
+            ]
+        if t["kind"] == "gold":
+            out += [
+                "",
+                "The teacher here is the dataset's gold labels (no API key in this run): the"
+                " curve measures how the student learns from clean labels, not parity with"
+                " Claude.",
+            ]
+        out.append("")
+    return "\n".join(out)
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
     return {
         "classify": render_classify(load_runs(results_dir)),
         "classify-seeds": render_seed_spread(load_runs(results_dir, seeds=True)),
+        "select": render_select(load_select(results_dir)),
+        "frontier": render_frontier(load_frontiers(results_dir)),
     }
 
 

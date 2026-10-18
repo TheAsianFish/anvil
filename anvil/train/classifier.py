@@ -7,6 +7,7 @@ from __future__ import annotations
 import dataclasses
 import hashlib
 import json
+import math
 from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -104,6 +105,11 @@ def train_classifier(
             train_idx, val_idx = list(range(len(texts))), []
             config = dataclasses.replace(config, patience=None)
 
+    if spec.min_steps:
+        per_epoch = math.ceil(math.ceil(len(train_idx) / spec.batch_size) / spec.grad_accum)
+        config = dataclasses.replace(
+            config, epochs=max(config.epochs, math.ceil(spec.min_steps / per_epoch))
+        )
     train_texts = [texts[i] for i in train_idx]
     y = torch.tensor([targets[i] for i in train_idx], dtype=torch.long)
 

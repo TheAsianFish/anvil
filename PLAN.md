@@ -67,7 +67,7 @@ tool. Anvil is the open-source end-to-end CLI with the measurement built in.
 | Component | Module | Responsibility |
 |---|---|---|
 | Task spec | `anvil/spec.py` | Pydantic model of a task: `kind` (`classify`, `extract`, `generate`), instructions, labels / entity types / output JSON schema, teacher and student settings. Loaded from `anvil.yaml`. |
-| Teacher | `anvil/teacher/` | `Teacher` protocol with `label(items) -> LabelBatch` (labels plus failures, each with its tokens and cost). `ClaudeTeacher` uses the `anthropic` SDK with structured outputs (`output_config.format`), low effort, optional Message Batches for large pools (M3), a content-addressed on-disk cache keyed by the hash of the full request, token and dollar accounting. `OllamaTeacher` is the offline fallback. `FakeTeacher` (deterministic rules) is for tests. |
+| Teacher | `anvil/teacher/` | `Teacher` protocol with `label(items) -> LabelBatch` (labels plus failures, each with its tokens and cost). `ClaudeTeacher` uses the `anthropic` SDK with structured outputs (`output_config.format`), low effort, optional Message Batches for large pools (deferred, see M3 plan changes), a content-addressed on-disk cache keyed by the hash of the full request, token and dollar accounting. `OllamaTeacher` is the offline fallback. `FakeTeacher` (deterministic rules) is for tests. |
 | Data store | `anvil/store.py` | SQLite under `.anvil/`: inputs, labels and failed calls (append-only, with teacher model and prompt hash), splits (held-out / pool are fixed by a seeded hash of the input text so re-runs are stable), round records (M3). |
 | Students | `anvil/students/` | `Student` protocol (M2; M1 has `Classifier` with `predict_proba` and `save`): `fit`, `predict_proba` / `predict_spans` / `generate`, `save`, `load`. `EncoderClassifier` and `EncoderTagger` wrap any Hugging Face encoder (default `answerdotai/ModernBERT-base`); `LoraGenerator` wraps Qwen2.5-0.5B-Instruct with PEFT LoRA. CI and unit tests use tiny random-init models built from a config, no download. |
 | Trainer | `anvil/train/loop.py` | One PyTorch training loop for all students: seeded, AMP when a GPU is present, gradient accumulation, linear warmup + decay, early stopping on a validation slice of the training labels, checkpointing, structured JSONL metrics per step. |
@@ -309,12 +309,42 @@ Batches halve the cost of large pools and are used when a batch exceeds
   run with a refused input cannot be replayed (the replay teacher treats any
   missing label as an incomplete recording); M3 records refusals alongside
   labels before the first paid frontier run.
+- **M3 (2026-10-17).** The known gap above is closed: label files record
+  teacher failures (refusals, truncated or invalid answers) as rows with a
+  `reason`, a replay returns them with their original reason and cost at $0
+  spent, and only inputs with no row at all count as an incomplete
+  recording. `select.py` ships the `select_batch(pool, k, strategy, seed)`
+  interface, the `random` baseline and a contract test suite (property tests
+  with hypothesis plus oracle cases) for all four strategies; `uncertainty`,
+  `margin` and `diverse` are declared and their tests are expected failures
+  until they are written, so `make eval-frontier` and `make eval-select`
+  report them as "not implemented yet" and the measured curves are the
+  random reference. Round 0 of every loop is a random draw that depends only
+  on the seed, so all strategies of a seed share their first student. The
+  CPU frontier student is MiniLM-L6 (the risk table's fast option), trained
+  for a fixed length (at least 600 optimizer steps, five epochs once the set
+  is large) without early stopping: at 100 labels a 10% validation slice is
+  ten inputs for up to 77 classes, and in a pilot (output not kept) it
+  stopped training at epoch 4 and kept an untrained epoch 1.
+  `StudentSpec.min_steps` provides the fixed length; the learning rate (5e-4)
+  was picked in the same pilot, scored on pool inputs outside the training
+  slice, never on the held-out split. "Labels to
+  kappa t" is reported two ways: the smallest budget whose mean kappa over
+  three seeds reaches t, and the smallest at which every seed's 95% interval
+  lies above t. The loop's dollar budget counts label cost (what the labels
+  cost to make), not spend, so a replay stops where the live run did; it
+  covers the held-out labels too, which are bought first. No key exists in
+  the build environment, so the frontier is measured with gold labels as the
+  teacher (`TEACHER=gold`); the Claude frontier is under "To measure".
+  Message Batches are deferred: a frontier buys at most about 2,500 labels
+  per dataset, shared by every strategy and seed, which the per-input cached
+  requests handle; batching returns when a pool is large enough to need it.
 
 ## Milestones
 
 - [x] M1: Scaffold, CI and a thin vertical slice — package layout, `uv` lockfile, ruff + mypy strict + pytest + GitHub Actions (lint, type, test on 3.12), Dockerfile, Makefile, MIT licence; `anvil.yaml` spec; `Teacher` protocol with `ClaudeTeacher` (structured outputs, disk cache, cost accounting, recorded fixtures, live test skipped without a key) and `FakeTeacher`; store with hash splits; `anvil label | train | eval` end to end on a toy classify task with a tiny random-init encoder; ModernBERT ONNX export spike recorded in `docs/notes/`. Done when `make check` is green in CI and `make demo` runs the slice offline in under two minutes.
 - [x] M2: Training and evaluation core — `train/loop.py` (seeded, AMP, accumulation, warmup/decay, early stopping, checkpoints, JSONL metrics) with tests that assert loss decreases and resumes are exact; `EncoderClassifier` on ModernBERT-base; `evaluate/` with kappa + bootstrap CI, majority baseline, teacher self-agreement ceiling, confusion matrix and error slices; `make eval-classify` on AG News and Banking77 writing RESULTS.md (measured with Haiku if a key is present, otherwise harness + "To measure"). Done when the eval runs offline on recorded labels and the stats are verified against scikit-learn in tests.
-- [ ] M3: Active learning and the frontier — `select.py` interface with the `random` baseline, property tests and the synthetic selection study; `anvil loop` with label and dollar budgets, from-scratch retrains and `frontier.jsonl`; `make eval-frontier` (3 seeds, 5 budgets, every strategy present) and `make eval-select`; RESULTS.md frontier table with "labels to kappa 0.8 / 0.9". Done when the loop runs end to end offline with the fake teacher and the frontier table is produced from real labels where a key exists.
+- [x] M3: Active learning and the frontier — `select.py` interface with the `random` baseline, property tests and the synthetic selection study; `anvil loop` with label and dollar budgets, from-scratch retrains and `frontier.jsonl`; `make eval-frontier` (3 seeds, 5 budgets, every strategy present) and `make eval-select`; RESULTS.md frontier table with "labels to kappa 0.8 / 0.9". Done when the loop runs end to end offline with the fake teacher and the frontier table is produced from real labels where a key exists.
 - [ ] M4: Extraction — teacher schema with character-offset spans, `align.py` (verification, token snapping, unaligned-rate report), `EncoderTagger`, entity-level F1 and token kappa vs teacher, `make eval-extract` on MIT Restaurant. Done when alignment has tests for off-by-one, overlapping and unicode cases and the extraction eval writes its table.
 - [ ] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
 - [ ] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.

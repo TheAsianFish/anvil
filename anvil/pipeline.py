@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -13,7 +14,7 @@ from anvil.log import get_logger
 from anvil.spec import TaskSpec
 from anvil.store import Split, Store, read_inputs
 from anvil.students.encoder import EncoderClassifier
-from anvil.teacher.base import BatchAbortedError, Failure, LabelBatch, Teacher
+from anvil.teacher.base import BatchAbortedError, Failure, Item, LabelBatch, Teacher
 from anvil.train.classifier import train_classifier
 from anvil.train.loop import LAST, TrainResult, remove_checkpoint
 
@@ -147,10 +148,6 @@ def train(
             else "; run `anvil label` first"
         )
         raise StoreError(f"no pool labels from {teacher_model} for this prompt{hint}")
-    texts = [it.text for it, _ in pairs]
-    index = {name: i for i, name in enumerate(spec.label_names)}
-    targets = [index[lab] for _, lab in pairs]
-
     if resume is not None:
         run_id = resume
         out = ws.students / run_id
@@ -167,17 +164,51 @@ def train(
             run_id = f"{base}-{k}"
         out = ws.students / run_id
         out.mkdir(parents=True)
-    # The tiny student learns its vocabulary from pool texts only, never the held-out split.
+    student, result = fit_student(
+        spec,
+        teacher_model,
+        pairs,
+        corpus,
+        out / "metrics.jsonl",
+        checkpoint_dir=out / "checkpoint",
+        resume=resume is not None,
+    )
+    student.save(out)
+    (ws.students / "LATEST").write_text(run_id + "\n", encoding="utf-8")
+    remove_checkpoint(out / "checkpoint")  # only now: a failed save must stay resumable
+    return TrainReport(run_id, out, teacher_model, result)
+
+
+def fit_student(
+    spec: TaskSpec,
+    teacher_model: str,
+    pairs: Sequence[tuple[Item, str]],
+    corpus: Sequence[str],
+    metrics_path: Path | None = None,
+    *,
+    checkpoint_dir: Path | None = None,
+    resume: bool = False,
+) -> tuple[EncoderClassifier, TrainResult]:
+    """Build a fresh student and train it on (input, teacher label) pairs.
+
+    `corpus` is every pool text: the tiny student learns its vocabulary from it, never from
+    the held-out split. With `checkpoint_dir`, the checkpoint is kept after training; the
+    caller removes it once the student is saved. The student's metadata names the task,
+    teacher, prompt and splits, which `evaluate` checks before scoring it.
+    """
+    texts = [it.text for it, _ in pairs]
+    index = {name: i for i, name in enumerate(spec.label_names)}
+    targets = [index[lab] for _, lab in pairs]
     student = EncoderClassifier.build(spec.student, spec.label_names, corpus)
     result = train_classifier(
         student,
         texts,
         targets,
         spec.student,
-        out / "metrics.jsonl",
-        checkpoint_dir=out / "checkpoint",
-        resume=resume is not None,
-        keep_checkpoint=True,  # removed below, once the student is on disk
+        metrics_path,
+        checkpoint_dir=checkpoint_dir,
+        resume=resume,
+        keep_checkpoint=checkpoint_dir is not None,
     )
     student.meta.update(
         {
@@ -190,10 +221,7 @@ def train(
             "train": {k: v for k, v in asdict(result).items()},
         }
     )
-    student.save(out)
-    (ws.students / "LATEST").write_text(run_id + "\n", encoding="utf-8")
-    remove_checkpoint(out / "checkpoint")  # only now: a failed save must stay resumable
-    return TrainReport(run_id, out, teacher_model, result)
+    return student, result
 
 
 @dataclass(frozen=True)
@@ -247,22 +275,8 @@ def evaluate(
         pairs = store.labelled(teacher_model, prompt_hash, Split.HELDOUT)
     if not pairs:
         raise StoreError("no teacher labels on the held-out split; run `anvil label` first")
-    texts = [it.text for it, _ in pairs]
-    teacher = [lab for _, lab in pairs]
-    probs = student.predict_proba(texts)
-    predicted = [student.labels[i] for i in probs.argmax(axis=1)]
+    result = score(spec, student, pairs, n_resamples=n_resamples, seed=seed)
     raw_train = student.meta.get("train_labels", [])
-    train_labels = [str(x) for x in raw_train] if isinstance(raw_train, list) else []
-    result = agreement(
-        teacher,
-        predicted,
-        spec.label_names,
-        train_labels,
-        confidence=probs.max(axis=1).tolist(),
-        lengths=[len(text.split()) for text in texts],
-        n_resamples=n_resamples,
-        seed=seed,
-    )
 
     ws.reports.mkdir(parents=True, exist_ok=True)
     report_path = ws.reports / f"eval-{path.name}.json"
@@ -273,9 +287,36 @@ def evaluate(
         "teacher_model": teacher_model,
         "prompt_hash": prompt_hash,
         "labels": spec.label_names,
-        "train_examples": len(train_labels),
+        "train_examples": len(raw_train) if isinstance(raw_train, list) else 0,
         **asdict(result),
     }
     report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     log.info("evaluated", extra={"student": path.name, "n": result.n, "kappa": result.kappa})
     return EvalReport(path.name, teacher_model, result, report_path)
+
+
+def score(
+    spec: TaskSpec,
+    student: EncoderClassifier,
+    pairs: Sequence[tuple[Item, str]],
+    *,
+    n_resamples: int = 1000,
+    seed: int = 0,
+) -> Agreement:
+    """Agreement of `student` with the teacher labels in `pairs` (held-out inputs)."""
+    texts = [it.text for it, _ in pairs]
+    teacher = [lab for _, lab in pairs]
+    probs = student.predict_proba(texts)
+    predicted = [student.labels[i] for i in probs.argmax(axis=1)]
+    raw_train = student.meta.get("train_labels", [])
+    train_labels = [str(x) for x in raw_train] if isinstance(raw_train, list) else []
+    return agreement(
+        teacher,
+        predicted,
+        spec.label_names,
+        train_labels,
+        confidence=probs.max(axis=1).tolist(),
+        lengths=[len(text.split()) for text in texts],
+        n_resamples=n_resamples,
+        seed=seed,
+    )

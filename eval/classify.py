@@ -9,8 +9,10 @@ give the secondary table: teacher vs gold and student vs gold.
 
 Teachers:
 - `claude`: live labels (needs a key). They are written to `eval/labels/` so every later run
-  can replay them for free.
-- `replay`: the committed labels from an earlier `claude` run; fully offline.
+  can replay them for free, together with the inputs the teacher failed on (a refusal, a
+  truncated or invalid answer). A recorded failure is not asked again; delete its row to retry.
+- `replay`: the committed labels from an earlier `claude` run; fully offline. Recorded failures
+  replay as failures, so the held-out and pool sets match the live run's.
 - `gold`: the dataset's own labels as the teacher. Runs offline without a key and checks the
   whole harness and the student on real data, but it is not a parity number: its rows say
   `gold` and the ceiling is not applicable.
@@ -54,9 +56,10 @@ from anvil.spec import TaskSpec
 from anvil.store import Split
 from anvil.students.encoder import EncoderClassifier
 from anvil.teacher import Teacher, build_teacher
-from anvil.teacher.base import Label
+from anvil.teacher.base import Failure, Label
 from anvil.teacher.labelfile import (
     GOLD,
+    NOT_RECORDED,
     LabelFileTeacher,
     RecordedThenLiveTeacher,
     read_label_file,
@@ -141,27 +144,48 @@ def _shown(path: Path) -> str:
     return str(path.relative_to(ROOT)) if path.is_relative_to(ROOT) else str(path)
 
 
-def record_labels(path: Path, labels: Sequence[Label]) -> int:
-    """Merge `labels` into the recorded label file at `path` and return its new row count.
+def record_labels(
+    path: Path,
+    labels: Sequence[Label],
+    failures: Sequence[Failure] = (),
+    key: tuple[str, str] = ("", ""),
+) -> int:
+    """Merge `labels` and `failures` into the recorded label file at `path` and return its new
+    row count.
 
-    New rows replace old ones with the same input id and every other recorded row is kept: a
-    small run (a `--size 100` smoke test) must add to a full recording, never truncate it.
+    `failures` are under `key`, (teacher model, prompt hash) (`Store.failure_records`: the
+    latest failure per input that has no label). New rows replace old ones with the same
+    input id and every other recorded row is kept: a small run (a `--size 100` smoke test)
+    must add to a full recording, never truncate it. A label always wins over a failure for
+    the same input, whichever is newer: a failure is recorded only so that a replay can
+    reproduce it, and a paid answer is never dropped for one.
     """
-    merged: dict[str, Label] = {}
+    if failures and not all(key):
+        raise ValueError("record_labels needs the (teacher model, prompt hash) of the failures")
+    merged_labels: dict[str, Label] = {}
+    merged_failures: dict[str, tuple[Failure, str, str]] = {}
     if path.exists():
         for r in read_label_file(path):
-            merged[r.input_id] = Label(
-                r.input_id,
-                r.label,
-                r.teacher_model,
-                r.prompt_hash,
-                r.input_tokens,
-                r.output_tokens,
-                r.cost_usd,
-            )
+            if r.label is not None:
+                merged_labels[r.input_id] = Label(
+                    r.input_id,
+                    r.label,
+                    r.teacher_model,
+                    r.prompt_hash,
+                    r.input_tokens,
+                    r.output_tokens,
+                    r.cost_usd,
+                )
+            else:
+                failure = Failure(
+                    r.input_id, r.reason or "", r.input_tokens, r.output_tokens, r.cost_usd
+                )
+                merged_failures[r.input_id] = (failure, r.teacher_model, r.prompt_hash)
     for lb in labels:
-        merged[lb.input_id] = lb
-    return write_label_file(path, merged.values())
+        merged_labels[lb.input_id] = lb
+    for f in failures:
+        merged_failures[f.input_id] = (f, *key)
+    return write_label_file(path, merged_labels.values(), merged_failures.values())
 
 
 def resolve_teacher_kind(kind: TeacherKind, config: EvalConfig) -> TeacherKind:
@@ -206,15 +230,18 @@ def make_teacher(
 
 
 def _require_complete(
-    kind: TeacherKind, failures: int, config: EvalConfig, spec: TaskSpec
+    kind: TeacherKind, failures: Sequence[Failure], config: EvalConfig, spec: TaskSpec
 ) -> None:
     """Recorded labels must cover every input the run labels: a partial file (a smoke run
     recorded before a full one) would otherwise score a student on a fraction of the sample
-    and write that as a result."""
-    if failures and kind in ("replay", "gold"):
+    and write that as a result. A recorded failure (the teacher refused when the recording
+    was made) is part of the recording, not a hole in it: the live run had no label for that
+    input either, so the replay leaves it out of the held-out and pool sets just as it did."""
+    missing = sum(1 for f in failures if f.reason == NOT_RECORDED)
+    if missing and kind in ("replay", "gold"):
         path = label_file(config.dataset.name, spec.teacher.model, spec.prompt_hash)
         raise ConfigError(
-            f"{failures} inputs have no recorded label in {_shown(path)}; the recording is"
+            f"{missing} inputs have no recorded label in {_shown(path)}; the recording is"
             " incomplete, so re-label with --teacher claude (only the missing inputs are paid"
             " for) or run with --teacher gold"
         )
@@ -324,7 +351,7 @@ def run(
     )
     spent = labelled.spent_usd
     failures = len(labelled.failures)
-    _require_complete(kind, failures, config, spec)
+    _require_complete(kind, labelled.failures, config, spec)
 
     with ws.open_store(spec) as store:
         heldout = store.labelled(teacher.model_id, spec.prompt_hash, Split.HELDOUT)
@@ -333,6 +360,8 @@ def run(
             record_labels(
                 label_file(config.dataset.name, spec.teacher.model, spec.prompt_hash),
                 store.label_records(spec.teacher.model, spec.prompt_hash),
+                store.failure_records(spec.teacher.model, spec.prompt_hash),
+                (spec.teacher.model, spec.prompt_hash),
             )
 
     ceiling: dict[str, object]
@@ -352,7 +381,7 @@ def run(
                 batch = second.label(todo)
                 spent += batch.spent_usd
                 failures += len(batch.failures)
-                _require_complete(kind, len(batch.failures), config, para)
+                _require_complete(kind, batch.failures, config, para)
                 store.append_labels(batch.labels)
                 store.append_failures(batch.failures, second.model_id, para.prompt_hash)
             repeated = store.labels(second.model_id, para.prompt_hash)
@@ -360,6 +389,8 @@ def run(
                 record_labels(
                     label_file(config.dataset.name, para.teacher.model, para.prompt_hash),
                     store.label_records(para.teacher.model, para.prompt_hash),
+                    store.failure_records(para.teacher.model, para.prompt_hash),
+                    (para.teacher.model, para.prompt_hash),
                 )
         repeat = {i: lab for i, lab in repeated.items() if i in first}
         if not repeat:
@@ -397,6 +428,14 @@ def run(
 
     with ws.open_store(spec) as store:
         stats = store.stats(teacher.model_id, spec.prompt_hash)
+        stored_failures = {
+            f.input_id for f in store.failure_records(teacher.model_id, spec.prompt_hash)
+        }
+    # A replayed refusal is not stored (it would be counted once per run), but it was billed
+    # when recorded and the live run's label cost includes it, so it is added back here.
+    replayed_failure_cost = sum(
+        f.cost_usd for f in labelled.failures if f.cached and f.input_id not in stored_failures
+    )
     wall = time.perf_counter() - started
     report: dict[str, object] = {
         "dataset": {
@@ -420,7 +459,7 @@ def run(
             "pool_labels": len(pool),
             "heldout_labels": len(heldout),
             "failures": failures,
-            "label_cost_usd": stats.cost_usd,
+            "label_cost_usd": stats.cost_usd + replayed_failure_cost,
         },
         "student": {
             "model": spec.student.model,
