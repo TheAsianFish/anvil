@@ -41,15 +41,15 @@ import time
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
-from typing import Literal
+from typing import Literal, Protocol
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from anvil import __version__, log
 from anvil.errors import AnvilError, ConfigError
 from anvil.evaluate.bootstrap import bootstrap_ci, bootstrap_difference_ci
-from anvil.evaluate.metrics import accuracy, self_agreement
+from anvil.evaluate.metrics import Agreement, accuracy, self_agreement
 from anvil.pipeline import Workspace, evaluate, label, train
 from anvil.settings import Settings
 from anvil.spec import TaskSpec
@@ -124,6 +124,32 @@ class EvalConfig(_Strict):
         return self.spec.model_copy(update={"instructions": self.ceiling.instructions})
 
 
+class _Dataset(Protocol):
+    @property
+    def name(self) -> str: ...
+
+
+class _Ceiling(Protocol):
+    @property
+    def n(self) -> int: ...
+
+
+class LabelledEval(Protocol):
+    """What the teacher helpers below need from an eval config; `eval.extract` has its own
+    config class and shares them."""
+
+    @property
+    def dataset(self) -> _Dataset: ...
+
+    @property
+    def ceiling(self) -> _Ceiling: ...
+
+    @property
+    def spec(self) -> TaskSpec: ...
+
+    def paraphrase_spec(self) -> TaskSpec: ...
+
+
 def load_config(path: Path) -> EvalConfig:
     try:
         raw = yaml.safe_load(path.read_text(encoding="utf-8"))
@@ -188,7 +214,7 @@ def record_labels(
     return write_label_file(path, merged_labels.values(), merged_failures.values())
 
 
-def resolve_teacher_kind(kind: TeacherKind, config: EvalConfig) -> TeacherKind:
+def resolve_teacher_kind(kind: TeacherKind, config: LabelledEval) -> TeacherKind:
     """`auto` replays only when every label file the run reads is recorded; a missing
     paraphrase file would otherwise fail the ceiling halfway through an offline run."""
     if kind != "auto":
@@ -210,7 +236,7 @@ def resolve_teacher_kind(kind: TeacherKind, config: EvalConfig) -> TeacherKind:
 
 
 def make_teacher(
-    kind: TeacherKind, config: EvalConfig, spec: TaskSpec, data: Sample, settings: Settings
+    kind: TeacherKind, config: LabelledEval, spec: TaskSpec, data: Sample, settings: Settings
 ) -> Teacher:
     if kind == "gold":
         return LabelFileTeacher.gold(data.gold, spec.prompt_hash)
@@ -229,8 +255,8 @@ def make_teacher(
     raise ConfigError(f"unresolved teacher kind {kind!r}")
 
 
-def _require_complete(
-    kind: TeacherKind, failures: Sequence[Failure], config: EvalConfig, spec: TaskSpec
+def require_complete(
+    kind: TeacherKind, failures: Sequence[Failure], config: LabelledEval, spec: TaskSpec
 ) -> None:
     """Recorded labels must cover every input the run labels: a partial file (a smoke run
     recorded before a full one) would otherwise score a student on a fraction of the sample
@@ -351,7 +377,7 @@ def run(
     )
     spent = labelled.spent_usd
     failures = len(labelled.failures)
-    _require_complete(kind, labelled.failures, config, spec)
+    require_complete(kind, labelled.failures, config, spec)
 
     with ws.open_store(spec) as store:
         heldout = store.labelled(teacher.model_id, spec.prompt_hash, Split.HELDOUT)
@@ -381,7 +407,7 @@ def run(
                 batch = second.label(todo)
                 spent += batch.spent_usd
                 failures += len(batch.failures)
-                _require_complete(kind, batch.failures, config, para)
+                require_complete(kind, batch.failures, config, para)
                 store.append_labels(batch.labels)
                 store.append_failures(batch.failures, second.model_id, para.prompt_hash)
             repeated = store.labels(second.model_id, para.prompt_hash)
@@ -404,6 +430,8 @@ def run(
 
     trained = train(spec, ws, teacher.model_id)
     evaluated = evaluate(spec, ws, trained.path, n_resamples=n_resamples, seed=seed)
+    if not isinstance(evaluated.agreement, Agreement):
+        raise ConfigError(f"eval.classify needs a classify task, {spec.name!r} is {spec.kind}")
 
     texts = [it.text for it, _ in heldout]
     teacher_labels = [lab for _, lab in heldout]
@@ -626,7 +654,14 @@ def _override(
                 "heldout_labels": max(1, round(smp.heldout_labels * ratio)),
             }
         )
-    return config.model_copy(update={"spec": spec, "sample": smp})
+    # `model_copy` does not validate, so the result goes through the validators again: a
+    # negative epoch count or sample size must fail here, not halfway through a run.
+    try:
+        return EvalConfig.model_validate(
+            config.model_copy(update={"spec": spec, "sample": smp}).model_dump()
+        )
+    except ValidationError as exc:
+        raise ConfigError(f"invalid override: {exc}") from exc
 
 
 def summary_line(report: dict[str, object], out: Path) -> str:

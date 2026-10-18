@@ -1,0 +1,53 @@
+# `make eval-extract` on MIT Restaurant: 8 slot types in short, lower-case search queries (~9 words).
+dataset:
+  name: mit_restaurant
+  repo: tner/mit_restaurant
+  revision: 538663410a86a70f788b0c193d42320de330cc0d
+  filename: dataset/train.json
+  label_map: dataset/label.json
+  license: "MIT Restaurant corpus (Liu et al., 2013, MIT CSAIL SLS), T-NER copy; the dataset card lists the licence as other"
+sample:
+  size: 2000        # distinct sentences from the train split; the store's hash split puts ~25% in held-out
+  pool_labels: 1500
+  heldout_labels: 500
+  seed: 0
+ceiling:
+  n: 200            # held-out inputs labelled a second time under a paraphrased prompt
+  instructions: |
+    Mark the parts of this restaurant search query that a search engine would use as filters.
+spec:
+  name: mit_restaurant
+  kind: extract
+  instructions: |
+    You read restaurant search queries and mark the slots a search engine needs.
+  labels:
+    - name: Amenity
+      description: a feature or service of the place (outdoor seating, buffet, good for kids, takes reservations)
+    - name: Cuisine
+      description: a style or origin of food (mexican, vegan, seafood, fast food)
+    - name: Dish
+      description: a specific food or drink (burger, sushi roll, pad thai, margaritas)
+    - name: Hours
+      description: when the user wants to go or what time the place must be open (tonight, open late, breakfast, 24 hours)
+    - name: Location
+      description: where to look (nearby, within 5 miles, downtown, a city, a street, a landmark)
+    - name: Price
+      description: a price level or budget (cheap, expensive, under 20 dollars)
+    - name: Rating
+      description: a quality or rating requirement (best, five star, highly rated, good reviews)
+    - name: Restaurant_Name
+      description: the name of a restaurant or chain (burger king, olive garden)
+  teacher:
+    provider: claude
+    model: claude-haiku-5-5
+    effort: low
+  student:
+    model: answerdotai/ModernBERT-base
+    max_length: 48
+    epochs: 6
+    batch_size: 16
+    learning_rate: 5.0e-5
+    seed: 0
+  splits:
+    heldout_fraction: 0.25
+    seed: 0

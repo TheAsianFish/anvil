@@ -10,7 +10,7 @@ import json
 import math
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Protocol
 
 import torch
 
@@ -24,6 +24,13 @@ if TYPE_CHECKING:
     from anvil.students.encoder import EncoderClassifier
 
 log = get_logger(__name__)
+
+
+class Tokenized(Protocol):
+    """A student with a Hugging Face tokenizer (the classifier and the tagger)."""
+
+    tokenizer: Any  # Any: a transformers tokenizer
+
 
 MIN_VALIDATION_EXAMPLES = 10
 """Below this, validation kappa is too noisy to pick an epoch with (on two examples it is 0 or
@@ -49,16 +56,17 @@ def validation_split(
 
 
 def data_fingerprint(
-    student: EncoderClassifier,
+    student: Tokenized,
     texts: Sequence[str],
-    targets: Sequence[int],
+    targets: Sequence[int] | Sequence[list[int]],
     val_idx: Sequence[int],
     spec: StudentSpec,
 ) -> str:
     """sha256 of what the student trains on: texts, targets (they carry the teacher model and
     prompt), the validation slice, the student model id and `max_length` (they decide what
     the model sees of each text) and, for the `tiny` student, the vocabulary learned from the
-    pool. A resume with any of these changed would continue a run on different data."""
+    pool. A resume with any of these changed would continue a run on different data. `targets`
+    are label ids, or one list of tag ids per text for a tagger."""
     # Imported lazily, like the type-only import above: the encoder pulls in transformers.
     from anvil.students.encoder import TINY
 

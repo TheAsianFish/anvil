@@ -96,9 +96,29 @@ def test_unknown_field(tmp_path: Path) -> None:
     assert "lables" in str(_config_error(tmp_path, {**BASE, "lables": ["x"]}))
 
 
-@pytest.mark.parametrize(("kind", "milestone"), [("extract", "M4"), ("generate", "M6")])
-def test_unimplemented_kinds(tmp_path: Path, kind: str, milestone: str) -> None:
-    assert milestone in str(_config_error(tmp_path, {**BASE, "kind": kind}))
+def test_generate_is_not_implemented_yet(tmp_path: Path) -> None:
+    assert "M6" in str(_config_error(tmp_path, {**BASE, "kind": "generate"}))
+
+
+def test_extract_takes_entity_types(tmp_path: Path) -> None:
+    spec = load_spec(_write(tmp_path, {**BASE, "kind": "extract", "labels": ["Dish"]}))
+    assert spec.label_names == ["Dish"]
+    assert "at least one entity type" in str(
+        _config_error(tmp_path, {**BASE, "kind": "extract", "labels": []})
+    )
+
+
+def test_extract_fake_rules_have_no_default(tmp_path: Path) -> None:
+    doc = {**BASE, "kind": "extract", "fake": {"rules": {"a": ["x"]}, "default": "a"}}
+    assert "fake.default" in str(_config_error(tmp_path, doc))
+    doc = {**BASE, "kind": "extract", "fake": {"rules": {"zzz": ["x"]}}}
+    assert "unknown labels" in str(_config_error(tmp_path, doc))
+
+
+def test_kind_is_part_of_the_prompt_hash() -> None:
+    classify = TaskSpec.model_validate(BASE)
+    extract = TaskSpec.model_validate({**BASE, "kind": "extract"})
+    assert classify.prompt_hash != extract.prompt_hash
 
 
 def test_needs_two_labels(tmp_path: Path) -> None:

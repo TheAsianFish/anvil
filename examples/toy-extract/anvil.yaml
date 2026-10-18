@@ -1,0 +1,52 @@
+# Toy extraction task for the offline demo: pull the search slots out of restaurant queries.
+name: restaurant-slots
+kind: extract
+instructions: |
+  You read restaurant search queries and mark the slots a search engine needs.
+labels:
+  - name: Cuisine
+    description: a style of food (thai, vegan, Korean)
+  - name: Dish
+    description: a specific food or drink (ramen, fish tacos)
+  - name: Restaurant_Name
+    description: the name of a restaurant or chain
+  - name: Location
+    description: where to look (a neighbourhood, a city, a landmark, "near me")
+  - name: Hours
+    description: when (tonight, on Sunday, after 10pm, late)
+  - name: Price
+    description: a price level (cheap, upscale)
+  - name: Amenity
+    description: a feature of the place (parking, outdoor seating, live music)
+
+teacher:
+  provider: claude
+  model: claude-opus-5-5
+  effort: low
+
+student:
+  model: tiny          # a 2-layer random-init ModernBERT token tagger; ModernBERT-base for real runs
+  max_length: 32
+  epochs: 12
+  batch_size: 16
+  learning_rate: 0.002
+  seed: 0
+
+splits:
+  heldout_fraction: 0.25
+  seed: 0
+
+# Keyword rules for `--teacher fake` (offline demo and tests). Every match is a mention, and
+# `noise` makes that share of mentions claim an offset one character off, which alignment
+# repairs. Not used with Claude.
+fake:
+  rules:
+    Cuisine: [thai, mexican, italian, sushi, vegan, korean, indian]
+    Dish: [ramen, fish tacos, pad thai, a burger, dim sum, crème brûlée]
+    Restaurant_Name: [pizza hut, olive garden, taco bell, café rouge, nobu, shake shack]
+    Location: [downtown, the airport, brooklyn, my office, union square, zürich, around here]
+    Hours: [tonight, after 10pm, on sunday, for lunch, late]
+    Price: [cheap, fancy, affordable, upscale]
+    Amenity: [outdoor seating, parking, wifi, a kids menu, live music]
+  noise: 0.2
+  seed: 0

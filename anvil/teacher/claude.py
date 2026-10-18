@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 
 from anvil.errors import TeacherError
 from anvil.log import get_logger
+from anvil.spans import Mention, encode_answer
 from anvil.spec import TaskSpec
 from anvil.teacher.base import BatchAbortedError, Failure, Item, Label, LabelBatch
 from anvil.teacher.cache import DiskCache, request_key
@@ -17,17 +18,48 @@ from anvil.teacher.transport import JSONDict, Transport
 log = get_logger(__name__)
 
 
+EXTRACT_RULES = """Return every entity mention in the input. For each one give:
+- text: the mention copied exactly from the input, character for character;
+- type: its entity type;
+- start: the 0-based character offset where the mention begins in the input.
+Mentions must not overlap. If the input has no entities, return an empty list."""
+
+
 def system_prompt(spec: TaskSpec) -> str:
-    lines = [spec.instructions.strip(), "", "Labels:"]
+    heading = "Entity types:" if spec.kind == "extract" else "Labels:"
+    lines = [spec.instructions.strip(), "", heading]
     for label in spec.labels:
         lines.append(
             f"- {label.name}: {label.description}" if label.description else f"- {label.name}"
         )
-    lines += ["", "Answer with the single best label for the input."]
+    if spec.kind == "extract":
+        lines += ["", EXTRACT_RULES]
+    else:
+        lines += ["", "Answer with the single best label for the input."]
     return "\n".join(lines)
 
 
 def output_schema(spec: TaskSpec) -> JSONDict:
+    if spec.kind == "extract":
+        # The text is what alignment trusts; the offset only says which occurrence is meant.
+        # No `minimum` on start: structured outputs do not support numeric bounds, and a
+        # negative offset is simply repaired or dropped by alignment.
+        mention = {
+            "type": "object",
+            "properties": {
+                "text": {"type": "string"},
+                "type": {"type": "string", "enum": spec.label_names},
+                "start": {"type": "integer"},
+            },
+            "required": ["text", "type", "start"],
+            "additionalProperties": False,
+        }
+        return {
+            "type": "object",
+            "properties": {"entities": {"type": "array", "items": mention}},
+            "required": ["entities"],
+            "additionalProperties": False,
+        }
     return {
         "type": "object",
         "properties": {"label": {"type": "string", "enum": spec.label_names}},
@@ -175,9 +207,16 @@ class ClaudeTeacher:
             answer = json.loads(text)
         except json.JSONDecodeError:
             return fail(f"output is not JSON: {text[:80]!r}")
-        value = answer.get("label") if isinstance(answer, dict) else None
-        if value not in self._spec.label_names:
-            return fail(f"label {value!r} is not in the label set")
+        if self._spec.kind == "extract":
+            mentions = self._mentions(answer)
+            if isinstance(mentions, str):
+                return fail(mentions)
+            value = encode_answer(mentions)
+        else:
+            choice = answer.get("label") if isinstance(answer, dict) else None
+            if not isinstance(choice, str) or choice not in self._spec.label_names:
+                return fail(f"label {choice!r} is not in the label set")
+            value = choice
         return Label(
             input_id=item.id,
             label=value,
@@ -188,3 +227,21 @@ class ClaudeTeacher:
             cost_usd=cost,
             cached=cached,
         )
+
+    def _mentions(self, answer: object) -> list[Mention] | str:
+        """The mentions of an extraction answer, or why it is invalid. Offsets are not checked
+        against the input here: that is alignment's job, and it records what it repaired."""
+        rows = answer.get("entities") if isinstance(answer, dict) else None
+        if not isinstance(rows, list):
+            return "output has no `entities` list"
+        out: list[Mention] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                return f"entity is not an object: {row!r:.80}"
+            text, kind, start = row.get("text"), row.get("type"), row.get("start")
+            if not isinstance(text, str) or kind not in self._spec.label_names:
+                return f"entity has no text or an unknown type: {row!r:.80}"
+            if not isinstance(start, int) or isinstance(start, bool):
+                return f"entity start is not an integer: {row!r:.80}"
+            out.append(Mention(text, str(kind), start))
+        return out

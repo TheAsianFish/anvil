@@ -23,3 +23,8 @@ class StoreError(AnvilError):
 
 class StudentError(AnvilError):
     """A student could not be built, trained, saved or loaded."""
+
+
+class AlignmentError(ConfigError):
+    """Too many teacher spans could not be matched to the input or the student's tokens: the
+    prompt or the labels need fixing before a student can be trained on them."""

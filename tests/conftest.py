@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from hypothesis import settings as hypothesis_settings
 
 from anvil.settings import Settings
 from anvil.spec import TaskSpec, load_spec
@@ -20,6 +21,11 @@ TOY_INPUTS = TOY_DIR / "inputs.jsonl"
 
 # Any: Messages API bodies are arbitrary JSON (same alias as anvil.teacher.transport).
 JSONDict = dict[str, Any]
+
+# Property tests draw the same examples on every run and keep no example database, so a
+# run is reproducible and a failure found once is found again by rerunning, not by luck.
+hypothesis_settings.register_profile("anvil", derandomize=True, database=None)
+hypothesis_settings.load_profile("anvil")
 
 
 def _no_network(*args: object, **kwargs: object) -> None:

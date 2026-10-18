@@ -1,0 +1,23 @@
+{
+  "command": "python -m eval.extract mit_restaurant --teacher gold",
+  "git_sha": "7dace8b992ed08b5a34821a5c8b878dc2d5c1986",
+  "git_dirty": true,
+  "anvil": "0.1.0.dev0",
+  "python": "3.12.3",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "cpus": 4,
+  "versions": {
+    "torch": "2.14.1+cpu",
+    "transformers": "5.20.1",
+    "numpy": "2.5.4",
+    "scikit-learn": "1.9.1",
+    "anthropic": "1.15.0"
+  },
+  "seed": 0,
+  "n_resamples": 1000,
+  "teacher_model": "gold",
+  "student_model": "answerdotai/ModernBERT-base",
+  "wall_seconds": 900.9,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-18T08:18:10Z"
+}
