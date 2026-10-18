@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from anvil.align import AlignmentReport
-from anvil.errors import StoreError, StudentError
+from anvil.errors import AlignmentError, StoreError, StudentError
 from anvil.evaluate.extraction import ExtractionAgreement
 from anvil.evaluate.metrics import Agreement, agreement
 from anvil.extraction import fit_tagger, score_tagger
@@ -173,15 +174,20 @@ def train(
     student: EncoderClassifier | EncoderTagger
     alignment: AlignmentReport | None = None
     if spec.kind == "extract":
-        student, result, alignment = fit_tagger(
-            spec,
-            teacher_model,
-            pairs,
-            corpus,
-            out / "metrics.jsonl",
-            checkpoint_dir=out / "checkpoint",
-            resume=resume is not None,
-        )
+        try:
+            student, result, alignment = fit_tagger(
+                spec,
+                teacher_model,
+                pairs,
+                corpus,
+                out / "metrics.jsonl",
+                checkpoint_dir=out / "checkpoint",
+                resume=resume is not None,
+            )
+        except AlignmentError:
+            if resume is None:
+                shutil.rmtree(out, ignore_errors=True)  # nothing ran: leave no empty run
+            raise
     else:
         student, result = fit_student(
             spec,
@@ -249,6 +255,8 @@ class EvalReport:
     teacher_model: str
     agreement: Agreement | ExtractionAgreement
     report_path: Path
+    heldout_alignment: AlignmentReport | None = None
+    """Extraction only: how the held-out teacher answers aligned to their inputs."""
 
 
 def evaluate(
@@ -298,9 +306,11 @@ def evaluate(
         raise StoreError("no teacher labels on the held-out split; run `anvil label` first")
     result: Agreement | ExtractionAgreement
     extra: dict[str, object] = {}
+    heldout_alignment: AlignmentReport | None = None
     if isinstance(student, EncoderTagger):
         scored = score_tagger(spec, student, pairs, n_resamples=n_resamples, seed=seed)
         result = scored.agreement
+        heldout_alignment = scored.alignment
         extra = {"heldout_alignment": scored.alignment.as_dict()}
         train_examples = student.meta.get("train_examples", 0)
     else:
@@ -324,7 +334,7 @@ def evaluate(
     report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     headline = result.token_kappa if isinstance(result, ExtractionAgreement) else result.kappa
     log.info("evaluated", extra={"student": path.name, "n": result.n, "kappa": headline})
-    return EvalReport(path.name, teacher_model, result, report_path)
+    return EvalReport(path.name, teacher_model, result, report_path, heldout_alignment)
 
 
 def score(

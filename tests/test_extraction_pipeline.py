@@ -152,3 +152,31 @@ def test_loop_refuses_an_extract_task(toy_copy: tuple[Path, Path]) -> None:
     ws = Workspace.for_task(spec_path.parent / "home", spec)
     with pytest.raises(ConfigError, match="runs classify tasks"):
         run_loop(spec, ws, FakeTeacher(spec), LoopConfig(strategy="random", budgets=(10,)))
+
+
+def test_the_gate_runs_before_the_first_training_step(
+    toy_copy: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    spec_path, inputs = toy_copy
+    spec = load_spec(spec_path)
+    ws = Workspace.for_task(Path(spec_path.parent / "home"), spec)
+    label(spec, ws, _WrongTeacher(spec, bad_every=2), inputs, 120)
+
+    def no_training(*args: object, **kwargs: object) -> None:
+        raise AssertionError("fit was called although the gate should have refused first")
+
+    monkeypatch.setattr(EncoderTagger, "fit", no_training)
+    with pytest.raises(AlignmentError):
+        train(spec, ws, "wrong-teacher")
+    assert not list(ws.students.iterdir())  # the refused run leaves no directory behind
+
+
+def test_a_few_bad_mentions_pass_the_gate_and_train(toy_copy: tuple[Path, Path]) -> None:
+    spec_path, inputs = toy_copy
+    spec = load_spec(spec_path)
+    ws = Workspace.for_task(Path(spec_path.parent / "home"), spec)
+    label(spec, ws, _WrongTeacher(spec, bad_every=25), inputs, 120)  # about 2% unaligned
+    report = train(spec, ws, "wrong-teacher")
+    assert report.alignment is not None
+    assert 0 < report.alignment.unaligned_rate <= 0.05
+    assert (report.path / "config.json").exists()

@@ -165,11 +165,18 @@ def eval_cmd(
         a = r.agreement
         if isinstance(a, ExtractionAgreement):
             e, f1, tk = a.entity, a.entity_f1_ci, a.token_kappa_ci
+            ha = r.heldout_alignment
+            aligned = (
+                f" (held-out teacher mentions: {ha.repaired} repaired, {ha.unaligned} dropped,"
+                f" {ha.unaligned_rate:.1%})"
+                if ha is not None
+                else ""
+            )
             print(
                 f"student {r.student} vs {r.teacher_model} on {a.n} held-out inputs:"
                 f" entity F1 {e.f1:.3f} [{f1.low:.3f}, {f1.high:.3f}]"
                 f" (precision {e.precision:.3f}, recall {e.recall:.3f}),"
-                f" token kappa {a.token_kappa:.3f} [{tk.low:.3f}, {tk.high:.3f}];"
+                f" token kappa {a.token_kappa:.3f} [{tk.low:.3f}, {tk.high:.3f}]{aligned};"
                 f" report {r.report_path}"
             )
             return
