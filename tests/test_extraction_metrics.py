@@ -11,7 +11,7 @@ from hypothesis import strategies as st
 from seqeval.metrics import f1_score  # type: ignore[import-untyped]
 from sklearn.metrics import cohen_kappa_score
 
-from anvil.evaluate.bootstrap import Interval
+from anvil.evaluate.bootstrap import Interval, resample_indices
 from anvil.evaluate.extraction import (
     EntityScores,
     ErrorBreakdown,
@@ -30,6 +30,7 @@ from anvil.evaluate.extraction import (
 )
 from anvil.evaluate.slices import Slice
 from anvil.spans import Span
+from eval.data import bio_to_spans as gold_bio_to_spans
 
 P, L = "PER", "LOC"
 
@@ -84,6 +85,18 @@ def test_per_type_hand_case() -> None:
         TypeStats(type=L, precision=0.0, recall=0.0, f1=0.0, support=1, predicted=1),
         TypeStats(type="ORG", precision=1.0, recall=1.0, f1=1.0, support=0, predicted=0),
     ]  # fmt: skip
+
+
+def test_per_type_counts_sum_to_overall() -> None:
+    rng = np.random.default_rng(9)
+    teacher, student = random_corpus(rng, 40)
+    rows = per_type(teacher, student, [P, L])
+    overall = entity_scores(teacher, student)
+    # tp of a row is recall * support; round to undo the float division.
+    assert sum(round(r.recall * r.support) for r in rows) == overall.tp
+    assert sum(r.support for r in rows) == sum(len(set(t)) for t in teacher)
+    assert sum(r.predicted for r in rows) == sum(len(set(s)) for s in student)
+    assert sum(r.support for r in rows) == overall.tp + overall.fn
 
 
 def test_per_type_rejects_unknown_types() -> None:
@@ -167,6 +180,31 @@ def test_word_tags_whitespace_and_bounds() -> None:
     assert word_tags("", []) == []
     with pytest.raises(ValueError, match="past the end"):
         word_tags("ab", [Span(0, 3, P)])
+
+
+def conlleval_bio(tags: list[str]) -> list[str]:
+    """The tags as a chunker reads them: an I-x that does not continue a chunk of type x
+    opens one, so it is written B-x."""
+    out: list[str] = []
+    for i, tag in enumerate(tags):
+        prefix, _, kind = tag.partition("-")
+        prev = tags[i - 1].partition("-")[2] if i and tags[i - 1] != "O" else None
+        out.append(f"B-{kind}" if prefix == "I" and prev != kind else tag)
+    return out
+
+
+@settings(max_examples=200, deadline=None)
+@given(
+    st.lists(st.text(alphabet="abcxyz", min_size=1, max_size=5), min_size=1, max_size=12,
+             unique=True),
+    st.data(),
+)  # fmt: skip
+def test_word_tags_round_trip_gold_bio(words: list[str], data: st.DataObject) -> None:
+    # The gold loader writes spans from BIO word tags; reading them back as word tags must
+    # give the same tags (after conlleval's reading of a stray I as B).
+    tags = data.draw(st.lists(st.sampled_from(TAGS), min_size=len(words), max_size=len(words)))
+    text, spans = gold_bio_to_spans(words, tags)
+    assert word_tags(text, spans) == conlleval_bio(tags)
 
 
 def test_tag_agreement_matches_sklearn() -> None:
@@ -313,6 +351,79 @@ def test_kappa_replicates_match_direct_computation() -> None:
         values.append(cohen_kappa_score(a, b) if len(set(a) | set(b)) > 1 else 1.0)
     low, high = np.percentile(values, [2.5, 97.5])
     assert (ci.low, ci.high) == pytest.approx((low, high))
+
+
+def sparse_corpus() -> tuple[list[list[Span]], list[list[Span]], list[list[Span]]]:
+    """Six inputs, entities only in two, so some resamples draw no entity at all."""
+    teacher: list[list[Span]] = [[Span(0, 1, P), Span(2, 3, L), Span(4, 5, P)]] + [[]] * 5
+    a: list[list[Span]] = [[Span(0, 1, P), Span(2, 3, P)], [], [], [Span(0, 1, L)], [], []]
+    b: list[list[Span]] = [[Span(0, 1, P)], [], [], [], [], []]
+    return teacher, a, b
+
+
+def _oracle_f1(teacher: list[list[Span]], student: list[list[Span]], row: list[int]) -> float:
+    tp = fp = fn = 0
+    for i in row:
+        t, s = set(teacher[i]), set(student[i])
+        tp += len(t & s)
+        fp += len(s - t)
+        fn += len(t - s)
+    return 2 * tp / (2 * tp + fp + fn) if tp + fp + fn else float("nan")
+
+
+def _corpora() -> list[tuple[list[list[Span]], list[list[Span]], list[list[Span]]]]:
+    rng = np.random.default_rng(10)
+    teacher, a = random_corpus(rng, 12)
+    b = [s[: len(s) // 2] for s in a]
+    return [(teacher, a, b), sparse_corpus()]
+
+
+@pytest.mark.parametrize("corpus", _corpora(), ids=["random", "sparse"])
+def test_f1_replicates_match_direct_computation(
+    corpus: tuple[list[list[Span]], list[list[Span]], list[list[Span]]],
+) -> None:
+    # Per-resample micro F1 summed input by input over the same index draws; resamples with
+    # no entity are left out of the percentiles.
+    teacher, a, b = corpus
+    n, r, seed = len(teacher), 200, 3
+    rows = resample_indices(n, r, seed).tolist()
+    f1 = [_oracle_f1(teacher, a, row) for row in rows]
+    diff = [_oracle_f1(teacher, a, row) - _oracle_f1(teacher, b, row) for row in rows]
+    q = [2.5, 97.5]
+    expected_f1 = np.percentile([v for v in f1 if not np.isnan(v)], q)
+    expected_diff = np.percentile([v for v in diff if not np.isnan(v)], q)
+    ci = entity_f1_ci(teacher, a, n_resamples=r, seed=seed)
+    d = entity_f1_difference_ci(teacher, a, b, n_resamples=r, seed=seed)
+    assert (ci.low, ci.high) == pytest.approx(tuple(expected_f1), abs=1e-9)
+    assert (d.low, d.high) == pytest.approx(tuple(expected_diff), abs=1e-9)
+    if n == 6:
+        assert any(np.isnan(v) for v in f1)  # the sparse corpus does exercise dropping
+
+
+def test_empty_resamples_do_not_score_perfect() -> None:
+    # Only the first input has an entity and the student misses it: F1 is 0 on every
+    # resample that can be scored. The resamples that miss the first input have nothing to
+    # score and must not count as perfect agreement.
+    teacher: list[list[Span]] = [[Span(0, 1, P)], [], []]
+    student: list[list[Span]] = [[], [], []]
+    ci = entity_f1_ci(teacher, student, n_resamples=500, seed=0)
+    assert (ci.estimate, ci.low, ci.high) == (0.0, 0.0, 0.0)
+    d = entity_f1_difference_ci(teacher, student, student, n_resamples=500, seed=0)
+    assert (d.estimate, d.low, d.high) == (0.0, 0.0, 0.0)
+    # Same for words: one input has words, kappa there is 0 (estimate), the rest have none.
+    texts = ["a b", " ", ""]
+    kappa = token_kappa_ci(texts, teacher, student, n_resamples=500, seed=0)
+    assert kappa.estimate == pytest.approx(0.0)
+    assert (kappa.low, kappa.high) == (0.0, 0.0)
+    # The point estimates keep their all-empty convention.
+    assert entity_scores([[]], [[]]).f1 == 1.0
+
+
+def test_ci_without_any_entity_raises() -> None:
+    with pytest.raises(ValueError, match="every bootstrap resample is undefined"):
+        entity_f1_ci([[], []], [[], []], n_resamples=50)
+    with pytest.raises(ValueError, match="every bootstrap resample is undefined"):
+        entity_f1_difference_ci([[], []], [[], []], [[], []], n_resamples=50)
 
 
 def test_resampling_is_by_input() -> None:

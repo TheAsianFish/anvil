@@ -28,6 +28,14 @@ tag marginals), the bootstrap weight matrix W[r, i] counts how often input i is 
 resample r, and W @ counts gives every resample's pooled counts in one product. The
 interval is the 95% percentile interval, as in `bootstrap.py`, with the same seeded
 `resample_indices`, so entity F1 and token kappa share their resamples.
+
+The all-empty conventions of the point estimates (F1 1.0 when neither rater found an entity,
+kappa 1.0 over no words) are not applied to resamples. A resample that drew only inputs
+without entities (or without words) carries no information about agreement; scoring it 1.0
+would drag the upper bound to 1.0 whenever a few inputs hold all the entities. Such a
+replicate is undefined (NaN) and the percentiles are taken over the defined ones only, so
+the interval is conditional on a resample containing something to score. `Interval` keeps
+`n_resamples` as requested; the number actually used can be fewer.
 """
 
 from __future__ import annotations
@@ -87,6 +95,15 @@ def _f1_from_counts(counts: IntArray) -> FloatArray:
     with np.errstate(divide="ignore", invalid="ignore"):
         f1 = np.where(den > 0, 2 * tp / np.maximum(den, 1), 1.0)
     out: FloatArray = f1.astype(np.float64)
+    return out
+
+
+def _f1_replicates(counts: IntArray) -> FloatArray:
+    """Micro F1 for each row (tp, fp, fn) as in `_f1_from_counts`, but NaN for a row with no
+    entities at all: a bootstrap resample without entities is undefined, not perfect."""
+    tp, fp, fn = counts[..., 0], counts[..., 1], counts[..., 2]
+    den = 2 * tp + fp + fn
+    out: FloatArray = np.where(den > 0, 2 * tp / np.maximum(den, 1), np.nan).astype(np.float64)
     return out
 
 
@@ -368,8 +385,8 @@ def _kappa_from_marginals(stats: IntArray) -> FloatArray:
 
     p_o = agree / n, p_e = sum_k rows_k * cols_k / n^2. As in `metrics.cohen_kappa`, p_e = 1
     (detected exactly on integers) gives 1.0 if the raters agree everywhere and 0.0
-    otherwise; a resample that drew only inputs without words has nothing to disagree on and
-    also scores 1.0.
+    otherwise. A resample that drew only inputs without words is undefined and gives NaN
+    (see the module docstring).
     """
     width = (stats.shape[1] - 1) // 2
     agree = stats[:, 0]
@@ -382,7 +399,8 @@ def _kappa_from_marginals(stats: IntArray) -> FloatArray:
         p_e = chance / nn
         kappa = (p_o - p_e) / (1 - p_e)
     fallback = np.where(agree == n, 1.0, 0.0)
-    out: FloatArray = np.where(chance == nn, fallback, kappa)
+    kappa = np.where(chance == nn, fallback, kappa)
+    out: FloatArray = np.where(n > 0, kappa, np.nan)
     return out
 
 
@@ -400,9 +418,17 @@ def _weights(n: int, n_resamples: int, seed: int) -> IntArray:
 
 
 def _interval(
-    estimate: float, values: FloatArray, confidence: float, n_resamples: int
+    estimate: float, values: FloatArray, confidence: float, n_resamples: int, what: str
 ) -> Interval:
-    low, high = np.percentile(values, [100 * (1 - confidence) / 2, 100 * (1 + confidence) / 2])
+    """Percentile interval over the defined (non-NaN) replicates; see the module docstring."""
+    if np.isnan(values).all():
+        raise ValueError(
+            f"every bootstrap resample is undefined: no input has {what}, so there is no"
+            " agreement to put an interval on; check that the teacher and student labels"
+            " were loaded"
+        )
+    quantiles = [100 * (1 - confidence) / 2, 100 * (1 + confidence) / 2]
+    low, high = np.nanpercentile(values, quantiles)
     return Interval(
         estimate=estimate,
         low=float(low),
@@ -428,14 +454,16 @@ def entity_f1_ci(
     """Percentile bootstrap interval for micro entity F1, resampling inputs.
 
     estimate is `entity_scores(...).f1` on all inputs; each resample pools the (tp, fp, fn)
-    of the inputs it drew (with multiplicity) and recomputes F1 from the pooled counts.
+    of the inputs it drew (with multiplicity) and recomputes F1 from the pooled counts. A
+    resample with no entities from either rater is dropped (not scored 1.0), and if every
+    resample is dropped, which happens when no input has an entity, this is a `ValueError`.
     """
     _check_confidence(confidence)
     counts = _input_counts(teacher, student)
     n = len(counts)
-    values = _f1_from_counts(_weights(n, n_resamples, seed) @ counts)
+    values = _f1_replicates(_weights(n, n_resamples, seed) @ counts)
     estimate = float(_f1_from_counts(counts.sum(axis=0)))
-    return _interval(estimate, values, confidence, n_resamples)
+    return _interval(estimate, values, confidence, n_resamples, "an entity")
 
 
 def entity_f1_difference_ci(
@@ -452,15 +480,17 @@ def entity_f1_difference_ci(
     Both systems are scored on the same resampled inputs, so the interval is on the
     difference itself (see `bootstrap.bootstrap_difference_ci` for why that is sharper than
     comparing two separate intervals). With the same seed it uses the same resamples as
-    `entity_f1_ci`.
+    `entity_f1_ci`. A resample in which either system's F1 is undefined (no entities from
+    the teacher or that system) is dropped, and if every resample is dropped this is a
+    `ValueError`.
     """
     _check_confidence(confidence)
     _check_lengths(teacher=teacher, a=a, b=b)
     counts_a, counts_b = _input_counts(teacher, a), _input_counts(teacher, b)
     w = _weights(len(counts_a), n_resamples, seed)
-    values = _f1_from_counts(w @ counts_a) - _f1_from_counts(w @ counts_b)
+    values = _f1_replicates(w @ counts_a) - _f1_replicates(w @ counts_b)
     estimate = float(_f1_from_counts(counts_a.sum(axis=0)) - _f1_from_counts(counts_b.sum(axis=0)))
-    return _interval(estimate, values, confidence, n_resamples)
+    return _interval(estimate, values, confidence, n_resamples, "an entity")
 
 
 def token_kappa_ci(
@@ -475,7 +505,7 @@ def token_kappa_ci(
     """Percentile bootstrap interval for word-tag kappa, resampling inputs (not words).
 
     estimate is `tag_agreement(...).kappa`; each resample pools the tag marginals of the
-    inputs it drew.
+    inputs it drew. A resample that drew only inputs without words is dropped.
     """
     _check_confidence(confidence)
     t_tags, s_tags = _tags(texts, teacher, student)
@@ -484,7 +514,8 @@ def token_kappa_ci(
         raise ValueError("tag agreement needs at least one word in the texts")
     stats = _tag_marginals(t_tags, s_tags)
     values = _kappa_from_marginals(_weights(len(stats), n_resamples, seed) @ stats)
-    return _interval(cohen_kappa(pooled_t, pooled_s), values, confidence, n_resamples)
+    estimate = cohen_kappa(pooled_t, pooled_s)
+    return _interval(estimate, values, confidence, n_resamples, "a word")
 
 
 # --- slices -------------------------------------------------------------------------------
