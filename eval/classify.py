@@ -49,7 +49,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from anvil import __version__, log
 from anvil.errors import AnvilError, ConfigError
 from anvil.evaluate.bootstrap import bootstrap_ci, bootstrap_difference_ci
-from anvil.evaluate.metrics import accuracy, self_agreement
+from anvil.evaluate.metrics import Agreement, accuracy, self_agreement
 from anvil.pipeline import Workspace, evaluate, label, train
 from anvil.settings import Settings
 from anvil.spec import TaskSpec
@@ -404,6 +404,8 @@ def run(
 
     trained = train(spec, ws, teacher.model_id)
     evaluated = evaluate(spec, ws, trained.path, n_resamples=n_resamples, seed=seed)
+    if not isinstance(evaluated.agreement, Agreement):
+        raise ConfigError(f"eval.classify needs a classify task, {spec.name!r} is {spec.kind}")
 
     texts = [it.text for it, _ in heldout]
     teacher_labels = [lab for _, lab in heldout]

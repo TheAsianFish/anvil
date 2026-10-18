@@ -123,12 +123,21 @@ def train_cmd(
         )
         res = r.result
         losses = res.epoch_losses
+        metric = "entity F1" if task.kind == "extract" else "kappa"
         stopping = (
             f" ({res.validation_examples} held back for early stopping, best epoch"
-            f" {res.best_epoch}, kappa {res.best_metric:.3f})"
+            f" {res.best_epoch}, {metric} {res.best_metric:.3f})"
             if res.validation_examples and res.best_metric is not None
             else ""
         )
+        if r.alignment is not None:
+            a = r.alignment
+            repairs = ", ".join(f"{k} {v}" for k, v in a.matched.items() if v and k != "exact")
+            print(
+                f"aligned {a.mentions} teacher mentions: {a.matched['exact']} at their offset,"
+                f" {a.repaired} repaired ({repairs or 'none'}), {a.unaligned} dropped"
+                f" ({a.unaligned_rate:.1%}), {a.snapped} snapped to token boundaries"
+            )
         print(
             f"trained {r.run_id} on {res.examples + res.validation_examples} {r.teacher_model}"
             f" labels{stopping}: {res.epochs} epochs, loss {losses[0]:.3f} -> {losses[-1]:.3f},"
@@ -148,11 +157,22 @@ def eval_cmd(
     """Measure the student's agreement with the teacher on the held-out split."""
 
     def body() -> None:
+        from anvil.evaluate.extraction import ExtractionAgreement
         from anvil.pipeline import Workspace, evaluate
 
         task, settings = _setup(spec)
         r = evaluate(task, Workspace.for_task(settings.home, task), student)
         a = r.agreement
+        if isinstance(a, ExtractionAgreement):
+            e, f1, tk = a.entity, a.entity_f1_ci, a.token_kappa_ci
+            print(
+                f"student {r.student} vs {r.teacher_model} on {a.n} held-out inputs:"
+                f" entity F1 {e.f1:.3f} [{f1.low:.3f}, {f1.high:.3f}]"
+                f" (precision {e.precision:.3f}, recall {e.recall:.3f}),"
+                f" token kappa {a.token_kappa:.3f} [{tk.low:.3f}, {tk.high:.3f}];"
+                f" report {r.report_path}"
+            )
+            return
         print(
             f"student {r.student} vs {r.teacher_model} on {a.n} held-out inputs:"
             f" kappa {a.kappa:.3f} [{a.kappa_ci.low:.3f}, {a.kappa_ci.high:.3f}],"

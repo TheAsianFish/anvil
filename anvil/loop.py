@@ -212,6 +212,11 @@ def run_loop(
     inputs: Path | None = None,
 ) -> LoopReport:
     """Run (or resume) one loop and return its frontier rows. See the module docstring."""
+    if spec.kind != "classify":
+        raise ConfigError(
+            f"anvil loop runs classify tasks; {spec.name!r} is {spec.kind} (label and train it"
+            " with `anvil label` and `anvil train`)"
+        )
     if not implemented(config.strategy):
         raise ConfigError(
             f"the {config.strategy} strategy is not implemented yet; run the loop with"

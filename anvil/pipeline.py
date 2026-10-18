@@ -8,12 +8,16 @@ from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+from anvil.align import AlignmentReport
 from anvil.errors import StoreError, StudentError
+from anvil.evaluate.extraction import ExtractionAgreement
 from anvil.evaluate.metrics import Agreement, agreement
+from anvil.extraction import fit_tagger, score_tagger
 from anvil.log import get_logger
 from anvil.spec import TaskSpec
 from anvil.store import Split, Store, read_inputs
 from anvil.students.encoder import EncoderClassifier
+from anvil.students.tagger import EncoderTagger
 from anvil.teacher.base import BatchAbortedError, Failure, Item, LabelBatch, Teacher
 from anvil.train.classifier import train_classifier
 from anvil.train.loop import LAST, TrainResult, remove_checkpoint
@@ -125,6 +129,8 @@ class TrainReport:
     path: Path
     teacher_model: str
     result: TrainResult
+    alignment: AlignmentReport | None = None
+    """Extraction only: what aligning the teacher's answers repaired and dropped."""
 
 
 def train(
@@ -164,19 +170,32 @@ def train(
             run_id = f"{base}-{k}"
         out = ws.students / run_id
         out.mkdir(parents=True)
-    student, result = fit_student(
-        spec,
-        teacher_model,
-        pairs,
-        corpus,
-        out / "metrics.jsonl",
-        checkpoint_dir=out / "checkpoint",
-        resume=resume is not None,
-    )
+    student: EncoderClassifier | EncoderTagger
+    alignment: AlignmentReport | None = None
+    if spec.kind == "extract":
+        student, result, alignment = fit_tagger(
+            spec,
+            teacher_model,
+            pairs,
+            corpus,
+            out / "metrics.jsonl",
+            checkpoint_dir=out / "checkpoint",
+            resume=resume is not None,
+        )
+    else:
+        student, result = fit_student(
+            spec,
+            teacher_model,
+            pairs,
+            corpus,
+            out / "metrics.jsonl",
+            checkpoint_dir=out / "checkpoint",
+            resume=resume is not None,
+        )
     student.save(out)
     (ws.students / "LATEST").write_text(run_id + "\n", encoding="utf-8")
     remove_checkpoint(out / "checkpoint")  # only now: a failed save must stay resumable
-    return TrainReport(run_id, out, teacher_model, result)
+    return TrainReport(run_id, out, teacher_model, result, alignment)
 
 
 def fit_student(
@@ -228,7 +247,7 @@ def fit_student(
 class EvalReport:
     student: str
     teacher_model: str
-    agreement: Agreement
+    agreement: Agreement | ExtractionAgreement
     report_path: Path
 
 
@@ -246,7 +265,9 @@ def evaluate(
     headline interval follows the same settings as every other interval in its report.
     """
     path = student_dir or ws.latest_student()
-    student = EncoderClassifier.load(path)
+    student: EncoderClassifier | EncoderTagger = (
+        EncoderTagger.load(path) if spec.kind == "extract" else EncoderClassifier.load(path)
+    )
     try:
         task = str(student.meta["task"])
         teacher_model = str(student.meta["teacher_model"])
@@ -275,8 +296,17 @@ def evaluate(
         pairs = store.labelled(teacher_model, prompt_hash, Split.HELDOUT)
     if not pairs:
         raise StoreError("no teacher labels on the held-out split; run `anvil label` first")
-    result = score(spec, student, pairs, n_resamples=n_resamples, seed=seed)
-    raw_train = student.meta.get("train_labels", [])
+    result: Agreement | ExtractionAgreement
+    extra: dict[str, object] = {}
+    if isinstance(student, EncoderTagger):
+        scored = score_tagger(spec, student, pairs, n_resamples=n_resamples, seed=seed)
+        result = scored.agreement
+        extra = {"heldout_alignment": scored.alignment.as_dict()}
+        train_examples = student.meta.get("train_examples", 0)
+    else:
+        result = score(spec, student, pairs, n_resamples=n_resamples, seed=seed)
+        raw_train = student.meta.get("train_labels", [])
+        train_examples = len(raw_train) if isinstance(raw_train, list) else 0
 
     ws.reports.mkdir(parents=True, exist_ok=True)
     report_path = ws.reports / f"eval-{path.name}.json"
@@ -287,11 +317,13 @@ def evaluate(
         "teacher_model": teacher_model,
         "prompt_hash": prompt_hash,
         "labels": spec.label_names,
-        "train_examples": len(raw_train) if isinstance(raw_train, list) else 0,
+        "train_examples": train_examples,
         **asdict(result),
+        **extra,
     }
     report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    log.info("evaluated", extra={"student": path.name, "n": result.n, "kappa": result.kappa})
+    headline = result.token_kappa if isinstance(result, ExtractionAgreement) else result.kappa
+    log.info("evaluated", extra={"student": path.name, "n": result.n, "kappa": headline})
     return EvalReport(path.name, teacher_model, result, report_path)
 
 
