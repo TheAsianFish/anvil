@@ -469,3 +469,69 @@ def test_a_report_that_counts_more_drops_than_mentions_is_refused() -> None:
     report.dropped["no_token"] = 2
     with pytest.raises(ValueError, match="merged twice"):
         report.check()
+
+
+# --- the cases a review of the ladder turned up --------------------------------------------
+
+
+def test_normalized_match_survives_an_expanding_normalisation() -> None:
+    # A decomposed Hangul syllable is three jamo; NFC makes it one code point, so the
+    # decomposed text is far longer than the mention it has to match.
+    needle = "한국어는요"
+    text = "저는 " + unicodedata.normalize("NFD", needle) + " 공부"
+    span, report = _one(text, Mention(needle, "Dish", 3))
+    assert span == Span(3, 3 + len(unicodedata.normalize("NFD", needle)), "Dish")
+    assert _rule(report) == "normalized"
+
+
+def test_shifted_match_prefers_a_whole_word_over_a_substring() -> None:
+    text = "fine dining steakhouse in the area"  # "in" sits inside "fine" and "dining"
+    span, report = _one(text, Mention("in", "Location", 0))
+    assert span == Span(23, 25, "Location")
+    assert _rule(report) == "shifted"
+    # When the mention occurs only inside a word, that occurrence is still better than none.
+    span, _ = _one("banana", Mention("an", "Dish", 50))
+    assert span == Span(3, 5, "Dish")  # nearest to the claimed offset
+
+
+def test_identical_mentions_take_two_occurrences_when_the_text_has_two() -> None:
+    text = "Pizza Hut beats Pizza Hut Express"
+    m = Mention("Pizza Hut", "Restaurant_Name", 0)
+    aligned = align_mentions(text, [m, m], TYPES)
+    assert aligned.spans == [Span(0, 9, "Restaurant_Name"), Span(16, 25, "Restaurant_Name")]
+    assert aligned.report.matched["exact"] == 1
+    assert aligned.report.matched["shifted"] == 1
+    assert aligned.report.duplicates == 0
+
+
+def test_trimmed_mention_goes_down_the_whole_ladder() -> None:
+    text = "the Burger  King here"  # quotes to trim, then case and a double space
+    span, report = _one(text, Mention('"burger king"', "Restaurant_Name", 4))
+    assert span == Span(4, 16, "Restaurant_Name")
+    assert _rule(report) == "trimmed"
+
+
+def test_snap_keeps_a_trailing_combining_mark_with_its_letter() -> None:
+    # A tokenizer that normalises its input leaves the accent of a decomposed "café"
+    # outside every token: "a cafe\u0301 near me" tokenizes to " cafe" (1, 6), " near" (7, 12).
+    text = "a cafe\u0301 near me"
+    offsets = [(0, 0), (0, 1), (1, 6), (7, 12), (13, 15), (0, 0)]
+    snapped = snap_to_tokens(text, [Span(2, 7, "Location")], offsets)
+    assert snapped.spans == [Span(2, 7, "Location")]
+    assert snapped.report.snapped == 0
+    assert tags_to_spans(text, snapped.tags, offsets) == [Span(2, 7, "Location")]
+
+
+def test_a_span_the_token_limit_cuts_through_is_dropped_not_snapped() -> None:
+    text = "aaa bbb ccc ddd eee"
+    offsets = [(0, 0), (0, 3), (3, 7), (7, 11), (0, 0)]  # max_length stopped after "ccc"
+    snapped = snap_to_tokens(text, [Span(4, 15, "Dish")], offsets)
+    assert snapped.spans == []
+    assert snapped.report.dropped["truncated"] == 1
+    assert snapped.report.snapped == 0
+    assert all(tag in (None, "O") for tag in snapped.tags)
+    # A span entirely past the cut is `no_token`, one that ends at the cut is whole.
+    both = snap_to_tokens(text, [Span(4, 11, "Dish"), Span(12, 15, "Dish")], offsets)
+    assert both.spans == [Span(4, 11, "Dish")]
+    assert both.report.dropped["no_token"] == 1
+    assert both.report.dropped["truncated"] == 0

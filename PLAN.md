@@ -349,7 +349,13 @@ Batches halve the cost of large pools and are used when a batch exceeds
   from its combining accent. Answers are stored raw (the mentions' canonical
   JSON in the label column), so alignment runs at train and eval time and can
   change without paying for labels again; the store, cache, label files and
-  replay needed no change. Overlapping spans keep the longer (BIO cannot nest).
+  replay needed no change. Among several occurrences of a mention's text the
+  one on word boundaries wins, then the nearest to the claimed offset ("in" is
+  not found inside "dining" while a whole word "in" exists); an identical
+  mention listed twice takes a second occurrence when the text has one and is
+  a duplicate otherwise. Overlapping spans keep the longer (BIO cannot nest).
+  A span the `max_length` cut runs through is dropped as `truncated` rather
+  than trained as a stump.
   The 5% unaligned gate counts drops at both stages, text and tokens, and runs
   before the first training step. Token kappa is computed over whitespace
   words, not the student's subword tokens, so it is comparable across

@@ -10,9 +10,11 @@ Extraction labels pass two gates before training.
    strictest rule to the loosest, and the rule that matched is recorded:
 
    - `exact`: the text sits at the claimed offset;
-   - `shifted`: the text occurs elsewhere; the occurrence nearest the claimed offset wins
-     (one already taken by an earlier mention is skipped, so two copies of a word map to two
-     occurrences);
+   - `shifted`: the text occurs elsewhere; the occurrence nearest the claimed offset wins,
+     after any occurrence that sits on word boundaries when the mention does ("in" is not
+     found inside "dining" while a whole word "in" exists). One already taken by an earlier
+     mention of the same type is skipped, so two copies of a word, even listed with the same
+     offset, map to two occurrences;
    - `case`: only a case-insensitive match exists ("Burger King" for "burger king");
    - `spacing`: only a match with different whitespace exists (a double space or a newline);
    - `normalized`: only a match after Unicode NFC normalisation exists (a precomposed "é"
@@ -22,15 +24,17 @@ Extraction labels pass two gates before training.
    A mention that matches nothing is dropped as `not_found`; one with empty text or an
    unknown type as `invalid`. Spans that overlap are resolved by keeping the longer (then the
    earlier, then the type listed first in the spec) and dropping the rest as `overlap`: BIO
-   tags cannot represent nested or crossing entities. An identical repeat is a `duplicate`,
-   dropped without counting against the teacher.
+   tags cannot represent nested or crossing entities. A mention found only where an earlier
+   mention of the same type already sits (the teacher listed one entity twice, with the same
+   or different offsets) is a `duplicate`, dropped without counting against the teacher.
 
 2. **Snap to the student's tokens** (`snap_to_tokens`). A span becomes `B-type` on the first
    token it touches and `I-type` on the rest. When a span boundary falls inside a token (the
    student's vocabulary splits words differently from the teacher), the span grows to the
-   token boundary and is counted as `snapped`; it still trains. A span no token covers (cut
-   off by `max_length`) is dropped as `no_token`, and one that would share a token with an
-   earlier span as `token_conflict`.
+   token boundary and is counted as `snapped`; it still trains. A span no token covers (past
+   the `max_length` cut) is dropped as `no_token`, one the cut runs through as `truncated`
+   (training on the stump would teach a wrong boundary), and one that would share a token
+   with an earlier span as `token_conflict`.
 
 `AlignmentReport` adds both gates up. Its unaligned rate is the share of mentions that cannot
 be trained on (every drop except duplicates), and training refuses to start above
@@ -55,7 +59,7 @@ MAX_UNALIGNED_RATE = 0.05
 MATCH_RULES = ("exact", "shifted", "case", "spacing", "normalized", "trimmed")
 """How a mention was found in the input, strictest first."""
 
-DROP_REASONS = ("not_found", "invalid", "overlap", "no_token", "token_conflict")
+DROP_REASONS = ("not_found", "invalid", "overlap", "no_token", "truncated", "token_conflict")
 """Why a mention was not trained on; every one counts toward the unaligned rate."""
 
 _EDGE = " \t\n\r\f\v.,;:!?\"'()[]{}<>`*_-"
@@ -166,7 +170,7 @@ class AlignmentReport:
                 f"{self.unaligned} of {self.counted} teacher mentions"
                 f" ({self.unaligned_rate:.1%}) could not be aligned ({reasons}), above the"
                 f" {limit:.0%} limit; check the prompt and a few labels (the report lists"
-                " examples), or raise max_length if most are no_token"
+                " examples), or raise max_length if most are no_token or truncated"
             )
 
 
@@ -191,26 +195,29 @@ def _occurrences(text: str, needle: str, rule: str) -> list[Offset]:
 
 
 def _normalized_occurrences(text: str, needle: str) -> list[Offset]:
-    """Matches after NFC normalisation, as offsets into the original text.
+    """Matches after NFC normalisation and case folding, as offsets into the original text.
 
-    Normalisation can change lengths (a base letter plus a combining accent becomes one code
-    point), so offsets cannot be mapped arithmetically. Inputs to a tagger are short, so every
-    (start, end) window up to twice the needle's length is compared directly; only mentions
-    no cheaper rule found get here."""
+    Normalisation changes lengths (a base letter plus a combining accent becomes one code
+    point, a decomposed Hangul syllable three jamo become one), so offsets cannot be mapped
+    arithmetically. The text is normalised whole, and an original index maps to a normalised
+    one only where normalisation is stable (the two halves normalise to what the whole does):
+    never between a letter and its accent, so no match can split them. Only mentions no
+    cheaper rule found get here."""
     target = unicodedata.normalize("NFC", needle).casefold()
     if not target:
         return []
+    whole = unicodedata.normalize("NFC", text)
+    folded = whole.casefold()
+    position: dict[int, int] = {}
+    for i in range(len(text) + 1):
+        head = unicodedata.normalize("NFC", text[:i])
+        if head + unicodedata.normalize("NFC", text[i:]) == whole:
+            position[len(head.casefold())] = i
     out: list[Offset] = []
-    width = 2 * len(needle) + 2
-    for i in range(len(text)):
-        if unicodedata.combining(text[i]):
-            continue  # a match never starts on a combining mark
-        for j in range(i + 1, min(len(text), i + width) + 1):
-            if j < len(text) and unicodedata.combining(text[j]):
-                continue  # nor ends between a letter and its accent
-            if unicodedata.normalize("NFC", text[i:j]).casefold() == target:
-                out.append((i, j))
-                break
+    for m in re.finditer(f"(?=({re.escape(target)}))", folded):
+        start, end = position.get(m.start(1)), position.get(m.end(1))
+        if start is not None and end is not None and end > start:
+            out.append((start, end))
     return out
 
 
@@ -221,6 +228,28 @@ def _whole_characters(text: str, offset: Offset) -> bool:
     if start < len(text) and unicodedata.combining(text[start]):
         return False
     return not (end < len(text) and unicodedata.combining(text[end]))
+
+
+_WORD_CHAR = re.compile(r"\w")
+
+
+def _cut_words(text: str, needle: str, offset: Offset) -> int:
+    """How many edges of this occurrence cut through a word: the needle starts (ends) with a
+    word character and so does the text just before (after) it. "in" inside "dining" cuts
+    one word; a whole word "in" cuts none."""
+    start, end = offset
+    cuts = 0
+    if _WORD_CHAR.match(needle[0]) and start > 0 and _WORD_CHAR.match(text[start - 1]):
+        cuts += 1
+    if _WORD_CHAR.match(needle[-1]) and end < len(text) and _WORD_CHAR.match(text[end]):
+        cuts += 1
+    return cuts
+
+
+def _find(text: str, target: str, rule: str) -> list[Offset]:
+    if rule == "normalized":
+        return _normalized_occurrences(text, target)
+    return _occurrences(text, target, rule)
 
 
 def _locate(
@@ -238,29 +267,25 @@ def _locate(
         and _whole_characters(text, claimed)
     ):
         return claimed, "exact"
-    attempts: list[tuple[str, str]] = [
-        ("shifted", needle),
-        ("case", needle),
-        ("spacing", needle),
-        ("normalized", needle),
-    ]
+    looser = ("shifted", "case", "spacing", "normalized")
+    attempts: list[tuple[str, str, str]] = [(rule, rule, needle) for rule in looser]
     trimmed = needle.strip(_EDGE)
     if trimmed and trimmed != needle:
-        attempts += [("trimmed", trimmed)]
-    for rule, target in attempts:
-        if rule not in rules:
+        # The trimmed text goes down the same ladder; whichever step finds it, the repair
+        # is reported as `trimmed`.
+        attempts += [("trimmed", rule, trimmed) for rule in looser]
+    for reported, rule, target in attempts:
+        if reported not in rules:
             continue
-        if rule == "trimmed":
-            found = _occurrences(text, target, "case") or _normalized_occurrences(text, target)
-        elif rule == "normalized":
-            found = _normalized_occurrences(text, target)
-        else:
-            found = _occurrences(text, target, rule)
+        found = _find(text, target, rule)
         free = [o for o in found if o not in taken and _whole_characters(text, o)]
         if free:
-            # Nearest to the claimed offset; on a tie, the earlier occurrence.
-            best = min(free, key=lambda o: (abs(o[0] - mention.start), o[0]))
-            return best, rule
+            # Whole words before occurrences inside a word, then nearest to the claimed
+            # offset, then the earlier occurrence.
+            best = min(
+                free, key=lambda o: (_cut_words(text, target, o), abs(o[0] - mention.start), o[0])
+            )
+            return best, reported
     return None
 
 
@@ -296,7 +321,6 @@ def align_mentions(
     # the overlap resolution below instead of being pushed somewhere it does not belong).
     taken: dict[str, set[Offset]] = {t: set() for t in types}
     located: list[tuple[Span, int]] = []
-    seen: set[Mention] = set()
     for order, raw in enumerate(mentions):
         if raw.type not in rank or not raw.text.strip():
             report.dropped["invalid"] += 1
@@ -307,14 +331,11 @@ def align_mentions(
         # and could never be matched by a prediction, whose edges are stripped.
         lead = len(raw.text) - len(raw.text.lstrip())
         m = Mention(raw.text.strip(), raw.type, raw.start + lead)
-        if m in seen:  # the same text, type and offset twice: one entity
-            report.duplicates += 1
-            continue
-        seen.add(m)
         hit = _locate(text, m, taken[m.type], rules)
-        if hit is None and _locate(text, m, set(), rules) is not None:
+        if hit is None and taken[m.type] and _locate(text, m, set(), rules) is not None:
             # Found, but only where an earlier mention of the same type already sits: the
-            # teacher listed one entity twice with different offsets, not a lost mention.
+            # teacher listed one entity twice (a second copy of the text would have been
+            # taken instead), not a lost mention.
             report.duplicates += 1
             continue
         if hit is None:
@@ -359,11 +380,15 @@ def _is_real(offset: Offset) -> bool:
 
 def _strip(text: str, start: int, end: int) -> tuple[int, int]:
     """Shrink [start, end) past whitespace at either edge (byte-level BPE tokens carry the
-    space before a word)."""
+    space before a word), then grow `end` over combining marks: a tokenizer that normalises
+    its input leaves a trailing accent of a decomposed "café" outside every token, and a span
+    that stopped before it would cut the letter from its accent."""
     while start < end and text[start].isspace():
         start += 1
     while end > start and text[end - 1].isspace():
         end -= 1
+    while end < len(text) and unicodedata.combining(text[end]):
+        end += 1
     return start, end
 
 
@@ -382,6 +407,7 @@ def snap_to_tokens(
     tags: list[str | None] = [OUTSIDE if _is_real(o) else None for o in offsets]
     owner: list[int] = [-1] * len(offsets)
     represented: list[Span] = []
+    covered_text = max((e for s, e in offsets if e > s), default=0)
     for n, span in enumerate(sorted(spans)):
         touching = [
             i
@@ -401,6 +427,12 @@ def snap_to_tokens(
         if not covered:
             report.dropped["no_token"] += 1
             report.note(input_id, "no_token", as_mention, span)
+            continue
+        if span.end > covered_text and text[covered_text : span.end].strip():
+            # The tokens stop (max_length) inside the entity: its stump would train a wrong
+            # boundary, and the report would call that a snap rather than a loss.
+            report.dropped["truncated"] += 1
+            report.note(input_id, "truncated", as_mention, span)
             continue
         if any(owner[i] != -1 for i in covered):
             report.dropped["token_conflict"] += 1
