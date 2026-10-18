@@ -50,7 +50,7 @@ labelled 72 held-out + 240 pool inputs with fake-rules-a25234ff (0 from cache, $
 aligned 548 teacher mentions: 430 at their offset, 118 repaired (shifted 118), 0 dropped (0.0%), 0 snapped to token boundaries
 trained 20261018-073012-n240 on 240 fake-rules-a25234ff labels (21 held back for early stopping, best epoch 3, entity F1 1.000): 5 epochs, loss 1.752 -> 0.015, 0.5s
 == anvil eval (entity F1 and token kappa against the teacher)
-student 20261018-073012-n240 vs fake-rules-a25234ff on 72 held-out inputs: entity F1 0.929 [0.885, 0.968] (precision 0.904, recall 0.955), token kappa 0.968 [0.949, 0.985]; report .anvil/demo/restaurant-slots/reports/eval-20261018-073012-n240.json
+student 20261018-073012-n240 vs fake-rules-a25234ff on 72 held-out inputs: entity F1 0.929 [0.885, 0.968] (precision 0.904, recall 0.955), token kappa 0.968 [0.949, 0.985] (held-out teacher mentions: 37 repaired, 0 dropped, 0.0%); report .anvil/demo/restaurant-slots/reports/eval-20261018-073012-n240.json
 == demo finished in 42s
 ```
 
