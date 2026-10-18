@@ -87,7 +87,12 @@ class SplitSpec(_Strict):
 
 
 class FakeTeacherSpec(_Strict):
-    """Keyword rules for the offline `FakeTeacher` (demo and tests only)."""
+    """Keyword rules for the offline `FakeTeacher` (demo and tests only).
+
+    For `classify`, the first label with a keyword present wins (else `default`), and `noise`
+    flips that share of labels. For `extract`, every keyword occurrence is a mention of its
+    type, and `noise` shifts that share of mentions' offsets by one character, the error a
+    real teacher makes most, so alignment has something to repair."""
 
     rules: dict[str, list[str]] = Field(default_factory=dict)
     default: str | None = None
@@ -100,6 +105,7 @@ class TaskSpec(_Strict):
     kind: Literal["classify", "extract", "generate"]
     instructions: str
     labels: list[LabelDef] = Field(default_factory=list)
+    """Classes for `classify`; entity types for `extract`."""
     teacher: TeacherSpec = TeacherSpec()
     student: StudentSpec = StudentSpec()
     splits: SplitSpec = SplitSpec()
@@ -121,18 +127,24 @@ class TaskSpec(_Strict):
 
     @model_validator(mode="after")
     def _check_kind(self) -> TaskSpec:
-        if self.kind != "classify":
+        if self.kind == "generate":
             raise ValueError(
-                f"kind {self.kind!r} is not implemented yet (extract lands in M4, generate in M6);"
-                " use kind: classify"
+                "kind 'generate' is not implemented yet (it lands in M6); use classify or extract"
             )
         names = [label.name for label in self.labels]
-        if len(names) < 2:
+        if self.kind == "classify" and len(names) < 2:
             raise ValueError("a classify task needs at least two labels")
+        if self.kind == "extract" and not names:
+            raise ValueError("an extract task needs at least one entity type under `labels`")
         if len(set(names)) != len(names):
             raise ValueError("label names must be unique")
         if self.fake is not None:
-            unknown = (set(self.fake.rules) | {self.fake.default or names[0]}) - set(names)
+            known = set(self.fake.rules)
+            if self.kind == "classify":
+                known |= {self.fake.default or names[0]}
+            elif self.fake.default is not None:
+                raise ValueError("fake.default has no meaning for an extract task; remove it")
+            unknown = known - set(names)
             if unknown:
                 raise ValueError(f"fake rules name unknown labels: {sorted(unknown)}")
         return self
