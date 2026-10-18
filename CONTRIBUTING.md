@@ -55,8 +55,8 @@ every live teacher response there as a replayable recording),
 
 ```
 anvil/            package: spec, teacher/, store, students/, train/, evaluate/,
-                  pipeline, cli (M2+ add align, select, loop, calibrate, export,
-                  serve, hub)
+                  spans + align + extraction (M4), select + loop (M3), pipeline,
+                  cli (M5+ add calibrate, export, serve, hub)
 examples/toy/     the toy ticket-triage task used by the demo and the tests
 examples/toy-extract/  the toy restaurant-slot extraction task (demo and tests)
 scripts/          demo.sh

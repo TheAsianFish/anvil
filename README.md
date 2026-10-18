@@ -140,8 +140,9 @@ flowchart LR
     SPEC[anvil.yaml] --> T
     ST -->|unlabelled batch| T[Teacher<br/>Claude structured outputs<br/>disk cache + cost]
     T -->|labels + tokens + $| ST
-    ST -->|labelled pool| AL[align.py<br/>spans verified vs text,<br/>snapped to tokens, 5% gate]
-    AL --> TR[train/loop.py<br/>AMP, accumulation, warmup,<br/>early stopping, exact resume]
+    ST -->|labelled pool, classify| TR[train/loop.py<br/>AMP, accumulation, warmup,<br/>early stopping, exact resume]
+    ST -->|labelled pool, extract| AL[align.py<br/>spans verified vs text,<br/>snapped to tokens, 5% gate]
+    AL --> TR
     TR --> S[Student<br/>ModernBERT classifier<br/>or BIO tagger]
     ST -->|held-out, teacher-labelled| EV[evaluate/<br/>kappa + bootstrap CI,<br/>per-class, slices]
     S --> EV
