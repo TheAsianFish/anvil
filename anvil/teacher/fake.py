@@ -8,6 +8,7 @@ import re
 from collections.abc import Sequence
 
 from anvil.errors import ConfigError
+from anvil.spans import Mention, encode_answer
 from anvil.spec import TaskSpec
 from anvil.teacher.base import Item, Label, LabelBatch
 
@@ -60,7 +61,43 @@ class FakeTeacher:
                 return label
         return self._default
 
+    def mentions(self, item: Item) -> list[Mention]:
+        """Extraction: every keyword occurrence is a mention of its type (the longest wins
+        where two overlap), and with `noise` that share of mentions, chosen by a hash of the
+        input id and offset, claims a start one character off."""
+        found: list[tuple[int, int, str]] = []
+        for label, pattern in self._patterns:
+            found += [(m.start(), m.end(), label) for m in pattern.finditer(item.text)]
+        found.sort(key=lambda f: (f[0] - f[1], f[0]))
+        kept: list[tuple[int, int, str]] = []
+        for start, end, label in found:
+            if all(end <= k[0] or start >= k[1] for k in kept):
+                kept.append((start, end, label))
+        out: list[Mention] = []
+        for start, end, label in sorted(kept):
+            claimed = start
+            if (
+                self._fake.noise
+                and _unit(self._fake.seed, "shift", item.id, start) < self._fake.noise
+            ):
+                down = _unit(self._fake.seed, "dir", item.id, start) < 0.5 and start > 0
+                claimed = start - 1 if down else start + 1  # never a no-op at offset 0
+            out.append(Mention(item.text[start:end], label, claimed))
+        return out
+
     def label(self, items: Sequence[Item]) -> LabelBatch:
+        if self._spec.kind == "extract":
+            return LabelBatch(
+                labels=[
+                    Label(
+                        input_id=item.id,
+                        label=encode_answer(self.mentions(item)),
+                        teacher_model=self.model_id,
+                        prompt_hash=self._spec.prompt_hash,
+                    )
+                    for item in items
+                ]
+            )
         names = self._spec.label_names
         batch = LabelBatch()
         for item in items:
