@@ -1,4 +1,4 @@
-"""Command-line interface: `anvil label | train | eval | loop | serve`.
+"""Command-line interface: `anvil label | train | eval | loop | calibrate | export | serve`.
 
 Top-level imports stay torch-free: `anvil serve` runs in an image without torch, so every
 command imports its heavy dependencies inside its body."""
@@ -264,6 +264,110 @@ def loop_cmd(
                 f"  ${row['label_cost_usd']:>9.4f}  ${row['spent_usd']:.4f}"
             )
         print(f"stopped: {r.stopped or 'interrupted'}; frontier {r.frontier}; student {r.student}")
+
+    _run(body)
+
+
+class Rule(StrEnum):
+    lower_bound = "lower"  # not `lower`: that would shadow str.lower
+    point = "point"
+
+
+@app.command("calibrate")
+def calibrate_cmd(
+    spec: SpecOpt = Path("anvil.yaml"),
+    student: Annotated[
+        Path | None, typer.Option(help="Student directory (default: the latest).")
+    ] = None,
+    target_kappa: Annotated[
+        float,
+        typer.Option(help="Kappa with the teacher the student must keep on what it answers."),
+    ] = 0.9,
+    rule: Annotated[
+        Rule,
+        typer.Option(
+            help="lower: the 95% bootstrap lower bound must reach the target; point:"
+            " the estimate must."
+        ),
+    ] = Rule.lower_bound,
+) -> None:
+    """Fit a temperature and the escalation threshold on the held-out teacher labels."""
+
+    def body() -> None:
+        from anvil.pipeline import Workspace, calibrate_student
+
+        task, settings = _setup(spec)
+        r = calibrate_student(
+            task,
+            Workspace.for_task(settings.home, task),
+            student,
+            target_kappa=target_kappa,
+            rule=rule.value,
+        )
+        c = r.calibration
+        print(
+            f"calibrated {r.student} on {c.n} held-out {r.teacher_model} labels: temperature"
+            f" {c.temperature:.3f}, ECE {c.ece_before:.3f} -> {c.ece_after:.3f}"
+        )
+        if c.threshold is None:
+            print(
+                f"no threshold keeps kappa {target_kappa} ({rule.value} rule) on at least 30"
+                " held-out inputs: the cascade would escalate everything; label more or lower"
+                " the target"
+            )
+        else:
+            low = f", lower bound {c.kappa_low:.3f}" if c.kappa_low is not None else ""
+            print(
+                f"threshold {c.threshold:.4f}: the student answers {c.coverage:.1%} of held-out"
+                f" inputs at kappa {c.kappa:.3f}{low} (target {target_kappa}); written to {r.path}"
+            )
+
+    _run(body)
+
+
+@app.command("export")
+def export_cmd(
+    spec: SpecOpt = Path("anvil.yaml"),
+    student: Annotated[
+        Path | None, typer.Option(help="Student directory (default: the latest).")
+    ] = None,
+    out: Annotated[
+        Path | None,
+        typer.Option("--out", "-o", help="Bundle directory (default: <task>/exports/<student>)."),
+    ] = None,
+    int8: Annotated[
+        bool, typer.Option("--int8", help="Also export a dynamic int8 model.")
+    ] = False,
+    probes: Annotated[
+        int, typer.Option(min=1, help="Held-out inputs the parity check runs on.")
+    ] = 512,
+) -> None:
+    """Export the student to ONNX and check it against PyTorch before it can be served."""
+
+    def body() -> None:
+        from anvil.pipeline import Workspace, export_bundle
+
+        task, settings = _setup(spec)
+        r = export_bundle(
+            task, Workspace.for_task(settings.home, task), student, out, int8=int8, probes=probes
+        )
+        for p in (r.fp32, r.int8):
+            if p is None:
+                continue
+            kappa = (
+                f", kappa vs teacher {p.kappa:.3f} (drop {p.kappa_drop:+.3f})"
+                if p.kappa is not None and p.kappa_drop is not None
+                else ""
+            )
+            print(
+                f"{p.variant}: {'passed' if p.passed else 'FAILED'} parity vs {p.reference} on"
+                f" {p.n} inputs: max |logit diff| {p.max_abs_diff:.2e}, agreement"
+                f" {p.agreement:.3f}{kappa}; {p.size_mb:.1f} MB ({p.gate})"
+            )
+        print(f"bundle {r.bundle}; serve it with `anvil serve {r.bundle}`")
+        if r.int8 is not None and not r.int8.passed:
+            print("the int8 model failed its parity gate and was not kept", file=sys.stderr)
+            raise typer.Exit(1)
 
     _run(body)
 

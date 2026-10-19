@@ -8,9 +8,11 @@ import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from anvil.align import AlignmentReport
-from anvil.errors import AlignmentError, StoreError, StudentError
+from anvil.calibrate import Calibration, Rule, calibrate
+from anvil.errors import AlignmentError, ConfigError, StoreError, StudentError
 from anvil.evaluate.extraction import ExtractionAgreement
 from anvil.evaluate.metrics import Agreement, agreement
 from anvil.extraction import fit_tagger, score_tagger
@@ -22,6 +24,9 @@ from anvil.students.tagger import EncoderTagger
 from anvil.teacher.base import BatchAbortedError, Failure, Item, LabelBatch, Teacher
 from anvil.train.classifier import train_classifier
 from anvil.train.loop import LAST, TrainResult, remove_checkpoint
+
+if TYPE_CHECKING:
+    from anvil.export import ExportReport
 
 log = get_logger(__name__)
 
@@ -242,6 +247,7 @@ def fit_student(
             "prompt_hash": spec.prompt_hash,
             "splits": spec.splits.model_dump(),
             "student_model": spec.student.model,
+            "student_spec": spec.student.model_dump(),
             "train_labels": [lab for _, lab in pairs],
             "train": {k: v for k, v in asdict(result).items()},
         }
@@ -361,4 +367,145 @@ def score(
         lengths=[len(text.split()) for text in texts],
         n_resamples=n_resamples,
         seed=seed,
+    )
+
+
+CALIBRATION_FILE = "calibration.json"
+"""Written into a student's directory by `anvil calibrate`; `anvil export` copies it into the
+bundle, so the server applies the same temperature and threshold."""
+
+
+def write_calibration(
+    student_dir: Path, calibration: dict[str, object], teacher_model: str
+) -> Path:
+    """Store a calibration (`Calibration.as_dict()`) next to the student it was fitted for."""
+    path = student_dir / CALIBRATION_FILE
+    payload = {**calibration, "teacher_model": teacher_model, "student": student_dir.name}
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
+def read_calibration(student_dir: Path) -> dict[str, object] | None:
+    path = student_dir / CALIBRATION_FILE
+    if not path.exists():
+        return None
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise StudentError(f"{path} is not a calibration file; re-run `anvil calibrate`")
+    return data
+
+
+@dataclass(frozen=True)
+class CalibrationReport:
+    student: str
+    teacher_model: str
+    calibration: Calibration
+    path: Path
+
+
+def calibrate_student(
+    spec: TaskSpec,
+    ws: Workspace,
+    student_dir: Path | None = None,
+    *,
+    target_kappa: float | None = 0.9,
+    rule: Rule = "lower",
+    n_resamples: int = 1000,
+    seed: int = 0,
+) -> CalibrationReport:
+    """Fit the temperature and the cascade threshold on the held-out teacher labels and write
+    them into the student's directory.
+
+    The threshold is chosen and reported on the same held-out labels (there is nothing else
+    labelled to check it on); `make eval-calibration` measures how well such a threshold holds
+    on inputs it was not chosen on.
+    """
+    path = student_dir or ws.latest_student()
+    if spec.kind != "classify":
+        raise StudentError("calibration is for classify students; this task is " + spec.kind)
+    student = EncoderClassifier.load(path)
+    teacher_model = str(student.meta.get("teacher_model", ""))
+    prompt_hash = str(student.meta.get("prompt_hash", ""))
+    if prompt_hash != spec.prompt_hash:
+        raise StoreError(
+            f"student {path.name} was trained for prompt {prompt_hash}, the spec is now"
+            f" {spec.prompt_hash}; relabel and retrain"
+        )
+    with ws.open_store(spec) as store:
+        pairs = store.labelled(teacher_model, prompt_hash, Split.HELDOUT)
+    if not pairs:
+        raise StoreError("no teacher labels on the held-out split; run `anvil label` first")
+    index = {name: i for i, name in enumerate(student.labels)}
+    unknown = sorted({lab for _, lab in pairs if lab not in index})
+    if unknown:
+        raise StoreError(
+            f"held-out labels {unknown[:5]} are not in student {path.name}'s label set;"
+            " retrain it on the current labels"
+        )
+    logits = student.predict_logits([it.text for it, _ in pairs])
+    teacher = [index[lab] for _, lab in pairs]
+    result = calibrate(
+        logits, teacher, target_kappa=target_kappa, rule=rule, n_resamples=n_resamples, seed=seed
+    )
+    written = write_calibration(path, result.as_dict(), teacher_model)
+    log.info(
+        "calibrated",
+        extra={
+            "student": path.name,
+            "temperature": result.temperature,
+            "threshold": result.threshold,
+        },
+    )
+    return CalibrationReport(path.name, teacher_model, result, written)
+
+
+def export_bundle(
+    spec: TaskSpec,
+    ws: Workspace,
+    student_dir: Path | None = None,
+    out: Path | None = None,
+    *,
+    int8: bool = False,
+    probes: int = 512,
+) -> ExportReport:
+    """Export a classify student to an ONNX bundle (`<task>/exports/<student>/` by default).
+
+    Parity is checked on up to `probes` held-out inputs, and int8 is also scored against
+    their teacher labels. The student's `calibration.json` (from `anvil calibrate`), when
+    there is one for the same teacher, sets the bundle's temperature and threshold; the task
+    spec goes in too, so the server can rebuild the teacher it escalates to.
+    """
+    from anvil.export import export_student  # needs the `export` extra (onnx)
+
+    if spec.kind != "classify":
+        raise ConfigError(f"export supports classify tasks; {spec.name!r} is {spec.kind}")
+    path = student_dir or ws.latest_student()
+    student = EncoderClassifier.load(path)
+    teacher_model = str(student.meta.get("teacher_model", ""))
+    prompt_hash = str(student.meta.get("prompt_hash", ""))
+    if prompt_hash != spec.prompt_hash:
+        raise StoreError(
+            f"student {path.name} was trained for prompt {prompt_hash}, the spec is now"
+            f" {spec.prompt_hash}; relabel and retrain"
+        )
+    with ws.open_store(spec) as store:
+        pairs = store.labelled(teacher_model, prompt_hash, Split.HELDOUT)[:probes]
+    if not pairs:
+        raise StoreError(
+            "no teacher labels on the held-out split to check parity on; run `anvil label`"
+        )
+    calibration = read_calibration(path)
+    if calibration is not None and calibration.get("teacher_model") != teacher_model:
+        log.warning(
+            "ignoring a calibration made for another teacher", extra={"student": path.name}
+        )
+        calibration = None
+    return export_student(
+        path,
+        out or ws.root / "exports" / path.name,
+        [it.text for it, _ in pairs],
+        int8=int8,
+        teacher_labels=[lab for _, lab in pairs],
+        calibration=calibration,
+        spec=spec.model_dump(mode="json"),
     )
