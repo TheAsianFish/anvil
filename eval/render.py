@@ -595,6 +595,95 @@ def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
     return "\n".join(out)
 
 
+def _q(stats: Mapping[str, Any] | None, digits: int = 3) -> str:
+    """`median [p5, p95]` of a split-study quantile summary."""
+    if not stats:
+        return "n/a"
+    return f"{_f(stats['median'], digits)} [{_f(stats['p5'], digits)}, {_f(stats['p95'], digits)}]"
+
+
+def _commit(meta: Mapping[str, Any]) -> str:
+    sha = str(meta.get("git_sha") or "")[:7]
+    return f"`{sha}`" + (" (uncommitted changes)" if meta.get("git_dirty") else "") if sha else "?"
+
+
+_METHOD_NAMES = {
+    "point": "point estimate, calibrated",
+    "lower": "95% lower bound, calibrated",
+    "point-raw": "point estimate, uncalibrated",
+}
+
+
+def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
+    """Temperature scaling, the served threshold, and the split study of whether a threshold
+    chosen on one half of the held-out split keeps its kappa on the other half."""
+    if not runs:
+        return "No calibration run yet: `make eval-calibration`.\n"
+    out = [
+        "| Dataset | Teacher | Student | Held-out | Kappa (all inputs) | Temperature"
+        " | ECE before -> after (all) | ECE before -> after (unseen half, median)"
+        " | Coverage at kappa 0.9 | Coverage at kappa 0.95 |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for _, r, _meta in runs:
+        src, full, ss = r["source"], r["full"], r["split_study"]
+        f9, f95 = full.get("0.9", {}), full.get("0.95", {})
+        out.append(
+            f"| {src['dataset']} | {src['teacher_model']} | {_student_name(src['student_model'])}"
+            f" | {r['n']} | {_f(r['kappa'])} | {_f(f9.get('temperature'), 2)}"
+            f" | {_f(f9.get('ece_before'))} -> {_f(f9.get('ece_after'))}"
+            f" | {_f(ss['ece_before']['median'])} -> {_f(ss['ece_after']['median'])}"
+            f" | {_pct(f9.get('coverage'))} | {_pct(f95.get('coverage'))} |"
+        )
+    out.append("")
+    for name, r, meta in runs:
+        src, ss = r["source"], r["split_study"]
+        out += [
+            f"#### {src['dataset']}: does the threshold hold on inputs it was not chosen on?",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`, `logits.npz`)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; student run"
+            f" `{src['student_run']}`; {ss['splits']} random splits into {ss['fit_size']}"
+            f" inputs to fit on and {ss['test_size']} to test on; at least {ss['min_accepted']}"
+            f" answered inputs; {ss['n_resamples']} bootstrap resamples; wall"
+            f" {_f(meta.get('wall_seconds'), 0)} s; spent $0.00",
+            f"- Fitted temperature over the splits: {_q(ss['temperature'], 2)}",
+            "",
+            "| Target kappa | Threshold rule | Threshold found"
+            " | Unseen half: kappa reaches target | Unseen half: coverage"
+            " | Unseen half: kappa on answered | Unseen half: cascade kappa |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for target, methods in ss["targets"].items():
+            for method, m in methods.items():
+                out.append(
+                    f"| {target} | {_METHOD_NAMES.get(method, method)} | {_pct(m['found'])}"
+                    f" | {_pct(m.get('met'))} | {_q(m.get('coverage'))} | {_q(m.get('kappa'))}"
+                    f" | {_q(m.get('system_kappa'))} |"
+                )
+        out += [
+            "",
+            "Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade"
+            " kappa counts escalated inputs as answered by the teacher):",
+            "",
+            "| Coverage | Threshold | Kappa on answered | Agreement on answered | Cascade kappa |",
+            "|---|---|---|---|---|",
+        ]
+        for p in r["curve"]:
+            out.append(
+                f"| {_pct(p['coverage'])} | {_f(p['threshold'])} | {_f(p['kappa'])}"
+                f" | {_f(p['agreement'])} | {_f(p['system_kappa'])} |"
+            )
+        if src.get("teacher_kind") == "gold":
+            out += [
+                "",
+                "The teacher here is the dataset's gold labels (no API key in this run): this"
+                " measures the student's confidence against clean labels, not against Claude.",
+            ]
+        out.append("")
+    return "\n".join(out)
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
     return {
         "classify": render_classify(load_runs(results_dir)),
@@ -602,6 +691,7 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "select": render_select(load_select(results_dir)),
         "frontier": render_frontier(load_frontiers(results_dir)),
         "extract": render_extract(load_runs(results_dir, prefix="extract-")),
+        "calibration": render_calibration(load_runs(results_dir, prefix="calibration-")),
     }
 
 

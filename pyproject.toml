@@ -97,6 +97,8 @@ files = [
     "eval/frontier.py",
     "eval/render.py",
     "eval/select_study.py",
+    "eval/student.py",
+    "eval/calibration.py",
 ]
 warn_unreachable = true
 
