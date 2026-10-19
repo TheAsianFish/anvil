@@ -1,4 +1,7 @@
-"""Command-line interface: `anvil label | train | eval | loop`."""
+"""Command-line interface: `anvil label | train | eval | loop | serve`.
+
+Top-level imports stay torch-free: `anvil serve` runs in an image without torch, so every
+command imports its heavy dependencies inside its body."""
 
 from __future__ import annotations
 
@@ -261,6 +264,55 @@ def loop_cmd(
                 f"  ${row['label_cost_usd']:>9.4f}  ${row['spent_usd']:.4f}"
             )
         print(f"stopped: {r.stopped or 'interrupted'}; frontier {r.frontier}; student {r.student}")
+
+    _run(body)
+
+
+class ServeTeacher(StrEnum):
+    auto = "auto"
+    claude = "claude"
+    fake = "fake"
+    none = "none"
+
+
+class Variant(StrEnum):
+    fp32 = "fp32"
+    int8 = "int8"
+
+
+@app.command("serve")
+def serve_cmd(
+    bundle: Annotated[Path, typer.Argument(help="Export bundle directory (`anvil export`).")],
+    host: Annotated[str, typer.Option(help="Interface to bind.")] = "127.0.0.1",
+    port: Annotated[int, typer.Option(help="Port to listen on.")] = 8000,
+    variant: Annotated[Variant, typer.Option(help="Model variant in the bundle.")] = Variant.fp32,
+    threshold: Annotated[
+        float | None,
+        typer.Option(help="Escalate inputs below this confidence (default: the bundle's)."),
+    ] = None,
+    teacher: Annotated[
+        ServeTeacher,
+        typer.Option(help="Escalation teacher; auto uses Claude when credentials exist."),
+    ] = ServeTeacher.auto,
+) -> None:
+    """Serve a student over HTTP, escalating inputs it is unsure of to the teacher."""
+
+    def body() -> None:
+        import uvicorn
+
+        from anvil.serve import load_app
+
+        settings = Settings.from_env()
+        log.configure(settings.log_level)
+        api = load_app(
+            bundle,
+            variant=variant.value,
+            teacher=teacher.value,
+            threshold=threshold,
+            settings=settings,
+        )
+        # No uvicorn log config or access log: our JSON `predict` line covers each request.
+        uvicorn.run(api, host=host, port=port, log_config=None, access_log=False)
 
     _run(body)
 

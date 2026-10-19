@@ -49,7 +49,9 @@ Environment variables (all optional, read in `anvil/settings.py`):
 `ANVIL_HOME` (state directory, default `.anvil`), `ANVIL_TEACHER_WORKERS`
 (concurrent teacher requests, default 4), `ANVIL_RECORD_DIR` (also write
 every live teacher response there as a replayable recording),
-`ANVIL_LOG_LEVEL` (default `INFO`; logs are JSON lines on stderr).
+`ANVIL_LOG_LEVEL` (default `INFO`; logs are JSON lines on stderr),
+`ANVIL_SERVE_THREADS` (ONNX Runtime intra-op threads for `anvil serve`,
+default: ONNX Runtime's own choice).
 
 ## Layout
 
