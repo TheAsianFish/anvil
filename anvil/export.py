@@ -11,6 +11,7 @@ The bundle layout is described in `anvil.runtime`.
 from __future__ import annotations
 
 import json
+import logging
 import shutil
 import tempfile
 import time
@@ -199,22 +200,30 @@ def _export_graph(student: EncoderClassifier, path: Path, opset: int | None) -> 
     kwargs: dict[str, Any] = {}  # Any: torch.onnx.export keyword arguments are heterogeneous
     if opset is not None:
         kwargs["opset_version"] = opset
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        torch.onnx.export(
-            _LogitsOnly(student.model).eval(),
-            example,
-            str(path),
-            dynamo=True,
-            input_names=["input_ids", "attention_mask"],
-            output_names=["logits"],
-            dynamic_shapes={
-                "input_ids": {0: batch, 1: seq},
-                "attention_mask": {0: batch, 1: seq},
-            },
-            verbose=False,
-            **kwargs,
-        )
+    # The exporter logs plain-text warnings (optional torchvision ops it skips) through the
+    # `torch.onnx` logger; they say nothing about this model, so they are muted for the call.
+    onnx_log = logging.getLogger("torch.onnx")
+    level = onnx_log.level
+    onnx_log.setLevel(logging.ERROR)
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            torch.onnx.export(
+                _LogitsOnly(student.model).eval(),
+                example,
+                str(path),
+                dynamo=True,
+                input_names=["input_ids", "attention_mask"],
+                output_names=["logits"],
+                dynamic_shapes={
+                    "input_ids": {0: batch, 1: seq},
+                    "attention_mask": {0: batch, 1: seq},
+                },
+                verbose=False,
+                **kwargs,
+            )
+    finally:
+        onnx_log.setLevel(level)
 
 
 def _calib_number(calib: dict[str, object], key: str) -> float | None:
