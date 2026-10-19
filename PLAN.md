@@ -370,6 +370,36 @@ Batches halve the cost of large pools and are used when a batch exceeds
   refuses extract tasks: selection over spans is not in this milestone. No key
   exists in the build environment, so the extraction table uses the gold
   annotation as the teacher; Claude parity is under "To measure".
+- **M5 (2026-10-19).** Calibration, export and the server measure the M2 students (the
+  same ModernBERT-base runs as the parity table: retraining them reproduced the committed
+  training log step for step), so their numbers are comparable with it; `eval/student.py`
+  finds the student in the eval workspace by its recorded settings or trains it the same way.
+  Temperature scaling fits T on the held-out teacher labels; when the student agrees with
+  every one of them the NLL has no minimum and T stays 1 (a toy run sent it to the lower
+  bound, where every input, nonsense included, scored 1.0 and nothing could escalate). The
+  threshold is the largest coverage whose kappa on the answered inputs reaches the target,
+  by default on a one-sided 95% bootstrap lower bound rather than the point estimate; the
+  in-sample choice is checked out of sample by refitting T and the threshold on random halves
+  of the held-out split and scoring the other half. A calibration that finds no threshold
+  makes the server escalate every input. Export writes a bundle (fp32 graph, optional int8
+  graph, `tokenizer.json`, metadata with the calibration, the parity results and the task
+  spec, so the server can rebuild the teacher) and only moves it into place when fp32 matches
+  PyTorch; tokenization in the parity check goes through the serving tokenizer, so a
+  tokenizer mismatch fails the gate too. The int8 gate changed after the first measurement:
+  the spike's rule (argmax agreement with fp32 of at least 0.98 on every held-out input)
+  rejected the Banking77 int8 graph at 0.964, yet its kappa with the teacher moved by 0.002
+  and every one of its flips was on an input the cascade escalates. Agreement is now
+  measured on the inputs the student answers at the bundle's threshold (all inputs when there
+  is none), still with the 0.01 kappa-drop limit, and the overall agreement is reported next
+  to it. The probe also found what the spike guessed: quantizing only the MLP
+  down-projections takes agreement to 3%, so they stay fp32.
+  `anvil serve` imports neither torch nor transformers (a test enforces it), and the serving
+  image installs the lock file's serving dependencies without them. Export and serving cover
+  classify students; serving the extraction tagger is not in this milestone. `make bench` is
+  an eval module rather than an `anvil bench` command; its student cost is measured CPU time
+  priced at a stated vCPU-hour rate (an input, not a measurement). With no key, the teacher
+  is the gold labels throughout, so teacher latency and cost per 1,000 inputs are under "To
+  measure".
 
 ## Milestones
 
@@ -377,6 +407,6 @@ Batches halve the cost of large pools and are used when a batch exceeds
 - [x] M2: Training and evaluation core — `train/loop.py` (seeded, AMP, accumulation, warmup/decay, early stopping, checkpoints, JSONL metrics) with tests that assert loss decreases and resumes are exact; `EncoderClassifier` on ModernBERT-base; `evaluate/` with kappa + bootstrap CI, majority baseline, teacher self-agreement ceiling, confusion matrix and error slices; `make eval-classify` on AG News and Banking77 writing RESULTS.md (measured with Haiku if a key is present, otherwise harness + "To measure"). Done when the eval runs offline on recorded labels and the stats are verified against scikit-learn in tests.
 - [x] M3: Active learning and the frontier — `select.py` interface with the `random` baseline, property tests and the synthetic selection study; `anvil loop` with label and dollar budgets, from-scratch retrains and `frontier.jsonl`; `make eval-frontier` (3 seeds, 5 budgets, every strategy present) and `make eval-select`; RESULTS.md frontier table with "labels to kappa 0.8 / 0.9". Done when the loop runs end to end offline with the fake teacher and the frontier table is produced from real labels where a key exists.
 - [x] M4: Extraction — teacher schema with character-offset spans, `align.py` (verification, token snapping, unaligned-rate report), `EncoderTagger`, entity-level F1 and token kappa vs teacher, `make eval-extract` on MIT Restaurant. Done when alignment has tests for off-by-one, overlapping and unicode cases and the extraction eval writes its table.
-- [ ] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
+- [x] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
 - [ ] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.
 - [ ] M7: Release readiness — `anvil push` with the rendered model card, PyPI and GHCR workflows with `if:` guards, RELEASE.md with the secrets to add, README (architecture, results table, demo, roadmap), final RESULTS.md with every measured number and its cost, CONTRIBUTING.md refreshed. Done when a clean-venv wheel install runs `anvil --help` and the demo, and every README number traces to a RESULTS.md entry.
