@@ -99,6 +99,7 @@ files = [
     "eval/select_study.py",
     "eval/student.py",
     "eval/calibration.py",
+    "eval/export.py",
 ]
 warn_unreachable = true
 

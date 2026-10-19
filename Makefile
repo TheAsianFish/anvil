@@ -1,5 +1,5 @@
 .PHONY: help sync check fmt lint typecheck test test-live record demo docker spike-onnx \
-	eval-classify eval-extract eval-select eval-frontier eval-calibration \
+	eval-classify eval-extract eval-select eval-frontier eval-calibration eval-export \
 	results clean
 
 UV ?= uv
@@ -60,6 +60,10 @@ eval-frontier: ## M3 kappa vs teacher labels per strategy, 3 seeds x 5 budgets (
 
 eval-calibration: ## M5 temperature, ECE and coverage at target kappa on the M2 students (TEACHER=...), then RESULTS.md
 	$(RUN) --group eval python -m eval.calibration --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+eval-export: ## M5 ONNX fp32/int8 parity and the int8 layer probe on the M2 students, then RESULTS.md
+	$(RUN) --group eval python -m eval.export --teacher $(TEACHER)
 	$(RUN) python -m eval.render
 
 results: ## regenerate the RESULTS.md tables from eval/results/

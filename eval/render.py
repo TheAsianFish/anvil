@@ -602,6 +602,13 @@ def _q(stats: Mapping[str, Any] | None, digits: int = 3) -> str:
     return f"{_f(stats['median'], digits)} [{_f(stats['p5'], digits)}, {_f(stats['p95'], digits)}]"
 
 
+def _qpct(stats: Mapping[str, Any] | None) -> str:
+    """`_q` for a share, in percent."""
+    if not stats:
+        return "n/a"
+    return f"{_pct(stats['median'])} [{_pct(stats['p5'])}, {_pct(stats['p95'])}]"
+
+
 def _commit(meta: Mapping[str, Any]) -> str:
     sha = str(meta.get("git_sha") or "")[:7]
     return f"`{sha}`" + (" (uncommitted changes)" if meta.get("git_dirty") else "") if sha else "?"
@@ -658,7 +665,7 @@ def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
             for method, m in methods.items():
                 out.append(
                     f"| {target} | {_METHOD_NAMES.get(method, method)} | {_pct(m['found'])}"
-                    f" | {_pct(m.get('met'))} | {_q(m.get('coverage'))} | {_q(m.get('kappa'))}"
+                    f" | {_pct(m.get('met'))} | {_qpct(m.get('coverage'))} | {_q(m.get('kappa'))}"
                     f" | {_q(m.get('system_kappa'))} |"
                 )
         out += [
@@ -684,6 +691,79 @@ def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
     return "\n".join(out)
 
 
+def _sci(x: object) -> str:
+    return f"{x:.1e}" if isinstance(x, int | float) else "n/a"
+
+
+def _answered(p: Mapping[str, Any]) -> str:
+    if p.get("agreement_answered") is None:
+        return "n/a"
+    return f"{_f(p['agreement_answered'])} (n={p.get('answered', '?')})"
+
+
+def render_export(runs: list[tuple[str, Report, Report]]) -> str:
+    """fp32 and int8 parity of the exported students, and the int8 layer-group probe."""
+    if not runs:
+        return "No export run yet: `make eval-export`.\n"
+    out = [
+        "| Dataset | Student | Variant | Compared with | Probes | Max abs logit diff"
+        " | Mean abs logit diff | Argmax agreement | Agreement on answered inputs"
+        " | Kappa vs teacher (drop) | Size | Gate |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for _, r, _meta in runs:
+        src = r["source"]
+        for p in (r["fp32"], r.get("int8")):
+            if not p:
+                continue
+            drop = p.get("kappa_drop")
+            kappa = f"{_f(p['kappa'])} ({drop:+.3f})" if isinstance(drop, int | float) else "n/a"
+            out.append(
+                f"| {src['dataset']} | {_student_name(src['student_model'])} | {p['variant']}"
+                f" | {p['reference']} | {p['n']} | {_sci(p['max_abs_diff'])}"
+                f" | {_sci(p['mean_abs_diff'])} | {_f(p['agreement'])} | {_answered(p)} | {kappa}"
+                f" | {_f(p['size_mb'], 0)} MB | {'passed' if p['passed'] else 'failed'} |"
+            )
+    out.append("")
+    for name, r, meta in runs:
+        src = r["source"]
+        out += [
+            f"#### {src['dataset']}: export",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; student run"
+            f" `{src['student_run']}`; export and both parity checks {_f(r['export_seconds'], 0)}"
+            f" s; wall {_f(meta.get('wall_seconds'), 0)} s; spent $0.00",
+            f"- Gates: fp32 {r['fp32']['gate']}; int8 {(r.get('int8') or {}).get('gate', 'n/a')}"
+            f" ({r.get('int8_fp32_nodes', 0)} MLP down-projections kept in fp32)",
+        ]
+        probe = r.get("quantization_probe")
+        if probe:
+            groups = ", ".join(f"{g} {n}" for g, n in probe["groups"].items())
+            out += [
+                f"- int8 layer probe (nodes per group: {groups}); each row quantizes only the"
+                " named group unless it says otherwise, plus the head and classifier Gemms,"
+                " which the quantizer converts before it reads its exclusion list, and is"
+                f" compared with the fp32 graph on the same {r['probes']} held-out inputs (fp32"
+                f" kappa vs teacher {_f(probe['fp32_kappa'])}); answered inputs are those at or"
+                " above the bundle's threshold:",
+                "",
+                "| int8 variant | Quantized nodes | Size | Mean abs logit diff"
+                f" | Max abs logit diff | Argmax agreement | Agreement on the {probe['answered']}"
+                " answered inputs | Kappa drop |",
+                "|---|---|---|---|---|---|---|---|",
+            ]
+            for v in probe["variants"]:
+                out.append(
+                    f"| {v['variant']} | {v['quantized_nodes']} | {_f(v['size_mb'], 0)} MB"
+                    f" | {_f(v['mean_abs_diff'])} | {_f(v['max_abs_diff'])}"
+                    f" | {_f(v['agreement'])} | {_f(v.get('agreement_answered'))}"
+                    f" | {v['kappa_drop']:+.3f} |"
+                )
+        out.append("")
+    return "\n".join(out)
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
     return {
         "classify": render_classify(load_runs(results_dir)),
@@ -692,6 +772,7 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "frontier": render_frontier(load_frontiers(results_dir)),
         "extract": render_extract(load_runs(results_dir, prefix="extract-")),
         "calibration": render_calibration(load_runs(results_dir, prefix="calibration-")),
+        "export": render_export(load_runs(results_dir, prefix="export-")),
     }
 
 
