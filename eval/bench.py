@@ -12,8 +12,9 @@ clock on this machine after warm-up calls, reported as p50 / p95 per call and in
   HTTP on localhost, one client in sequence, and four concurrent clients at batch 1.
 
 Every engine runs with the same intra-op thread count (`--threads`, default 4). Cost per 1,000
-inputs for the student is its measured CPU time at batch 32 (user + system, all threads, of the
-process doing the work: this one in process, the server over HTTP) priced at
+inputs for the student is its measured CPU time (user + system, all threads, of the process
+doing the work: this one in process, the server over HTTP) at the cheaper of the two batch
+sizes, since a padded batch can cost more per input on a CPU, priced at
 `--vcpu-hour-usd`, which is an input, not a measurement; the teacher's comes from the
 recorded cost of its labels in `eval/labels/` when a Claude run exists, and its latency from
 `--teacher-live N` timed calls (needs a key). The cascade row combines them with the coverage
@@ -366,11 +367,20 @@ def run(
 
     cost: dict[str, object] = {"vcpu_hour_usd": vcpu_hour_usd, "assumed_price": True}
     for name, e in engines.items():
-        b32 = e["batch32"]
-        assert isinstance(b32, dict)
-        inputs = int(str(b32["calls"])) * int(str(b32["batch"]))
-        core_s = float(str(b32["cpu_seconds"])) * 1000 / inputs
-        cost[name] = {"core_seconds_per_1k": core_s, "usd_per_1k": core_s / 3600 * vcpu_hour_usd}
+        # Per batch size: on a CPU a padded batch can cost more per input than single inputs,
+        # so the price is quoted at whichever batch size is cheaper.
+        per_batch: dict[str, float] = {}
+        for b in BATCHES:
+            stats = e[f"batch{b}"]
+            assert isinstance(stats, dict)
+            inputs = int(str(stats["calls"])) * int(str(stats["batch"]))
+            per_batch[f"batch{b}"] = float(str(stats["cpu_seconds"])) * 1000 / inputs
+        best = min(per_batch, key=per_batch.__getitem__)
+        cost[name] = {
+            "core_seconds_per_1k": per_batch,
+            "cheapest": best,
+            "usd_per_1k": per_batch[best] / 3600 * vcpu_hour_usd,
+        }
 
     teacher_stats: dict[str, object] = {"model": ts.teacher_model}
     recorded = teacher_cost(dataset) if ts.kind != "gold" else None

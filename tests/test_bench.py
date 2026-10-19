@@ -123,13 +123,20 @@ def test_render_bench() -> None:
         },
         "cost": {
             "vcpu_hour_usd": 0.05,
-            "onnx-fp32": {"core_seconds_per_1k": 10.0, "usd_per_1k": 0.000139},
+            "onnx-fp32": {
+                "core_seconds_per_1k": {"batch1": 10.0, "batch32": 12.5},
+                "cheapest": "batch1",
+                "usd_per_1k": 0.000139,
+            },
         },
         "teacher": {"model": "gold", "recorded_cost": None},
         "calibration": {"threshold": 0.9, "target_kappa": 0.9, "rule": "lower", "coverage": 0.8},
     }
     text = render_bench([("bench-toy-gold", report, {"command": "c", "git_sha": "abc1234"})])
-    assert "| ONNX Runtime fp32 (in process) | 1.2 / 2.5 | 400 | 1.2 / 2.5 | 400 | 10.0 |" in text
+    assert (
+        "| ONNX Runtime fp32 (in process) | 1.2 / 2.5 | 400 | 1.2 / 2.5 | 400 | 10.0 / 12.5 |"
+        in text
+    )
     assert "Four concurrent HTTP clients" in text
     assert "under To measure" in text
     assert "calls the teacher for 20.0% of traffic" in text

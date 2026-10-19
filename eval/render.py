@@ -779,6 +779,12 @@ def _ms(stats: Mapping[str, Any] | None) -> str:
     return f"{stats['p50_ms']:.1f} / {stats['p95_ms']:.1f}"
 
 
+def _cpu(per_batch: object) -> str:
+    if not isinstance(per_batch, Mapping):
+        return _f(per_batch, 1)
+    return f"{_f(per_batch.get('batch1'), 1)} / {_f(per_batch.get('batch32'), 1)}"
+
+
 def render_bench(runs: list[tuple[str, Report, Report]]) -> str:
     """Latency and throughput per engine, the student's cost per 1,000 inputs, the teacher's."""
     if not runs:
@@ -797,8 +803,8 @@ def render_bench(runs: list[tuple[str, Report, Report]]) -> str:
             f" {_f(r['mean_words'], 1)} words), cycled; wall {_f(meta.get('wall_seconds'), 0)} s",
             "",
             "| Engine | Batch 1: p50 / p95 ms | Batch 1: inputs/s | Batch 32: p50 / p95 ms"
-            " | Batch 32: inputs/s | CPU seconds per 1k inputs"
-            f" | $ per 1k at ${price}/vCPU-hour |",
+            " | Batch 32: inputs/s | CPU seconds per 1k inputs (batch 1 / 32)"
+            f" | $ per 1k at ${price}/vCPU-hour, cheaper batch |",
             "|---|---|---|---|---|---|---|",
         ]
         for engine, e in r["engines"].items():
@@ -806,7 +812,7 @@ def render_bench(runs: list[tuple[str, Report, Report]]) -> str:
             out.append(
                 f"| {_ENGINE_NAMES.get(engine, engine)} | {_ms(e.get('batch1'))}"
                 f" | {_f(e['batch1']['inputs_per_s'], 0)} | {_ms(e.get('batch32'))}"
-                f" | {_f(e['batch32']['inputs_per_s'], 0)} | {_f(c.get('core_seconds_per_1k'), 1)}"
+                f" | {_f(e['batch32']['inputs_per_s'], 0)} | {_cpu(c.get('core_seconds_per_1k'))}"
                 f" | {_f(c.get('usd_per_1k'), 5)} |"
             )
         concurrent = [
