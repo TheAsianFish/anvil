@@ -35,6 +35,7 @@ ArrayLike2D = npt.ArrayLike
 Rule = Literal["point", "lower"]
 
 _BISECTION_STEPS = 60
+TEMPERATURE_BOUNDS = (0.05, 20.0)
 
 
 def _logits(logits: ArrayLike2D) -> FloatArray:
@@ -86,7 +87,7 @@ def nll(logits: ArrayLike2D, targets: npt.ArrayLike, temperature: float = 1.0) -
 
 
 def fit_temperature(
-    logits: ArrayLike2D, targets: npt.ArrayLike, bounds: tuple[float, float] = (0.05, 20.0)
+    logits: ArrayLike2D, targets: npt.ArrayLike, bounds: tuple[float, float] = TEMPERATURE_BOUNDS
 ) -> float:
     """The temperature T in `bounds` that minimises `nll(logits, targets, T)`.
 
@@ -378,6 +379,18 @@ def choose_threshold(
     return None
 
 
+def serving_temperature(logits: ArrayLike2D, targets: npt.ArrayLike) -> tuple[float, bool]:
+    """`fit_temperature`, except when the student's argmax agrees with every target: then the
+    NLL keeps falling as T shrinks, the fit runs to its lower bound, and every input, however
+    unlike the training data, would score a confidence of 1.0 and never escalate. There is no
+    disagreement to rescale on, so T stays 1.0. Returns (T, whether T was identified)."""
+    z = _logits(logits)
+    y = _codes(targets, z.shape[0], z.shape[1], "targets")
+    if not (z.argmax(axis=1) != y).any():
+        return 1.0, False
+    return fit_temperature(z, y), True
+
+
 @dataclass(frozen=True)
 class Calibration:
     """The fitted temperature, its effect on calibration, and the serving threshold.
@@ -388,6 +401,9 @@ class Calibration:
 
     temperature: float
     n: int
+    temperature_identified: bool
+    """False when the student's argmax agrees with the teacher on every input, so the NLL
+    keeps falling as T shrinks and has no minimum: the temperature is then left at 1.0."""
     nll_before: float
     nll_after: float
     ece_before: float
@@ -428,7 +444,7 @@ def calibrate(
     """
     z = _logits(logits)
     y = _codes(teacher, z.shape[0], z.shape[1], "teacher")
-    temperature = fit_temperature(z, y)
+    temperature, identified = serving_temperature(z, y)
     before, after = softmax(z), softmax(z, temperature)
     choice = (
         None
@@ -448,6 +464,7 @@ def calibrate(
     return Calibration(
         temperature=temperature,
         n=int(z.shape[0]),
+        temperature_identified=identified,
         nll_before=nll(z, y),
         nll_after=nll(z, y, temperature),
         ece_before=ece(before, y, n_bins),

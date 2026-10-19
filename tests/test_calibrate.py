@@ -20,6 +20,7 @@ from anvil.calibrate import (
     fit_temperature,
     nll,
     reliability,
+    serving_temperature,
     softmax,
 )
 from anvil.evaluate.metrics import cohen_kappa
@@ -349,3 +350,21 @@ def test_calibrate_without_target_or_unreachable() -> None:
     assert unreachable.coverage is None
     assert unreachable.kappa is None
     assert unreachable.kappa_low is None
+
+
+def test_perfect_agreement_leaves_the_temperature_at_one() -> None:
+    # Every argmax matches its target: the NLL has no minimum, so T is not rescaled, and an
+    # unseen input keeps the confidence the student gives it instead of being pushed to 1.0.
+    logits = np.array([[2.0, 0.5, 0.0], [0.1, 1.5, 0.3], [0.0, 0.2, 0.9], [1.0, 0.0, 0.2]])
+    targets = np.array([0, 1, 2, 0], dtype=np.int64)
+    assert fit_temperature(logits, targets) == 0.05
+    assert serving_temperature(logits, targets) == (1.0, False)
+    result = calibrate(logits, targets, target_kappa=None)
+    assert result.temperature == 1.0
+    assert result.temperature_identified is False
+    assert result.ece_after == result.ece_before
+    disagree = targets.copy()
+    disagree[0] = 1
+    t, identified = serving_temperature(logits, disagree)
+    assert identified
+    assert t == fit_temperature(logits, disagree)

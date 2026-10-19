@@ -43,9 +43,9 @@ from anvil.calibrate import (
     choose_threshold,
     coverage_curve,
     ece,
-    fit_temperature,
     nll,
     reliability,
+    serving_temperature,
     softmax,
 )
 from anvil.errors import AnvilError, ConfigError
@@ -123,7 +123,7 @@ def split_study(
     for split in range(n_splits):
         order = rng.permutation(n)
         fit, test = order[: n // 2], order[n // 2 :]
-        temperature = fit_temperature(z[fit], y[fit])
+        temperature, _ = serving_temperature(z[fit], y[fit])
         temps.append(temperature)
         ece_raw.append(ece(softmax(z[test]), y[test], N_BINS))
         ece_cal.append(ece(softmax(z[test], temperature), y[test], N_BINS))
