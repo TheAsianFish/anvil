@@ -74,6 +74,12 @@ jobs:
       - uses: actions/checkout@v5
       - run: docker build -t anvil:ci .
       - run: docker run --rm anvil:ci --help
+      - run: docker build --target serve -t anvil-serve:ci .
+      - name: serving image has no torch and its CLI starts
+        run: |
+          docker run --rm --entrypoint python anvil-serve:ci -c \
+            "import importlib.util as u, sys; sys.exit(u.find_spec('torch') is not None)"
+          docker run --rm --entrypoint anvil anvil-serve:ci serve --help
 
   live:
     name: live teacher tests

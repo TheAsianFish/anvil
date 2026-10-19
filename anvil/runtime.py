@@ -32,6 +32,10 @@ Variant = Literal["fp32", "int8"]
 VARIANT_FILES: dict[str, str] = {"fp32": "model.onnx", "int8": "model.int8.onnx"}
 
 LOG = get_logger(__name__)
+# ONNX Runtime writes its own plain-text warnings to stderr, which would break the
+# one-JSON-object-per-line log; from here on only its errors get through. (A device-discovery
+# warning some VMs print while onnxruntime is imported comes before this line can run.)
+ort.set_default_logger_severity(3)
 _EXPORT_HINT = "run `anvil export` to (re)build it"
 
 
