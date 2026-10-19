@@ -1,5 +1,5 @@
 .PHONY: help sync check fmt lint typecheck test test-live record demo docker spike-onnx \
-	eval-classify eval-extract eval-select eval-frontier eval-calibration eval-export \
+	eval-classify eval-extract eval-select eval-frontier eval-calibration eval-export bench \
 	results clean
 
 UV ?= uv
@@ -64,6 +64,10 @@ eval-calibration: ## M5 temperature, ECE and coverage at target kappa on the M2 
 
 eval-export: ## M5 ONNX fp32/int8 parity and the int8 layer probe on the M2 students, then RESULTS.md
 	$(RUN) --group eval python -m eval.export --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+bench: ## M5 latency, throughput and $ per 1k: PyTorch vs ONNX vs the HTTP server (after eval-export)
+	$(RUN) --group eval python -m eval.bench --teacher $(TEACHER)
 	$(RUN) python -m eval.render
 
 results: ## regenerate the RESULTS.md tables from eval/results/

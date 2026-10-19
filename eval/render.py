@@ -764,6 +764,95 @@ def render_export(runs: list[tuple[str, Report, Report]]) -> str:
     return "\n".join(out)
 
 
+_ENGINE_NAMES = {
+    "pytorch": "PyTorch (in process)",
+    "onnx-fp32": "ONNX Runtime fp32 (in process)",
+    "onnx-int8": "ONNX Runtime int8 (in process)",
+    "http-fp32": "`anvil serve` fp32 (HTTP)",
+    "http-int8": "`anvil serve` int8 (HTTP)",
+}
+
+
+def _ms(stats: Mapping[str, Any] | None) -> str:
+    if not stats:
+        return "n/a"
+    return f"{stats['p50_ms']:.1f} / {stats['p95_ms']:.1f}"
+
+
+def render_bench(runs: list[tuple[str, Report, Report]]) -> str:
+    """Latency and throughput per engine, the student's cost per 1,000 inputs, the teacher's."""
+    if not runs:
+        return "No bench run yet: `make bench`.\n"
+    out: list[str] = []
+    for name, r, meta in runs:
+        cost = r["cost"]
+        price = cost["vcpu_hour_usd"]
+        out += [
+            f"#### {r['dataset']}: student `{_student_name(r['student_model'])}`,"
+            f" {r['threads']} threads",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; {meta.get('cpu', '?')},"
+            f" {meta.get('cpus', '?')} CPUs; inputs: the {r['inputs']} held-out texts (mean"
+            f" {_f(r['mean_words'], 1)} words), cycled; wall {_f(meta.get('wall_seconds'), 0)} s",
+            "",
+            "| Engine | Batch 1: p50 / p95 ms | Batch 1: inputs/s | Batch 32: p50 / p95 ms"
+            " | Batch 32: inputs/s | CPU seconds per 1k inputs"
+            f" | $ per 1k at ${price}/vCPU-hour |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for engine, e in r["engines"].items():
+            c = cost.get(engine, {})
+            out.append(
+                f"| {_ENGINE_NAMES.get(engine, engine)} | {_ms(e.get('batch1'))}"
+                f" | {_f(e['batch1']['inputs_per_s'], 0)} | {_ms(e.get('batch32'))}"
+                f" | {_f(e['batch32']['inputs_per_s'], 0)} | {_f(c.get('core_seconds_per_1k'), 1)}"
+                f" | {_f(c.get('usd_per_1k'), 5)} |"
+            )
+        concurrent = [
+            (engine, e["concurrent4_batch1"])
+            for engine, e in r["engines"].items()
+            if "concurrent4_batch1" in e
+        ]
+        if concurrent:
+            out += ["", "Four concurrent HTTP clients at batch 1:", ""]
+            out += [
+                f"- {_ENGINE_NAMES.get(engine, engine)}: {_f(c['inputs_per_s'], 0)} inputs/s,"
+                f" p50 / p95 {_ms(c)} ms"
+                for engine, c in concurrent
+            ]
+        t = r["teacher"]
+        recorded = t.get("recorded_cost")
+        live = t.get("live")
+        out += [
+            "",
+            f"The CPU price is an assumption (`--vcpu-hour-usd`), not a measurement; the CPU"
+            f" seconds are measured. Teacher `{t['model']}`: "
+            + (
+                f"${recorded['usd_per_1k']:.3f} per 1k inputs from {recorded['labels']} recorded"
+                " labels"
+                if recorded
+                else "no recorded Claude labels for this dataset yet, so its cost per 1k is under"
+                " To measure"
+            )
+            + (
+                f"; live latency p50 / p95 {_ms(live)} ms over {live['calls']} calls."
+                if live
+                else "; its latency needs `--teacher-live N` with a key (To measure)."
+            ),
+        ]
+        cal = r.get("calibration") or {}
+        if isinstance(cal.get("coverage"), int | float):
+            out.append(
+                f"At the bundle's threshold ({_f(cal.get('threshold'), 4)}, target kappa"
+                f" {cal.get('target_kappa')}, rule `{cal.get('rule')}`) the student answers"
+                f" {_pct(cal['coverage'])} of held-out inputs, so the cascade calls the teacher"
+                f" for {_pct(1 - cal['coverage'])} of traffic."
+            )
+        out.append("")
+    return "\n".join(out)
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
     return {
         "classify": render_classify(load_runs(results_dir)),
@@ -773,6 +862,7 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "extract": render_extract(load_runs(results_dir, prefix="extract-")),
         "calibration": render_calibration(load_runs(results_dir, prefix="calibration-")),
         "export": render_export(load_runs(results_dir, prefix="export-")),
+        "bench": render_bench(load_runs(results_dir, prefix="bench-")),
     }
 
 
