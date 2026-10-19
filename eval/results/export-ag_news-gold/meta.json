@@ -1,0 +1,21 @@
+{
+  "command": "python -m eval.export ag_news --teacher gold",
+  "git_sha": "d0cfa4c2d2af9d5fa8bcf044e3f46fe2dce3aac7",
+  "git_dirty": false,
+  "anvil": "0.1.0.dev0",
+  "python": "3.12.3",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "cpus": 4,
+  "versions": {
+    "torch": "2.14.1+cpu",
+    "transformers": "5.20.1",
+    "onnx": "1.23.2",
+    "onnxruntime": "1.31.0",
+    "onnxscript": "0.7.2",
+    "tokenizers": "0.23.3"
+  },
+  "teacher_model": "gold",
+  "wall_seconds": 753.9,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-19T15:54:20Z"
+}

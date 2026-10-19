@@ -1,0 +1,14 @@
+{
+  "command": "python -m eval.bench --teacher gold",
+  "git_sha": "d0cfa4c2d2af9d5fa8bcf044e3f46fe2dce3aac7",
+  "git_dirty": false,
+  "anvil": "0.1.0.dev0",
+  "python": "3.12.3",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "cpu": "AMD EPYC 7763 64-Core Processor",
+  "cpus": 4,
+  "threads": 4,
+  "wall_seconds": 1166.6,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-19T16:13:53Z"
+}

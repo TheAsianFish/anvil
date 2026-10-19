@@ -1,0 +1,198 @@
+{
+  "dataset": "banking77",
+  "teacher_kind": "gold",
+  "teacher_model": "gold",
+  "student_model": "answerdotai/ModernBERT-base",
+  "student_run": "20261019-124923-n2000",
+  "bundle": "eval/banking77-2aeaf7290b43/exports/20261019-124923-n2000",
+  "inputs": 496,
+  "mean_words": 11.673387096774194,
+  "threads": 4,
+  "engines": {
+    "pytorch": {
+      "batch1": {
+        "calls": 400,
+        "batch": 1,
+        "p50_ms": 55.33951049983443,
+        "p95_ms": 92.20340989932083,
+        "mean_ms": 59.3389520375149,
+        "inputs_per_s": 16.852336714133177,
+        "cpu_seconds": 94.424375356
+      },
+      "batch32": {
+        "calls": 100,
+        "batch": 32,
+        "p50_ms": 2423.1505825000568,
+        "p95_ms": 3544.303867250437,
+        "mean_ms": 2552.0982032700886,
+        "inputs_per_s": 12.538702452357567,
+        "cpu_seconds": 832.1370408109999
+      }
+    },
+    "onnx-fp32": {
+      "batch1": {
+        "calls": 400,
+        "batch": 1,
+        "p50_ms": 24.615181499939354,
+        "p95_ms": 53.611347350033505,
+        "mean_ms": 27.61143179246119,
+        "inputs_per_s": 36.21688319230994,
+        "cpu_seconds": 43.85492420800006
+      },
+      "batch32": {
+        "calls": 100,
+        "batch": 32,
+        "p50_ms": 1748.59610600015,
+        "p95_ms": 2610.804824949446,
+        "mean_ms": 1871.8899866599531,
+        "inputs_per_s": 17.095021731003634,
+        "cpu_seconds": 743.936584108
+      }
+    },
+    "http-fp32": {
+      "batch1": {
+        "calls": 400,
+        "batch": 1,
+        "p50_ms": 27.60180350014707,
+        "p95_ms": 55.364545199881775,
+        "mean_ms": 30.44310282000879,
+        "inputs_per_s": 32.84816287986085,
+        "cpu_seconds": 47.900000000000006
+      },
+      "batch32": {
+        "calls": 100,
+        "batch": 32,
+        "p50_ms": 1754.6586619992013,
+        "p95_ms": 2621.2531265005964,
+        "mean_ms": 1875.9619036800182,
+        "inputs_per_s": 17.057915694997092,
+        "cpu_seconds": 745.4200000000001
+      },
+      "concurrent4_batch1": {
+        "calls": 800,
+        "batch": 1,
+        "p50_ms": 99.24591649996728,
+        "p95_ms": 186.6848129988284,
+        "mean_ms": 109.36558049000269,
+        "inputs_per_s": 36.06399917238877,
+        "clients": 4
+      }
+    },
+    "onnx-int8": {
+      "batch1": {
+        "calls": 400,
+        "batch": 1,
+        "p50_ms": 16.150551999999152,
+        "p95_ms": 35.43609825082964,
+        "mean_ms": 18.498398377605554,
+        "inputs_per_s": 54.0587341448228,
+        "cpu_seconds": 29.427043073999812
+      },
+      "batch32": {
+        "calls": 100,
+        "batch": 32,
+        "p50_ms": 1178.2132600001205,
+        "p95_ms": 1763.615495301201,
+        "mean_ms": 1266.292194519956,
+        "inputs_per_s": 25.270628799959567,
+        "cpu_seconds": 503.12193924099984
+      }
+    },
+    "http-int8": {
+      "batch1": {
+        "calls": 400,
+        "batch": 1,
+        "p50_ms": 18.05539749966556,
+        "p95_ms": 38.02035140024593,
+        "mean_ms": 20.59634825502144,
+        "inputs_per_s": 48.55229614580816,
+        "cpu_seconds": 32.339999999999996
+      },
+      "batch32": {
+        "calls": 100,
+        "batch": 32,
+        "p50_ms": 1180.7318225000927,
+        "p95_ms": 1754.5905821997621,
+        "mean_ms": 1262.1459871499974,
+        "inputs_per_s": 25.353643972879834,
+        "cpu_seconds": 501.53000000000003
+      },
+      "concurrent4_batch1": {
+        "calls": 800,
+        "batch": 1,
+        "p50_ms": 65.50088850053726,
+        "p95_ms": 132.61831604868343,
+        "mean_ms": 72.06710993253182,
+        "inputs_per_s": 54.5028816236981,
+        "clients": 4
+      }
+    }
+  },
+  "cost": {
+    "vcpu_hour_usd": 0.05,
+    "assumed_price": true,
+    "pytorch": {
+      "core_seconds_per_1k": {
+        "batch1": 236.06093839000002,
+        "batch32": 260.04282525343746
+      },
+      "cheapest": "batch1",
+      "usd_per_1k": 0.003278624144305556
+    },
+    "onnx-fp32": {
+      "core_seconds_per_1k": {
+        "batch1": 109.63731052000014,
+        "batch32": 232.48018253375002
+      },
+      "cheapest": "batch1",
+      "usd_per_1k": 0.0015227404238888909
+    },
+    "http-fp32": {
+      "core_seconds_per_1k": {
+        "batch1": 119.75000000000001,
+        "batch32": 232.94375000000002
+      },
+      "cheapest": "batch1",
+      "usd_per_1k": 0.0016631944444444446
+    },
+    "onnx-int8": {
+      "core_seconds_per_1k": {
+        "batch1": 73.56760768499953,
+        "batch32": 157.22560601281245
+      },
+      "cheapest": "batch1",
+      "usd_per_1k": 0.001021772328958327
+    },
+    "http-int8": {
+      "core_seconds_per_1k": {
+        "batch1": 80.85,
+        "batch32": 156.728125
+      },
+      "cheapest": "batch1",
+      "usd_per_1k": 0.0011229166666666666
+    }
+  },
+  "teacher": {
+    "model": "gold",
+    "recorded_cost": null
+  },
+  "calibration": {
+    "temperature": 1.2363972044926992,
+    "n": 496,
+    "temperature_identified": true,
+    "nll_before": 0.5809458353103301,
+    "nll_after": 0.5570765189636077,
+    "ece_before": 0.06161210221037464,
+    "ece_after": 0.04342963524385377,
+    "n_bins": 15,
+    "target_kappa": 0.9,
+    "rule": "lower",
+    "threshold": 0.639488040973818,
+    "coverage": 0.8225806451612904,
+    "kappa": 0.9227678516908272,
+    "kappa_low": 0.9001516679308844,
+    "teacher_model": "gold",
+    "student": "20261019-124923-n2000"
+  },
+  "spent_usd": 0.0
+}

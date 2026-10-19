@@ -1,0 +1,16 @@
+{
+  "command": "python -m eval.calibration banking77 ag_news --teacher gold",
+  "git_sha": "9b899ad6d82561b99ba35ce6d04e96f523e07af7",
+  "git_dirty": false,
+  "anvil": "0.1.0.dev0",
+  "python": "3.12.3",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "cpus": 4,
+  "seed": 0,
+  "splits": 200,
+  "n_resamples": 1000,
+  "teacher_model": "gold",
+  "wall_seconds": 54.2,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-19T14:52:48Z"
+}

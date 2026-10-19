@@ -306,8 +306,256 @@ Alignment stress on the 976 held-out gold spans: every mention corrupted the sam
 | int8 dynamic, per-channel (dynamo) | 153.1 | 3.579 | 0.094 | 22.76 |
 
 PyTorch on the same input: 66.11 ms median (dynamo-sdpa run). The head is untrained, so its
-logits are small (largest 1.84) and int8 agreement is a pessimistic proxy until M5 re-measures
-on a trained student.
+logits are small (largest 1.84) and int8 agreement is a pessimistic proxy; M5 re-measured it on
+the trained students (the export section above).
+
+### Calibration and the cascade: AG News and Banking77 (M5)
+
+- Command: `make eval-calibration TEACHER=gold` (`python -m eval.calibration banking77 ag_news
+  --teacher gold`, then `python -m eval.render`). It reuses the M2 students: retraining both
+  from scratch reproduced the committed training logs step for step and the held-out
+  predictions and confidences item for item, so these are the same models as the parity
+  table, not look-alikes. The held-out logits are committed (`logits.npz`), so
+  `python -m eval.calibration <dataset> --logits eval/results/calibration-<dataset>-gold/logits.npz`
+  re-runs the analysis in about a minute without the model.
+- Method: "correct" means "agrees with the teacher". The temperature minimises held-out NLL
+  (bisection on its gradient in 1/T, checked against scipy); ECE uses 15 equal-width bins.
+  The threshold is the largest coverage whose kappa on the answered inputs reaches the target,
+  with at least 30 answered inputs, either on the point estimate or on a one-sided 95%
+  bootstrap lower bound (1,000 resamples). The first table is in-sample: what `anvil
+  calibrate` writes for the server. The split study is the out-of-sample check: 200 times,
+  shuffle the held-out split, fit the temperature and the threshold on one half and score the
+  other half; "kappa reaches target" is the share of those 200 splits in which the inputs the
+  student answered on the unseen half kept the target kappa.
+
+Findings:
+
+- **A threshold chosen on the estimate is a coin flip on new data.** Picked where the kappa
+  estimate first reaches 0.9, it kept 0.9 on the unseen half in 55.5% of splits on Banking77
+  and 46.0% on AG News: the threshold sits where the sample's noise happens to clear the
+  target, so fresh inputs land on either side about equally. Requiring the 95% bootstrap lower
+  bound to clear it held the target in 90.5% and 87.0% of splits, for 7 points less coverage on
+  Banking77 (median 80.2% against 87.1%) and 23 on AG News (65.1% against 88.3%). That is why
+  `anvil calibrate` uses the lower bound by default. It still falls short of the nominal 95%,
+  because the search keeps the largest coverage among many candidate thresholds whose bounds
+  all clear the target, and the best-looking of many is optimistic: a known cost of choosing
+  after looking, measured here rather than assumed.
+- **Temperature scaling makes the confidences honest but buys no coverage.** Both students
+  are slightly overconfident (T 1.24 and 1.22); on the unseen halves scaling cut the median ECE
+  from 0.070 to 0.054 (Banking77) and 0.051 to 0.047 (AG News). Coverage and hit rate with
+  uncalibrated confidences are the same within noise (Banking77 at 0.9: 87.9% and 53.0%
+  uncalibrated, 87.1% and 55.5% calibrated), because the threshold only uses the order of
+  the confidences, which one temperature barely changes. Calibration matters for reading a
+  confidence as a probability, not for the cascade's coverage.
+- **The product number.** At the served setting (target 0.9, lower bound) the Banking77
+  student answers 82.3% of held-out inputs at kappa 0.923 (lower bound 0.900) and escalates
+  the other 17.7%; for
+  0.95 it answers 70.8%. AG News, whose student has the same overall kappa (0.844), keeps less
+  (75.7% and 41.9%): its errors are spread further up the confidence range (agreement on its
+  most confident half is 0.971, against 0.992 for Banking77), so a strict target has to give
+  up more inputs to reach it. The same overall kappa can mean very different cascades.
+
+<!-- BEGIN generated:calibration -->
+| Dataset | Teacher | Student | Held-out | Kappa (all inputs) | Temperature | ECE before -> after (all) | ECE before -> after (unseen half, median) | Coverage at kappa 0.9 | Coverage at kappa 0.95 |
+|---|---|---|---|---|---|---|---|---|---|
+| ag_news | gold | ModernBERT-base | 477 | 0.844 | 1.22 | 0.035 -> 0.031 | 0.051 -> 0.047 | 75.7% | 41.9% |
+| banking77 | gold | ModernBERT-base | 496 | 0.842 | 1.24 | 0.062 -> 0.043 | 0.070 -> 0.054 | 82.3% | 70.8% |
+
+#### ag_news: does the threshold hold on inputs it was not chosen on?
+
+- Raw output: `eval/results/calibration-ag_news-gold/` (`report.json`, `meta.json`, `logits.npz`)
+- Command: `python -m eval.calibration banking77 ag_news --teacher gold` at `9b899ad`; student run `20261019-135236-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 98 s; spent $0.00
+- Fitted temperature over the splits: 1.22 [1.10, 1.34]
+
+| Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
+|---|---|---|---|---|---|---|
+| 0.9 | point estimate, calibrated | 100.0% | 46.0% | 88.3% [75.7%, 95.4%] | 0.897 [0.847, 0.948] | 0.911 [0.855, 0.961] |
+| 0.9 | 95% lower bound, calibrated | 100.0% | 87.0% | 65.1% [46.4%, 85.5%] | 0.932 [0.873, 0.988] | 0.961 [0.889, 0.994] |
+| 0.9 | point estimate, uncalibrated | 100.0% | 50.0% | 88.3% [76.6%, 95.4%] | 0.900 [0.847, 0.948] | 0.913 [0.855, 0.961] |
+| 0.95 | point estimate, calibrated | 100.0% | 50.5% | 54.0% [43.9%, 77.0%] | 0.951 [0.901, 0.987] | 0.977 [0.927, 0.994] |
+| 0.95 | 95% lower bound, calibrated | 100.0% | 82.0% | 36.6% [17.2%, 55.6%] | 0.970 [0.926, 1.000] | 0.992 [0.966, 1.000] |
+| 0.95 | point estimate, uncalibrated | 100.0% | 50.5% | 54.8% [44.3%, 77.1%] | 0.952 [0.901, 0.987] | 0.977 [0.927, 0.994] |
+
+Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
+
+| Coverage | Threshold | Kappa on answered | Agreement on answered | Cascade kappa |
+|---|---|---|---|---|
+| 100.0% | 0.327 | 0.844 | 0.883 | 0.844 |
+| 95.0% | 0.539 | 0.874 | 0.905 | 0.880 |
+| 89.9% | 0.623 | 0.894 | 0.921 | 0.905 |
+| 84.9% | 0.731 | 0.904 | 0.928 | 0.919 |
+| 79.9% | 0.789 | 0.918 | 0.940 | 0.936 |
+| 74.8% | 0.846 | 0.927 | 0.947 | 0.947 |
+| 69.8% | 0.879 | 0.929 | 0.949 | 0.952 |
+| 60.0% | 0.928 | 0.935 | 0.955 | 0.964 |
+| 49.9% | 0.955 | 0.957 | 0.971 | 0.980 |
+
+The teacher here is the dataset's gold labels (no API key in this run): this measures the student's confidence against clean labels, not against Claude.
+
+#### banking77: does the threshold hold on inputs it was not chosen on?
+
+- Raw output: `eval/results/calibration-banking77-gold/` (`report.json`, `meta.json`, `logits.npz`)
+- Command: `python -m eval.calibration banking77 ag_news --teacher gold` at `9b899ad`; student run `20261019-124923-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 54 s; spent $0.00
+- Fitted temperature over the splits: 1.24 [1.15, 1.31]
+
+| Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
+|---|---|---|---|---|---|---|
+| 0.9 | point estimate, calibrated | 100.0% | 55.5% | 87.1% [81.0%, 92.8%] | 0.905 [0.857, 0.942] | 0.918 [0.869, 0.955] |
+| 0.9 | 95% lower bound, calibrated | 100.0% | 90.5% | 80.2% [75.8%, 85.9%] | 0.933 [0.887, 0.968] | 0.947 [0.905, 0.976] |
+| 0.9 | point estimate, uncalibrated | 100.0% | 53.0% | 87.9% [81.0%, 92.7%] | 0.901 [0.856, 0.943] | 0.914 [0.868, 0.955] |
+| 0.95 | point estimate, calibrated | 100.0% | 56.5% | 76.6% [69.4%, 81.5%] | 0.952 [0.918, 0.982] | 0.963 [0.934, 0.988] |
+| 0.95 | 95% lower bound, calibrated | 100.0% | 89.5% | 69.0% [64.1%, 75.8%] | 0.975 [0.940, 0.994] | 0.984 [0.955, 0.996] |
+| 0.95 | point estimate, uncalibrated | 100.0% | 50.0% | 75.4% [71.0%, 81.0%] | 0.950 [0.917, 0.978] | 0.963 [0.934, 0.984] |
+
+Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
+
+| Coverage | Threshold | Kappa on answered | Agreement on answered | Cascade kappa |
+|---|---|---|---|---|
+| 100.0% | 0.155 | 0.842 | 0.845 | 0.842 |
+| 95.0% | 0.367 | 0.868 | 0.870 | 0.875 |
+| 89.9% | 0.496 | 0.893 | 0.895 | 0.904 |
+| 84.9% | 0.579 | 0.911 | 0.912 | 0.924 |
+| 79.8% | 0.678 | 0.936 | 0.937 | 0.949 |
+| 75.0% | 0.769 | 0.956 | 0.957 | 0.967 |
+| 70.0% | 0.844 | 0.971 | 0.971 | 0.980 |
+| 59.9% | 0.941 | 0.990 | 0.990 | 0.994 |
+| 50.0% | 0.976 | 0.992 | 0.992 | 0.996 |
+
+The teacher here is the dataset's gold labels (no API key in this run): this measures the student's confidence against clean labels, not against Claude.
+<!-- END generated:calibration -->
+
+### ONNX export: fp32 and int8 parity on the trained students (M5)
+
+- Command: `make eval-export TEACHER=gold` (`python -m eval.export <dataset> --teacher gold`,
+  then `python -m eval.render`), on the same M2 students, every held-out input a parity probe,
+  with the calibration from the section above in the bundle.
+- Method: fp32 is `torch.onnx.export(dynamo=True)` with dynamic batch and sequence axes,
+  compared with PyTorch logits on the padded batch and on 16 inputs one at a time, with the
+  ONNX side tokenized by the serving tokenizer (`tokenizers`), so a tokenizer mismatch would
+  fail the gate as well. int8 is ONNX Runtime's dynamic quantization (per tensor) with the MLP
+  down-projections kept in fp32, compared with the fp32 graph. The probe quantizes one layer
+  group at a time to see where the loss comes from.
+
+Findings:
+
+- **fp32 export is exact for serving purposes.** The largest logit difference over all
+  held-out inputs is 2.3e-05 (Banking77) and 2.9e-05 (AG News), four times inside the 1e-4
+  gate, with identical argmax everywhere, so kappa is unchanged to three decimals.
+- **The MLP down-projection is what int8 cannot take, now measured on a trained head.**
+  Quantizing only those 22 MatMuls leaves 2.6% (Banking77) and 26% (AG News) of argmax
+  decisions unchanged. Every other group alone keeps
+  at least 96%, and quantizing everything is as bad as quantizing `mlp.Wo` alone. The M1 spike
+  had guessed this from an untrained head; this table measures it. Keeping the
+  down-projections in fp32 costs 59 MB (211 MB against 152 MB).
+- **int8 flips only what the cascade escalates.** The shipped int8 graph (211 MB, against
+  601 MB for fp32) agrees with fp32 on 96.4% of Banking77 inputs and 99.2% of AG News inputs,
+  and on 100% of the inputs the student answers at the served threshold (408 and 361). Kappa
+  with the teacher moves by -0.002 and -0.006, both within noise. The M1 rule (98% agreement
+  on every input) would have refused the Banking77 graph; the gate now counts agreement on
+  the answered inputs, since a flip on an escalated input never reaches a caller (PLAN.md, M5).
+- Two things about the quantizer that the first version of this probe got wrong: it also
+  quantizes the token embedding `Gather` by default, and it converts each `Gemm` before it
+  reads its exclusion list, so the head and the classifier are quantized in every row. Both
+  are now separate rows ("only embeddings", "only head and classifier") instead of being
+  silently mixed into the others.
+
+<!-- BEGIN generated:export -->
+| Dataset | Student | Variant | Compared with | Probes | Max abs logit diff | Mean abs logit diff | Argmax agreement | Agreement on answered inputs | Kappa vs teacher (drop) | Size | Gate |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ag_news | ModernBERT-base | fp32 | pytorch | 477 | 2.9e-05 | 1.2e-06 | 1.000 | n/a | 0.844 (+0.000) | 601 MB | passed |
+| ag_news | ModernBERT-base | int8 | onnx-fp32 | 477 | 1.2e+00 | 1.6e-01 | 0.992 | 1.000 (n=361) | 0.849 (-0.006) | 211 MB | passed |
+| banking77 | ModernBERT-base | fp32 | pytorch | 496 | 2.3e-05 | 3.2e-06 | 1.000 | n/a | 0.842 (+0.000) | 601 MB | passed |
+| banking77 | ModernBERT-base | int8 | onnx-fp32 | 496 | 2.4e+00 | 3.7e-01 | 0.964 | 1.000 (n=408) | 0.844 (-0.002) | 211 MB | passed |
+
+#### ag_news: export
+
+- Raw output: `eval/results/export-ag_news-gold/` (`report.json`, `meta.json`)
+- Command: `python -m eval.export ag_news --teacher gold` at `d0cfa4c`; student run `20261019-135236-n2000`; export and both parity checks 184 s; wall 754 s; spent $0.00
+- Gates: fp32 max |logit diff| <= 1e-04 and agreement == 1.0; int8 agreement with fp32 onnx on the probes the student answers at threshold 0.8336 >= 0.98 and kappa drop vs teacher <= 0.01 (22 MLP down-projections kept in fp32)
+- int8 layer probe (nodes per group: embeddings 1, attention Wqkv 22, attention Wo 22, MLP Wi 22, MLP Wo 22, head and classifier 2); each row quantizes only the named group unless it says otherwise, plus the head and classifier Gemms, which the quantizer converts before it reads its exclusion list, and is compared with the fp32 graph on the same 477 held-out inputs (fp32 kappa vs teacher 0.844); answered inputs are those at or above the bundle's threshold:
+
+| int8 variant | Quantized nodes | Size | Mean abs logit diff | Max abs logit diff | Argmax agreement | Agreement on the 361 answered inputs | Kappa drop |
+|---|---|---|---|---|---|---|---|
+| everything | 91 | 152 MB | 2.163 | 10.329 | 0.235 | 0.152 | +0.804 |
+| default: all but MLP Wo | 69 | 211 MB | 0.158 | 1.200 | 0.992 | 1.000 | -0.006 |
+| all but MLP Wo and embeddings | 68 | 327 MB | 0.153 | 0.817 | 0.992 | 1.000 | -0.006 |
+| only embeddings | 1 | 483 MB | 0.070 | 0.676 | 0.992 | 1.000 | -0.006 |
+| only attention Wqkv | 22 | 483 MB | 0.130 | 0.723 | 0.998 | 1.000 | -0.003 |
+| only attention Wo | 22 | 560 MB | 0.058 | 0.475 | 0.994 | 1.000 | +0.003 |
+| only MLP Wi | 22 | 483 MB | 0.074 | 0.728 | 0.992 | 1.000 | -0.011 |
+| only MLP Wo | 22 | 541 MB | 2.155 | 10.482 | 0.262 | 0.191 | +0.765 |
+| only head and classifier | 2 | 599 MB | 0.054 | 0.401 | 0.998 | 1.000 | -0.003 |
+
+#### banking77: export
+
+- Raw output: `eval/results/export-banking77-gold/` (`report.json`, `meta.json`)
+- Command: `python -m eval.export banking77 --teacher gold` at `d0cfa4c`; student run `20261019-124923-n2000`; export and both parity checks 106 s; wall 401 s; spent $0.00
+- Gates: fp32 max |logit diff| <= 1e-04 and agreement == 1.0; int8 agreement with fp32 onnx on the probes the student answers at threshold 0.6395 >= 0.98 and kappa drop vs teacher <= 0.01 (22 MLP down-projections kept in fp32)
+- int8 layer probe (nodes per group: embeddings 1, attention Wqkv 22, attention Wo 22, MLP Wi 22, MLP Wo 22, head and classifier 2); each row quantizes only the named group unless it says otherwise, plus the head and classifier Gemms, which the quantizer converts before it reads its exclusion list, and is compared with the fp32 graph on the same 496 held-out inputs (fp32 kappa vs teacher 0.842); answered inputs are those at or above the bundle's threshold:
+
+| int8 variant | Quantized nodes | Size | Mean abs logit diff | Max abs logit diff | Argmax agreement | Agreement on the 408 answered inputs | Kappa drop |
+|---|---|---|---|---|---|---|---|
+| everything | 91 | 152 MB | 1.900 | 18.575 | 0.020 | 0.025 | +0.838 |
+| default: all but MLP Wo | 69 | 211 MB | 0.366 | 2.393 | 0.964 | 1.000 | -0.002 |
+| all but MLP Wo and embeddings | 68 | 327 MB | 0.343 | 1.950 | 0.964 | 1.000 | -0.002 |
+| only embeddings | 1 | 483 MB | 0.154 | 1.157 | 0.986 | 1.000 | +0.002 |
+| only attention Wqkv | 22 | 483 MB | 0.278 | 1.548 | 0.964 | 1.000 | -0.004 |
+| only attention Wo | 22 | 560 MB | 0.119 | 0.633 | 0.986 | 1.000 | +0.002 |
+| only MLP Wi | 22 | 483 MB | 0.200 | 1.541 | 0.974 | 0.998 | +0.004 |
+| only MLP Wo | 22 | 541 MB | 1.896 | 18.449 | 0.026 | 0.029 | +0.832 |
+| only head and classifier | 2 | 600 MB | 0.081 | 0.450 | 0.988 | 1.000 | +0.000 |
+<!-- END generated:export -->
+
+### Serving speed and cost: Banking77 (M5)
+
+- Command: `make bench TEACHER=gold` (`python -m eval.bench --teacher gold`, then
+  `python -m eval.render`), on the Banking77 bundle from `make eval-export`, with nothing else
+  running on the machine.
+- Method: the 496 held-out messages (mean 11.7 words), cycled; 20 warm-up calls, then 400
+  timed calls at batch 1 and 100 at batch 32 per engine, every engine at 4 intra-op threads.
+  The HTTP rows call a real `anvil serve` subprocess (uvicorn, teacher off) over localhost.
+  CPU seconds are measured as user plus system time of the process doing the work (this one,
+  or the server's `/proc/<pid>/stat`). Dollars use an assumed price of $0.05 per vCPU-hour;
+  pass `--vcpu-hour-usd` for your own.
+
+Findings:
+
+- **ONNX Runtime halves PyTorch's latency, and int8 takes off another third.** At batch 1 the
+  p50 is 55.3 ms in PyTorch, 24.6 ms in ONNX Runtime fp32 and 16.2 ms in int8. The server adds
+  2-3 ms (27.6 and 18.1 ms over HTTP). With four concurrent clients one 4-core replica answers
+  36 inputs/s in fp32 and 55 in int8.
+- **On a CPU, batching makes it worse.** Batch 32 costs more per input than batch 1 for every
+  engine: 232 against 110 CPU seconds per 1,000 inputs for ONNX fp32. A batch is padded to
+  its longest input and the encoder is compute-bound, so the padding is real work; batching
+  only pays when the hardware is idle between requests (a GPU) or when inputs are grouped by
+  length, which the server does not do yet.
+- **Cost.** At the cheaper batch size the served int8 student uses 81 CPU seconds per 1,000
+  inputs, $0.0011 at the assumed price. The teacher side of the comparison (Claude latency and
+  dollars per 1,000 inputs) needs a key and is under "To measure"; at the served threshold the
+  cascade sends 17.7% of Banking77 inputs to it.
+
+<!-- BEGIN generated:bench -->
+#### banking77: student `ModernBERT-base`, 4 threads
+
+- Raw output: `eval/results/bench-banking77-gold/` (`report.json`, `meta.json`)
+- Command: `python -m eval.bench --teacher gold` at `d0cfa4c`; AMD EPYC 7763 64-Core Processor, 4 CPUs; inputs: the 496 held-out texts (mean 11.7 words), cycled; wall 1167 s
+
+| Engine | Batch 1: p50 / p95 ms | Batch 1: inputs/s | Batch 32: p50 / p95 ms | Batch 32: inputs/s | CPU seconds per 1k inputs (batch 1 / 32) | $ per 1k at $0.05/vCPU-hour, cheaper batch |
+|---|---|---|---|---|---|---|
+| PyTorch (in process) | 55.3 / 92.2 | 17 | 2423.2 / 3544.3 | 13 | 236.1 / 260.0 | 0.00328 |
+| ONNX Runtime fp32 (in process) | 24.6 / 53.6 | 36 | 1748.6 / 2610.8 | 17 | 109.6 / 232.5 | 0.00152 |
+| `anvil serve` fp32 (HTTP) | 27.6 / 55.4 | 33 | 1754.7 / 2621.3 | 17 | 119.8 / 232.9 | 0.00166 |
+| ONNX Runtime int8 (in process) | 16.2 / 35.4 | 54 | 1178.2 / 1763.6 | 25 | 73.6 / 157.2 | 0.00102 |
+| `anvil serve` int8 (HTTP) | 18.1 / 38.0 | 49 | 1180.7 / 1754.6 | 25 | 80.8 / 156.7 | 0.00112 |
+
+Four concurrent HTTP clients at batch 1:
+
+- `anvil serve` fp32 (HTTP): 36 inputs/s, p50 / p95 99.2 / 186.7 ms
+- `anvil serve` int8 (HTTP): 55 inputs/s, p50 / p95 65.5 / 132.6 ms
+
+The CPU price is an assumption (`--vcpu-hour-usd`), not a measurement; the CPU seconds are measured. Teacher `gold`: no recorded Claude labels for this dataset yet, so its cost per 1k is under To measure; its latency needs `--teacher-live N` with a key (To measure).
+At the bundle's threshold (0.6395, target kappa 0.9, rule `lower`) the student answers 82.3% of held-out inputs, so the cascade calls the teacher for 17.7% of traffic.
+<!-- END generated:bench -->
 
 ## To measure
 
@@ -319,6 +567,8 @@ on a trained student.
 | Extraction parity with Claude on MIT Restaurant: entity F1 and token kappa against `claude-haiku-5-5`, the alignment report on real Claude offsets (how many needed repair, how many were lost), the paraphrase ceiling (200 sentences) and teacher vs gold | `make eval-extract` with `ANTHROPIC_API_KEY` set (`TEACHER=auto` calls Claude once and replays afterwards) | key; about 15 min CPU | about $0.30 with Haiku 5.5 effort `low` (2,200 requests at ~350 input tokens and ~170 output tokens); under $0.60 if thinking doubles the output |
 | The frontier with Claude Haiku as the teacher (both datasets, every implemented strategy) | `make eval-classify` with `ANTHROPIC_API_KEY` set records the labels, then `make eval-frontier` replays them | key; about 2.5 h CPU per strategy | $0 beyond the `make eval-classify` labels: the frontier uses the same 2,500 inputs and prompt per dataset |
 | The `uncertainty`, `margin` and `diverse` curves, synthetic and text | write them in `anvil/select.py` (the tests in `tests/test_select.py` turn from expected failures into passes), then `make eval-select` and `make eval-frontier TEACHER=gold` | about 2.5 h CPU per strategy for the text frontier; seconds for the synthetic study | $0 |
+| Teacher latency and cost per 1,000 inputs next to the student in the bench table, and the cascade's cost at its measured coverage | `make eval-classify` with a key (records the Haiku labels and their cost), then `uv run --group eval python -m eval.bench --teacher-live 50` | key | the eval's ~$0.35, plus about $0.01 for 50 uncached timed Haiku calls |
+| Calibration and the cascade against Claude labels (does the 0.9 threshold hold when the teacher is a model, not gold?) | after the keyed `make eval-classify`, `make eval-calibration eval-export` (`TEACHER=auto` replays the recorded labels; the students are retrained on them, about 1.5 h CPU) | key for the labels | $0 beyond the `make eval-classify` labels |
 | A third training seed on both datasets (seeds 0 and 1 are in the table above) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 2`, then `make results` | about 1.5 h CPU (2 ModernBERT-base runs) | $0 |
 
 The toy task is synthetic and only exercises the pipeline; real parity numbers come from the
