@@ -430,8 +430,8 @@ def _generate_details(name: str, r: Report, meta: Report) -> list[str]:
         f"- Data: {d['repo']}@{str(d['revision'])[:7]} `{d.get('file')}` ({d['license']}),"
         f" {d['sampled']} questions sampled (seed {d['sample_seed']}, tables of at most"
         f" {d.get('max_columns')} columns, sha256 {str(d['sample_sha256'])[:12]}); held-out"
-        f" questions sharing at least 80% of their words with a pool question:"
-        f" {d.get('near_duplicate_heldout')}",
+        f" inputs (column names and question) sharing at least 80% of their words with a pool"
+        f" input: {d.get('near_duplicate_heldout')}",
         f"- Training: LoRA r={lora.get('r')}, alpha={lora.get('alpha')} on"
         f" {', '.join(lora.get('target_modules') or [])}; {train.get('examples')} examples and"
         f" {train.get('validation_examples')} held back to pick the epoch (greedy exact match),"
@@ -442,15 +442,19 @@ def _generate_details(name: str, r: Report, meta: Report) -> list[str]:
         f"- Decoding: greedy, {_f(s.get('generate_ms_per_input'), 0)} ms per held-out question"
         f" (batches of 16, length-sorted)",
         f"- Execution match on the {ag.get('nonempty_reference')} questions whose reference"
-        f" returns a row: {_f(ag.get('execution_match_nonempty'))}; references returning"
-        f" nothing: {ag.get('reference_empty')} of {ag['n']} (any query that also returns nothing"
-        " matches them)",
+        f" finds rows: {_f(ag.get('execution_match_nonempty'))}; references that find nothing"
+        f" (no rows, an aggregate over no matching rows: NULL, or 0 from COUNT):"
+        f" {ag.get('reference_empty')} of {ag['n']} (any query that also finds nothing matches"
+        " them, and doubling the rows cannot tell them apart)",
         f"- Coincidental matches: {ag.get('coincidental_matches')} queries match on the table"
         " but not once every row is doubled (a missing aggregate over one row, a count that"
         " equals a cell)",
         f"- Execution vs exact match: {ag.get('executed_match_not_exact')} queries match by"
         f" result but differ as SQL, {ag.get('exact_but_not_executed_match')} the other way;"
-        f" student execution errors: {_errors(ag)}",
+        f" with string literals compared case-insensitively (as the sandbox compares text)"
+        f" exact SQL is {_f(ag.get('exact_match_casefold_literals'))} and"
+        f" {ag.get('executed_match_not_exact_casefold_literals')} differ; student execution"
+        f" errors: {_errors(ag)}",
     ]
     if t["kind"] == "gold":
         out.append(

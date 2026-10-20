@@ -212,6 +212,13 @@ def score_pair(
     exact = [
         normalise_sql(r) == normalise_sql(c) for r, c in zip(references, candidates, strict=True)
     ]
+    # The same with string literals compared case-insensitively, as the sandbox compares text:
+    # WikiSQL's queries are inconsistently cased ('sunbeam' against 'North Island'), so much
+    # of what exact match calls "written differently" is the case of one literal.
+    exact_casefold = [
+        normalise_sql(r, casefold_literals=True) == normalise_sql(c, casefold_literals=True)
+        for r, c in zip(references, candidates, strict=True)
+    ]
     errors: dict[str, int] = {}
     for m in matches:
         kind = _error_kind(m.candidate.error)
@@ -223,6 +230,7 @@ def score_pair(
         "execution_match_doubled": asdict(mean_ci(strict, n_resamples=n_resamples, seed=seed)),
         "coincidental_matches": sum(f and not st for f, st in zip(flags, strict, strict=True)),
         "exact_match": sum(exact) / len(exact),
+        "exact_match_casefold_literals": sum(exact_casefold) / len(exact_casefold),
         "nonempty_reference": len(nonempty),
         "execution_match_nonempty": _rate(nonempty),
         "reference_empty": sum(m.reference_empty for m in matches),
@@ -233,6 +241,9 @@ def score_pair(
         ),
         "executed_match_not_exact": sum(
             m.match and not e for e, m in zip(exact, matches, strict=True)
+        ),
+        "executed_match_not_exact_casefold_literals": sum(
+            m.match and not e for e, m in zip(exact_casefold, matches, strict=True)
         ),
     }
     return stats, matches
@@ -511,6 +522,8 @@ def run(
 
     baseline: dict[str, object]
     base_sql: list[str] = []
+    base_completions: list[str] = []
+    base_matches: list[ExecMatch] = []
     if config.baseline.zero_shot:
         base_completions, base_sql, base_seconds = _zero_shot(config, texts)
         base_stats, base_matches = score_pair(
@@ -581,6 +594,7 @@ def run(
             "chat": trained.chat.as_dict() if trained.chat is not None else None,
             "generate_seconds": gen_seconds,
             "generate_ms_per_input": 1000 * gen_seconds / len(texts),
+            "fenced_completions": sum("```" in c for c in completions),
         },
         "agreement": agreement,
         "slices": slices(held_examples, texts, flags),
@@ -589,13 +603,19 @@ def run(
         "gold": gold,
         "judge": judged,
         "export": export,
+        # The raw completions are kept next to the extracted SQL so a change to
+        # `extract_sql` can be rescored too.
         "predictions": {
             "input_id": [it.id for it, _ in heldout],
             "teacher": teacher_sql,
             "student": student_sql,
+            "student_completion": list(completions),
             "zero_shot": base_sql,
+            "zero_shot_completion": base_completions,
             "execution_match": flags,
             "student_error": [m.candidate.error for m in matches],
+            "zero_shot_execution_match": [m.match for m in base_matches],
+            "zero_shot_error": [m.candidate.error for m in base_matches],
         },
         "spent_usd": spent,
         "wall_seconds": wall,
@@ -635,6 +655,8 @@ def rescore(
     examples: Mapping[str, SqlExample],
     command: str = "",
     provenance: Mapping[str, object] | None = None,
+    config: EvalConfig | None = None,
+    settings: Settings | None = None,
 ) -> dict[str, object]:
     """Score a finished run's stored queries again with the current `anvil.evaluate.sql`,
     without labelling, training or decoding: the queries are deterministic outputs of the
@@ -642,8 +664,10 @@ def rescore(
     to get them. Every statistic built from execution results is recomputed (agreement, the
     zero-shot baseline and its paired difference, slices, the gold rows, the judge's agreement
     with execution match from its stored verdicts); timings, training and the export are
-    kept. `meta.json` keeps the original run's command and records this one under
-    `rescored`."""
+    kept. Where the run stored its raw completions, the SQL is extracted from them again.
+    With `config` and `settings`, a skipped judge's reason is brought up to date (the verdict
+    file it names carries the rubric hash). `meta.json` keeps the original run's command and
+    records this one under `rescored`."""
     report_path, meta_path = out_dir / "report.json", out_dir / "meta.json"
     try:
         # Any: the parsed report is nested JSON written by `run`, edited in place here.
@@ -661,11 +685,23 @@ def rescore(
             f"{len(missing)} stored questions (first {missing[0]}) are not in the sample; the"
             " config or the dataset changed since the run, so run the eval again"
         )
+    stored_sha = report["dataset"].get("sample_sha256")
+    if stored_sha is not None and stored_sha != data.sha256:
+        raise ConfigError(
+            f"the sample has changed since the run (sha256 {str(stored_sha)[:12]} then,"
+            f" {data.sha256[:12]} now), so the stored queries would be scored on other"
+            " tables; run the eval again"
+        )
     texts_by_id = {it.id: it.text for it in data.items}
     held_examples = [examples[i] for i in ids]
     held_tables = [ex.table() for ex in held_examples]
     texts = [texts_by_id[i] for i in ids]
-    teacher_sql, student_sql = preds["teacher"], preds["student"]
+    teacher_sql = preds["teacher"]
+    if "student_completion" in preds:
+        preds["student"] = [extract_sql(c) for c in preds["student_completion"]]
+    if "zero_shot_completion" in preds:
+        preds["zero_shot"] = [extract_sql(c) for c in preds["zero_shot_completion"]]
+    student_sql = preds["student"]
 
     agreement, matches = score_pair(held_tables, teacher_sql, student_sql, n_resamples, seed)
     flags = [m.match for m in matches]
@@ -684,6 +720,8 @@ def rescore(
             **base_stats,
             "student_minus_zero_shot": asdict(diff),
         }
+        preds["zero_shot_execution_match"] = [m.match for m in base_matches]
+        preds["zero_shot_error"] = [m.candidate.error for m in base_matches]
     gold_sql = [ex.sql for ex in held_examples]
     report["gold"]["student_vs_gold"] = score_pair(
         held_tables, gold_sql, student_sql, n_resamples, seed
@@ -693,6 +731,10 @@ def rescore(
             held_tables, gold_sql, teacher_sql, n_resamples, seed
         )[0]
     judged = report["judge"]
+    if "skipped" in judged and "sample" in judged and config is not None and settings is not None:
+        judge = _make_judge(config, settings)
+        if isinstance(judge, str):
+            judged["skipped"] = judge
     if "verdicts" in judged:
         verdicts = [Verdict(**v) for v in judged["verdicts"]]
         by_id = dict(zip(ids, flags, strict=True))
@@ -834,7 +876,7 @@ def main(argv: list[str] | None = None) -> int:
             model = "gold" if kind == "gold" else config.spec.teacher.model
             out = args.out or results_dir(name, model, smoke=smoke)
             if args.rescore:
-                report = rescore(out, data, examples, command, provenance)
+                report = rescore(out, data, examples, command, provenance, config, settings)
                 print(summary_line(report, out))  # noqa: T201 - the final summary
                 continue
             report = run(
