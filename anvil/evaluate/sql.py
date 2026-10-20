@@ -215,9 +215,11 @@ class ExecMatch:
 
     @property
     def reference_empty(self) -> bool:
-        """The reference ran and returned no rows: a match here is weak evidence, since any
-        query that finds nothing matches it."""
-        return self.reference.rows is not None and len(self.reference.rows) == 0
+        """The reference ran and found nothing: no rows, or rows of NULLs only (an aggregate
+        over no matching rows returns one row holding NULL). A match here is weak evidence:
+        any query that finds nothing, `MIN` for `MAX` over the same empty set, matches it."""
+        rows = self.reference.rows
+        return rows is not None and all(all(v is None for v in row) for row in rows)
 
 
 def _same_result(

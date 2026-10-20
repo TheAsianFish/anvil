@@ -317,3 +317,14 @@ def test_a_query_matches_itself(case: tuple[Table, str]) -> None:
 def test_normalise_sql_is_idempotent(sql: str) -> None:
     once = normalise_sql(sql)
     assert normalise_sql(once) == once
+
+
+def test_an_aggregate_over_no_rows_counts_as_an_empty_reference() -> None:
+    # MAX over nothing is one row holding NULL, so MIN over nothing matches it.
+    result = execution_match(
+        SCHOOLS,
+        'SELECT MAX("No.") FROM t WHERE "Player" = \'nobody\'',
+        'SELECT MIN("No.") FROM t WHERE "Player" = \'nobody\'',
+    )
+    assert result.match
+    assert result.reference_empty
