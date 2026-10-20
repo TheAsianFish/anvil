@@ -62,6 +62,31 @@ def test_gold_sql_with_aggregate_and_one_condition() -> None:
     assert sql == 'SELECT COUNT("No.") FROM t WHERE "Team" = \'Reds\''
 
 
+@pytest.mark.parametrize(
+    ("agg", "expected"),
+    [
+        (0, 'SELECT "No." FROM t'),
+        (1, 'SELECT MAX("No.") FROM t'),
+        (2, 'SELECT MIN("No.") FROM t'),
+        (3, 'SELECT COUNT("No.") FROM t'),
+        (4, 'SELECT SUM("No.") FROM t'),
+        (5, 'SELECT AVG("No.") FROM t'),
+    ],
+)
+def test_gold_sql_renders_every_wikisql_aggregate(agg: int, expected: str) -> None:
+    # WikiSQL's lib/query.py: agg_ops = ['', 'MAX', 'MIN', 'COUNT', 'SUM', 'AVG'].
+    assert gold_sql(HEADER, TYPES, 1, agg, []) == expected
+
+
+@pytest.mark.parametrize(("op", "symbol"), [(0, "="), (1, ">"), (2, "<")])
+def test_gold_sql_renders_every_wikisql_condition_operator(op: int, symbol: str) -> None:
+    # WikiSQL's lib/query.py: cond_ops = ['=', '>', '<', 'OP']; 'OP' never occurs in the data.
+    assert (
+        gold_sql(HEADER, TYPES, 0, 0, [(1, op, "3")])
+        == f'SELECT "Player" FROM t WHERE "No." {symbol} 3'
+    )
+
+
 def test_gold_sql_joins_three_conditions_with_and() -> None:
     sql = gold_sql(HEADER, TYPES, 0, 1, [(1, 1, "3"), (1, 2, "30"), (2, 0, "Reds")])
     assert sql == (
