@@ -1,5 +1,6 @@
 .PHONY: help sync check fmt lint typecheck test test-live record demo docker spike-onnx \
-	eval-classify eval-extract eval-select eval-frontier results clean
+	eval-classify eval-extract eval-select eval-frontier eval-calibration eval-export bench \
+	results clean
 
 UV ?= uv
 RUN := $(UV) run
@@ -36,8 +37,9 @@ record: ## re-record the Claude fixtures in tests/recordings (spends a few cents
 demo: ## offline vertical slice on the toy task: label -> train -> eval
 	./scripts/demo.sh "$(DEMO_HOME)"
 
-docker: ## build the CLI image
+docker: ## build the CLI image and the torch-free serving image
 	docker build -t anvil:dev .
+	docker build --target serve -t anvil-serve:dev .
 
 TEACHER ?= auto
 eval-classify: ## M2 parity on AG News and Banking77 (TEACHER=auto|claude|replay|gold), then RESULTS.md
@@ -54,6 +56,18 @@ eval-select: ## M3 selection strategies on synthetic blobs (offline, free), then
 
 eval-frontier: ## M3 kappa vs teacher labels per strategy, 3 seeds x 5 budgets (TEACHER=auto|claude|replay|gold), then RESULTS.md
 	$(RUN) --group eval python -m eval.frontier --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+eval-calibration: ## M5 temperature, ECE and coverage at target kappa on the M2 students (TEACHER=...), then RESULTS.md
+	$(RUN) --group eval python -m eval.calibration --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+eval-export: ## M5 ONNX fp32/int8 parity and the int8 layer probe on the M2 students, then RESULTS.md
+	$(RUN) --group eval python -m eval.export --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+bench: ## M5 latency, throughput and $ per 1k: PyTorch vs ONNX vs the HTTP server (after eval-export)
+	$(RUN) --group eval python -m eval.bench --teacher $(TEACHER)
 	$(RUN) python -m eval.render
 
 results: ## regenerate the RESULTS.md tables from eval/results/

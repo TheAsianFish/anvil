@@ -19,14 +19,20 @@ to train when too many spans cannot be aligned, and scores a token tagger by
 entity F1 and token kappa. `anvil loop` grows the
 training set round by round (pick, label, retrain from scratch, score) under
 a label and a dollar budget and records the labels-vs-kappa-vs-cost frontier.
-Later milestones add calibration, ONNX export with a parity gate, and a
-server that escalates low-confidence inputs back to the teacher.
+`anvil calibrate` fits a temperature and picks the confidence threshold that
+keeps a target kappa on the inputs the student answers; `anvil export` writes
+an ONNX bundle that must match PyTorch before it can be served; `anvil serve`
+answers over HTTP from ONNX Runtime (no torch in the image) and sends the
+inputs under the threshold back to the teacher.
 
-Status: **M4 of 7** (Claude teacher, label store, a full PyTorch training
+Status: **M5 of 7** (Claude teacher, label store, a full PyTorch training
 loop with exact resume, kappa with bootstrap intervals and error slices, the
 active-learning loop with resumable rounds, span extraction with verified
-character offsets and a token tagger, and the `make eval-classify`,
-`make eval-extract`, `make eval-frontier` and `make eval-select` harnesses).
+character offsets and a token tagger, calibration and the escalating cascade,
+ONNX export with parity gates, the server and its image, and the
+`make eval-classify`, `make eval-extract`, `make eval-frontier`,
+`make eval-select`, `make eval-calibration`, `make eval-export` and
+`make bench` harnesses).
 See [PLAN.md](PLAN.md) for the milestones.
 
 ## Demo
@@ -36,10 +42,21 @@ $ make demo
 == anvil label (fake teacher, offline)
 labelled 91 held-out + 200 pool inputs with fake-rules-c7ee422d (0 from cache, $0.0000 spent); 291 labels in store worth $0.0000
 == anvil train (tiny random-init ModernBERT)
-trained 20261018-072947-n200 on 200 fake-rules-c7ee422d labels (16 held back for early stopping, best epoch 4, kappa 0.916): 6 epochs, loss 1.899 -> 0.196, 0.6s
+trained 20261019-161530-n200 on 200 fake-rules-c7ee422d labels (16 held back for early stopping, best epoch 4, kappa 0.916): 6 epochs, loss 1.899 -> 0.196, 0.5s
 == anvil eval (held-out agreement with the teacher)
-student 20261018-072947-n200 vs fake-rules-c7ee422d on 91 held-out inputs: kappa 1.000 [1.000, 1.000], accuracy 1.000 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261018-072947-n200.json
+student 20261019-161530-n200 vs fake-rules-c7ee422d on 91 held-out inputs: kappa 1.000 [1.000, 1.000], accuracy 1.000 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261019-161530-n200.json
+== anvil calibrate (temperature and the threshold that keeps kappa 0.9 with the teacher)
+calibrated 20261019-161530-n200 on 91 held-out fake-rules-c7ee422d labels: temperature 1.000, ECE 0.020 -> 0.020
+threshold 0.8821: the student answers 100.0% of held-out inputs at kappa 1.000, lower bound 1.000 (target 0.9); written to .anvil/demo/ticket-triage/students/20261019-161530-n200/calibration.json
+== anvil export (ONNX fp32, checked against PyTorch before it can be served)
+fp32: passed parity vs pytorch on 91 inputs: max |logit diff| 1.91e-06, agreement 1.000, kappa vs teacher 1.000 (drop +0.000); 0.7 MB (max |logit diff| <= 1e-04 and agreement == 1.0)
+bundle .anvil/demo/bundle; serve it with `anvil serve .anvil/demo/bundle`
+== anvil serve (ONNX Runtime; inputs under the threshold escalate to the fake teacher)
+  billing          from the student  (confidence 0.988)
+  feature_request  from the student  (confidence 0.995)
+  account          from the teacher  (confidence 0.870)
 == anvil loop (random selection, three rounds, fresh student each round)
+loop demo (random, seed 0) vs fake-rules-c7ee422d:
   round  labels  kappa [95% CI]          label cost  spent
       0      50  0.582 [0.452, 0.697]  $   0.0000  $0.0000
       1     100  0.881 [0.793, 0.955]  $   0.0000  $0.0000
@@ -48,19 +65,23 @@ student 20261018-072947-n200 vs fake-rules-c7ee422d on 91 held-out inputs: kappa
 labelled 72 held-out + 240 pool inputs with fake-rules-a25234ff (0 from cache, $0.0000 spent); 312 labels in store worth $0.0000
 == anvil train (tiny random-init ModernBERT tagger; aligns every answer first)
 aligned 548 teacher mentions: 430 at their offset, 118 repaired (shifted 118), 0 dropped (0.0%), 0 snapped to token boundaries
-trained 20261018-073012-n240 on 240 fake-rules-a25234ff labels (21 held back for early stopping, best epoch 3, entity F1 1.000): 5 epochs, loss 1.752 -> 0.015, 0.5s
+trained 20261019-161612-n240 on 240 fake-rules-a25234ff labels (21 held back for early stopping, best epoch 3, entity F1 1.000): 5 epochs, loss 1.752 -> 0.015, 0.5s
 == anvil eval (entity F1 and token kappa against the teacher)
-student 20261018-073012-n240 vs fake-rules-a25234ff on 72 held-out inputs: entity F1 0.929 [0.885, 0.968] (precision 0.904, recall 0.955), token kappa 0.968 [0.949, 0.985] (held-out teacher mentions: 37 repaired, 0 dropped, 0.0%); report .anvil/demo/restaurant-slots/reports/eval-20261018-073012-n240.json
-== demo finished in 42s
+student 20261019-161612-n240 vs fake-rules-a25234ff on 72 held-out inputs: entity F1 0.929 [0.885, 0.968] (precision 0.904, recall 0.955), token kappa 0.968 [0.949, 0.985] (held-out teacher mentions: 37 repaired, 0 dropped, 0.0%); report .anvil/demo/restaurant-slots/reports/eval-20261019-161612-n240.json
+== demo finished in 59s
 ```
 
-The demo runs offline (loop warnings trimmed above): the teacher is a
-keyword-rule `FakeTeacher` with 5% injected label noise for classification
-and, for extraction, a fifth of its offsets moved by one character, which
-alignment repairs (118 of 548 here). The students are two-layer random-init
-ModernBERTs with a vocabulary built from the pool, so the demo finishes in
-42 s on a laptop CPU, most of it Python start-up across seven commands. Its
-numbers are a smoke check of the pipeline, not results.
+The demo runs offline (loop warnings and its last line trimmed above): the
+teacher is a keyword-rule `FakeTeacher` with 5% injected label noise for
+classification and, for extraction, a fifth of its offsets moved by one
+character, which alignment repairs (118 of 548 here). The first toy student
+is calibrated (it agrees with every held-out label, so its temperature stays
+1 and the threshold is its lowest held-out confidence), exported to ONNX and
+served; of the three requests, the one under the threshold is answered by the
+teacher. The students are two-layer random-init ModernBERTs with a
+vocabulary built from the pool, so the demo finishes in about a minute on a
+laptop CPU, most of it Python start-up across ten commands. Its numbers are a
+smoke check of the pipeline, not results.
 
 <!-- GIF placeholder: record `anvil label/train/eval` against Claude with
 `vhs docs/demo.tape` (or asciinema + agg) once real labels exist, save it as
@@ -91,6 +112,13 @@ make eval-classify TEACHER=gold       # no key: dataset gold labels as the teach
 make eval-frontier TEACHER=gold       # kappa vs labels, 3 seeds x 5 budgets per strategy (CPU, ~2.5 h)
 make eval-select                      # the strategies on synthetic blobs (seconds)
 make eval-extract TEACHER=gold        # span extraction on MIT Restaurant (ModernBERT-base tagger, CPU)
+
+# Calibrate, export and serve (classify tasks)
+uv run anvil calibrate --target-kappa 0.9            # temperature + threshold, on held-out labels
+uv run anvil export --int8                           # ONNX bundle, parity-gated, under .anvil/<task>/exports/
+uv run anvil serve .anvil/ticket-triage/exports/<run> --teacher claude   # POST /predict {"texts": [...]}
+make eval-calibration eval-export TEACHER=gold       # the M2 students: threshold study, int8 layer probe
+make bench TEACHER=gold                              # PyTorch vs ONNX Runtime vs HTTP, CPU, 4 threads
 
 # Extraction: the same three commands on a `kind: extract` spec
 cd examples/toy-extract
@@ -123,6 +151,12 @@ Inputs are JSONL, one `{"text": ..., "id": optional}` per line. State lives
 under `ANVIL_HOME` (default `.anvil/`): the SQLite label store, the teacher
 response cache and trained students.
 
+`POST /predict` answers each input with its label, the student's confidence,
+`source` (`student` or `teacher`) and whether it was escalated; a teacher
+failure falls back to the student's answer with the reason in `error`.
+`/healthz` and `/metrics` (Prometheus text) come with it, and every request is
+one JSON log line with counts and latency, never the input text.
+
 Docker (the container runs as uid 1000, so pass your uid to write into the
 bind mount):
 
@@ -130,6 +164,9 @@ bind mount):
 make docker
 docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" -e ANTHROPIC_API_KEY anvil:dev label --spec anvil.yaml --inputs inputs.jsonl --n 200
 docker run --rm -u "$(id -u):$(id -g)" -v "$PWD:/work" anvil:dev label --spec anvil.yaml --inputs inputs.jsonl --teacher fake   # offline
+
+# The serving image: ONNX Runtime and the Rust tokenizer, no torch; mount a bundle at /model
+docker run --rm -p 8000:8000 -v "$PWD/.anvil/ticket-triage/exports/<run>:/model:ro" anvil-serve:dev --teacher none
 ```
 
 ## Architecture
@@ -152,6 +189,10 @@ flowchart LR
     EV --> FR[loops/*/frontier.jsonl<br/>labels vs kappa vs $]
     LF[eval/labels/<br/>recorded labels] -.->|replay| T
     EV --> RES[eval/results/ -> RESULTS.md]
+    S -->|held-out logits| CAL[calibrate.py<br/>temperature, ECE,<br/>threshold at target kappa]
+    CAL --> EX[export.py<br/>ONNX fp32 / int8,<br/>parity gates]
+    EX -->|bundle| SV[serve.py<br/>FastAPI + ONNX Runtime]
+    SV -->|confidence under threshold| T
 ```
 
 | Module | Role |
@@ -171,7 +212,11 @@ flowchart LR
 | `anvil/select.py` | `select_batch(pool, k, strategy, seed)`: `random` (the reference curve); `uncertainty`, `margin` and `diverse` are declared with a contract test suite and not written yet |
 | `anvil/loop.py` | `anvil loop`: rounds of select, label, retrain from scratch, score; label, dollar and target-kappa stops; picks stored before labelling so an interrupted loop resumes to the same rows |
 | `eval/frontier.py`, `eval/select_study.py` | `make eval-frontier` (3 seeds x 5 budgets per strategy) and `make eval-select` (synthetic blobs, logistic student) |
-| `anvil/pipeline.py`, `anvil/cli.py` | `label`, `train`, `eval`, `loop` as a library API and a Typer CLI |
+| `anvil/calibrate.py` | Temperature scaling (bisection on the NLL gradient), ECE and reliability bins, the coverage-vs-kappa curve, and the threshold search on the point estimate or a one-sided bootstrap lower bound; numpy only |
+| `anvil/export.py`, `anvil/runtime.py` | `torch.onnx` (dynamo) export with dynamic batch and sequence axes, fp32 parity gate through the serving tokenizer, opt-in int8 with the MLP down-projections in fp32; `OnnxStudent` loads a bundle with ONNX Runtime and `tokenizers`, never torch |
+| `anvil/serve.py` | `anvil serve`: FastAPI `/predict`, `/healthz`, `/metrics`; inputs under the threshold go to the teacher in one batch per request; every teacher failure degrades to the student's answer |
+| `eval/calibration.py`, `eval/export.py`, `eval/bench.py` | `make eval-calibration` (temperature, coverage, and the split study of whether a threshold holds on unseen inputs), `make eval-export` (parity and the int8 layer probe), `make bench` |
+| `anvil/pipeline.py`, `anvil/cli.py` | `label`, `train`, `eval`, `loop`, `calibrate`, `export`, `serve` as a library API and a Typer CLI |
 
 **The hard part** (the core of the project, built over M2 and M3) is the
 cost-versus-quality frontier: how few teacher labels reach a target kappa
@@ -189,6 +234,11 @@ training: a teacher's character offsets are unreliable, so every span is
 verified against the input and repaired by a ladder of matching rules, snapped
 to the student's tokens, and counted; a teacher whose spans cannot be aligned
 stops training instead of silently teaching the student the wrong targets.
+M5 turns the measurement into the product number, coverage at a target
+parity: a temperature-scaled student answers what it is sure of and
+escalates the rest, with the threshold checked on inputs it was not chosen
+on, because a threshold that reaches the target in-sample misses it on new
+data about half the time (RESULTS.md).
 
 ## Design decisions
 
@@ -283,6 +333,35 @@ stops training instead of silently teaching the student the wrong targets.
   and tiny models, with the network blocked; live tests run only with a key;
   recorded Claude responses replay through the same parsing code (none are
   committed yet; `make record` creates them once a key exists).
+- **The cascade threshold is set on a lower bound, not the estimate.** The
+  threshold is the largest coverage whose kappa on the answered inputs
+  reaches the target; picking it on the point estimate fits the sample's
+  noise, so fresh inputs land below the target about as often as above.
+  `anvil calibrate` uses the one-sided 95% bootstrap lower bound by default
+  and `make eval-calibration` measures both rules on held-out halves the
+  threshold never saw. *Rejected:* a learned deferral model (more to
+  maintain for a gain the plain threshold already measures).
+- **Temperature scaling, and when not to.** One scalar T fitted by NLL on
+  the held-out teacher labels makes confidence readable as agreement; it
+  does not change any label. When the fit runs to a bound (the student
+  agrees with every held-out label, or its few errors have nearly flat
+  logits) the NLL has no minimum, and at the lower bound every input,
+  nonsense included, would score 1.0, so T stays 1. Because T reorders
+  inputs by confidence, the threshold is chosen and served on the same T.
+- **No threshold, no trust.** When no threshold reaches the target, the
+  server escalates every input, and refuses to start without a teacher to
+  send them to; it never quietly answers everything. An explicit
+  `--threshold` is the operator's override.
+- **A bundle is served only if it matches PyTorch.** fp32 must agree to
+  1e-4 in logits and exactly in argmax on held-out inputs, measured through
+  the serving tokenizer, or nothing is written; int8 must keep argmax
+  agreement on the inputs the cascade answers, batched and one at a time
+  (dynamic quantization scales activations per batch), and the kappa with
+  the teacher on every input within 0.01, or its file is deleted and the
+  server refuses it.
+- **No torch on the serving path.** `anvil serve` uses ONNX Runtime and the
+  Rust tokenizer; a test imports it with torch blocked, and the serving
+  image is built from the lock file without torch or transformers.
 - **ONNX export goes through `torch.onnx`.** `optimum-onnx` 0.1 requires
   `transformers<4.58` and cannot be installed next to transformers 5; the M1
   spike in [docs/notes/onnx-export-spike.md](docs/notes/onnx-export-spike.md)
@@ -328,13 +407,35 @@ verification keeps none of the ~960 changed spans and the repair ladder
 recovers all of them. Claude parity on this task is under "To measure"
 (about $0.30 with Haiku 5.5).
 
+The cascade and the served student (M5), on the same Banking77 and AG News
+students, gold labels as the teacher, CPU:
+
+| | Banking77 | AG News |
+|---|---|---|
+| Temperature; ECE before -> after on unseen halves (median of 200 splits) | 1.24; 0.070 -> 0.054 | 1.22; 0.051 -> 0.047 |
+| Student coverage at kappa 0.9 with the teacher (95% lower-bound rule) | 82.3% | 75.7% |
+| Splits where the unseen half kept kappa 0.9: estimate rule / lower-bound rule | 55.5% / 90.5% | 46.0% / 87.0% |
+| ONNX fp32 vs PyTorch, max abs logit diff over held-out | 2.3e-05 | 2.9e-05 |
+| int8 (211 MB vs 601 MB): agreement with fp32 on all / on answered inputs; kappa change | 0.964 / 1.000; -0.002 | 0.992 / 1.000; -0.006 |
+
+Choosing the threshold where the kappa estimate reaches the target holds that
+target on new inputs about half the time; requiring the bootstrap lower bound
+to reach it holds it in roughly nine of ten splits, for 7 (Banking77) to 23
+(AG News) points of coverage. Temperature scaling makes the confidences
+readable as agreement rates but leaves coverage unchanged. On Banking77 the
+served student answers in 27.6 ms p50 over HTTP in fp32 and 18.1 ms in int8
+(PyTorch in process: 55.3 ms), at 4 threads on one CPU; on a CPU, batch 32
+costs more per input than batch 1 because of padding. The int8 layer probe
+pins its accuracy loss on the MLP down-projections, which stay fp32. Teacher
+latency and dollars per 1,000 inputs need a key and are under "To measure".
+
 ## Roadmap
 
 - [x] M1: scaffold, CI, Claude teacher with cache and cost accounting, label store, offline slice, ONNX export spike
 - [x] M2: full training loop and evaluation core (bootstrap CI, teacher self-agreement ceiling, error slices); AG News and Banking77 harness (Claude parity to measure)
 - [x] M3: active-learning loop, selection interface with the random baseline and contract tests, frontier and synthetic selection evals (Claude frontier and the non-random strategies to measure)
 - [x] M4: span extraction with character-offset alignment, a BIO tagger, entity F1 and token kappa, MIT Restaurant harness (Claude parity to measure)
-- [ ] M5: calibration, ONNX export with a parity gate, FastAPI server with teacher escalation, benchmarks
+- [x] M5: calibration and the cascade threshold, ONNX export with parity gates, FastAPI server with teacher escalation and a torch-free image, benchmarks (teacher latency and cost to measure)
 - [ ] M6: Qwen2.5-0.5B LoRA generation student
 - [ ] M7: release (PyPI, GHCR, Hugging Face model cards)
 

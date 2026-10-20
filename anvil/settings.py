@@ -34,6 +34,8 @@ class Settings:
     record_dir: Path | None
     """When set, every real teacher response is also written here as a replayable recording."""
     log_level: str
+    serve_threads: int | None = None
+    """ONNX Runtime intra-op threads for `anvil serve`; None leaves ONNX Runtime's default."""
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
@@ -47,4 +49,7 @@ class Settings:
             teacher_workers=_int(e, "ANVIL_TEACHER_WORKERS", 4),
             record_dir=Path(record) if record else None,
             log_level=level,
+            serve_threads=_int(e, "ANVIL_SERVE_THREADS", 1)
+            if e.get("ANVIL_SERVE_THREADS")
+            else None,
         )

@@ -1,0 +1,16 @@
+{
+  "command": "python -m eval.calibration --teacher gold",
+  "git_sha": "b127db249b4b5e1e424414043f822ac98ec18adb",
+  "git_dirty": false,
+  "anvil": "0.1.0.dev0",
+  "python": "3.12.3",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "cpus": 4,
+  "seed": 0,
+  "splits": 200,
+  "n_resamples": 1000,
+  "teacher_model": "gold",
+  "wall_seconds": 121.6,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-20T02:27:41Z"
+}

@@ -30,7 +30,7 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make results` | re-render the RESULTS.md tables from `eval/results/` (a test fails when they are stale) |
 | `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies |
 | `make bench` | latency, throughput and cost table (M5) |
-| `make docker` | build the CLI image (M5 adds the slim serving image) |
+| `make docker` | build the CLI image and the torch-free serving image (`--target serve`) |
 | `make spike-onnx` | the M1 ModernBERT ONNX export spike (downloads ModernBERT-base) |
 
 Every eval and bench writes raw output under `eval/results/<name>/` with the
@@ -49,20 +49,23 @@ Environment variables (all optional, read in `anvil/settings.py`):
 `ANVIL_HOME` (state directory, default `.anvil`), `ANVIL_TEACHER_WORKERS`
 (concurrent teacher requests, default 4), `ANVIL_RECORD_DIR` (also write
 every live teacher response there as a replayable recording),
-`ANVIL_LOG_LEVEL` (default `INFO`; logs are JSON lines on stderr).
+`ANVIL_LOG_LEVEL` (default `INFO`; logs are JSON lines on stderr),
+`ANVIL_SERVE_THREADS` (ONNX Runtime intra-op threads for `anvil serve`,
+default: ONNX Runtime's own choice).
 
 ## Layout
 
 ```
 anvil/            package: spec, teacher/, store, students/, train/, evaluate/,
-                  spans + align + extraction (M4), select + loop (M3), pipeline,
-                  cli (M5+ add calibrate, export, serve, hub)
+                  spans + align + extraction (M4), select + loop (M3), calibrate +
+                  export + runtime + serve (M5), pipeline, cli (M7 adds hub)
 examples/toy/     the toy ticket-triage task used by the demo and the tests
 examples/toy-extract/  the toy restaurant-slot extraction task (demo and tests)
 scripts/          demo.sh
 tests/            unit + integration; tests/recordings/ holds real Claude
                   responses replayed offline (empty until `make record`)
-eval/             classify.py and extract.py (the parity harnesses), data.py
+eval/             classify.py and extract.py (the parity harnesses), calibration.py,
+                  export.py and bench.py (M5, on the student student.py finds), data.py
                   (pinned dataset loaders), render.py (RESULTS.md tables),
                   classify/*.yaml and extract/*.yaml (dataset, sample, ceiling
                   prompt, task spec), labels/ (recorded teacher labels),

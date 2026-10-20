@@ -182,15 +182,23 @@ class EncoderClassifier:
         )
 
     @torch.no_grad()
-    def predict_proba(self, texts: Sequence[str], batch_size: int = 64) -> npt.NDArray[np.float32]:
+    def predict_logits(
+        self, texts: Sequence[str], batch_size: int = 64
+    ) -> npt.NDArray[np.float32]:
+        """Raw classification logits, shape (len(texts), len(labels)): what calibration fits a
+        temperature to and what the ONNX export is checked against."""
         self.model.eval()
         out: list[npt.NDArray[np.float32]] = []
         for start in range(0, len(texts), batch_size):
             logits = self.model(**self.encode(texts[start : start + batch_size])).logits
-            out.append(torch.softmax(logits.float(), dim=-1).cpu().numpy())
+            out.append(logits.float().cpu().numpy())
         if not out:
             return np.zeros((0, len(self.labels)), dtype=np.float32)
         return np.concatenate(out).astype(np.float32)
+
+    def predict_proba(self, texts: Sequence[str], batch_size: int = 64) -> npt.NDArray[np.float32]:
+        logits = torch.from_numpy(self.predict_logits(texts, batch_size))
+        return torch.softmax(logits, dim=-1).numpy().astype(np.float32)
 
     @torch.no_grad()
     def predict_with_embeddings(

@@ -24,12 +24,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# ONNX export (used by the M1 export spike; becomes `anvil export` in M5).
-# optimum-onnx 0.1 pins transformers<4.58, so export goes through torch.onnx.
+# `anvil export` (torch.onnx; optimum-onnx 0.1 pins transformers<4.58, so it is not used).
 export = [
     "onnx>=1.23",
     "onnxruntime>=1.31",
     "onnxscript>=0.5",
+]
+# `anvil serve`: ONNX Runtime and the Rust tokenizer, no torch on the serving path.
+serve = [
+    "fastapi>=0.120",
+    "onnxruntime>=1.31",
+    "tokenizers>=0.22",
+    "uvicorn>=0.38",
 ]
 
 [project.scripts]
@@ -37,6 +43,7 @@ anvil = "anvil.cli:app"
 
 [dependency-groups]
 dev = [
+    "httpx>=0.28",
     "hypothesis>=6.170",
     "mypy>=2.4",
     "pytest>=9.1",
@@ -90,6 +97,10 @@ files = [
     "eval/frontier.py",
     "eval/render.py",
     "eval/select_study.py",
+    "eval/student.py",
+    "eval/calibration.py",
+    "eval/export.py",
+    "eval/bench.py",
 ]
 warn_unreachable = true
 

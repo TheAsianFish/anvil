@@ -595,6 +595,270 @@ def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
     return "\n".join(out)
 
 
+def _q(stats: Mapping[str, Any] | None, digits: int = 3) -> str:
+    """`median [p5, p95]` of a split-study quantile summary."""
+    if not stats:
+        return "n/a"
+    return f"{_f(stats['median'], digits)} [{_f(stats['p5'], digits)}, {_f(stats['p95'], digits)}]"
+
+
+def _qpct(stats: Mapping[str, Any] | None) -> str:
+    """`_q` for a share, in percent."""
+    if not stats:
+        return "n/a"
+    return f"{_pct(stats['median'])} [{_pct(stats['p5'])}, {_pct(stats['p95'])}]"
+
+
+def _commit(meta: Mapping[str, Any]) -> str:
+    sha = str(meta.get("git_sha") or "")[:7]
+    return f"`{sha}`" + (" (uncommitted changes)" if meta.get("git_dirty") else "") if sha else "?"
+
+
+_METHOD_NAMES = {
+    "point": "point estimate, calibrated",
+    "lower": "95% lower bound, calibrated",
+    "point-raw": "point estimate, uncalibrated",
+}
+
+
+def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
+    """Temperature scaling, the served threshold, and the split study of whether a threshold
+    chosen on one half of the held-out split keeps its kappa on the other half."""
+    if not runs:
+        return "No calibration run yet: `make eval-calibration`.\n"
+    out = [
+        "| Dataset | Teacher | Student | Held-out | Kappa (all inputs) | Temperature"
+        " | ECE before -> after (all) | ECE before -> after (unseen half, median)"
+        " | Coverage at kappa 0.9 | Coverage at kappa 0.95 |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for _, r, _meta in runs:
+        src, full, ss = r["source"], r["full"], r["split_study"]
+        f9, f95 = full.get("0.9", {}), full.get("0.95", {})
+        out.append(
+            f"| {src['dataset']} | {src['teacher_model']} | {_student_name(src['student_model'])}"
+            f" | {r['n']} | {_f(r['kappa'])} | {_f(f9.get('temperature'), 2)}"
+            f" | {_f(f9.get('ece_before'))} -> {_f(f9.get('ece_after'))}"
+            f" | {_f(ss['ece_before']['median'])} -> {_f(ss['ece_after']['median'])}"
+            f" | {_pct(f9.get('coverage'))} | {_pct(f95.get('coverage'))} |"
+        )
+    out.append("")
+    for name, r, meta in runs:
+        src, ss = r["source"], r["split_study"]
+        out += [
+            f"#### {src['dataset']}: does the threshold hold on inputs it was not chosen on?",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`, `logits.npz`)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; student run"
+            f" `{src['student_run']}`; {ss['splits']} random splits into {ss['fit_size']}"
+            f" inputs to fit on and {ss['test_size']} to test on; at least {ss['min_accepted']}"
+            f" answered inputs; {ss['n_resamples']} bootstrap resamples; wall"
+            f" {_f(meta.get('wall_seconds'), 0)} s; spent $0.00",
+            f"- Fitted temperature over the splits: {_q(ss['temperature'], 2)}",
+            "",
+            "| Target kappa | Threshold rule | Threshold found"
+            " | Unseen half: kappa reaches target | Unseen half: coverage"
+            " | Unseen half: kappa on answered | Unseen half: cascade kappa |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for target, methods in ss["targets"].items():
+            for method, m in methods.items():
+                out.append(
+                    f"| {target} | {_METHOD_NAMES.get(method, method)} | {_pct(m['found'])}"
+                    f" | {_pct(m.get('met'))} | {_qpct(m.get('coverage'))} | {_q(m.get('kappa'))}"
+                    f" | {_q(m.get('system_kappa'))} |"
+                )
+        out += [
+            "",
+            "Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade"
+            " kappa counts escalated inputs as answered by the teacher):",
+            "",
+            "| Coverage | Threshold | Kappa on answered | Agreement on answered | Cascade kappa |",
+            "|---|---|---|---|---|",
+        ]
+        for p in r["curve"]:
+            out.append(
+                f"| {_pct(p['coverage'])} | {_f(p['threshold'])} | {_f(p['kappa'])}"
+                f" | {_f(p['agreement'])} | {_f(p['system_kappa'])} |"
+            )
+        if src.get("teacher_kind") == "gold":
+            out += [
+                "",
+                "The teacher here is the dataset's gold labels (no API key in this run): this"
+                " measures the student's confidence against clean labels, not against Claude.",
+            ]
+        out.append("")
+    return "\n".join(out)
+
+
+def _sci(x: object) -> str:
+    return f"{x:.1e}" if isinstance(x, int | float) else "n/a"
+
+
+def _answered(p: Mapping[str, Any]) -> str:
+    if p.get("agreement_answered") is None:
+        return "n/a"
+    return f"{_f(p['agreement_answered'])} (n={p.get('answered', '?')})"
+
+
+def render_export(runs: list[tuple[str, Report, Report]]) -> str:
+    """fp32 and int8 parity of the exported students, and the int8 layer-group probe."""
+    if not runs:
+        return "No export run yet: `make eval-export`.\n"
+    out = [
+        "| Dataset | Student | Variant | Compared with | Probes | Max abs logit diff"
+        " | Mean abs logit diff | Argmax agreement | Agreement on answered inputs"
+        " | Kappa vs teacher (drop) | Size | Gate |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for _, r, _meta in runs:
+        src = r["source"]
+        for p in (r["fp32"], r.get("int8")):
+            if not p:
+                continue
+            drop = p.get("kappa_drop")
+            kappa = f"{_f(p['kappa'])} ({drop:+.3f})" if isinstance(drop, int | float) else "n/a"
+            out.append(
+                f"| {src['dataset']} | {_student_name(src['student_model'])} | {p['variant']}"
+                f" | {p['reference']} | {p['n']} | {_sci(p['max_abs_diff'])}"
+                f" | {_sci(p['mean_abs_diff'])} | {_f(p['agreement'])} | {_answered(p)} | {kappa}"
+                f" | {_f(p['size_mb'], 0)} MB | {'passed' if p['passed'] else 'failed'} |"
+            )
+    out.append("")
+    for name, r, meta in runs:
+        src = r["source"]
+        out += [
+            f"#### {src['dataset']}: export",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; student run"
+            f" `{src['student_run']}`; export and both parity checks {_f(r['export_seconds'], 0)}"
+            f" s; wall {_f(meta.get('wall_seconds'), 0)} s; spent $0.00",
+            f"- Gates: fp32 {r['fp32']['gate']}; int8 {(r.get('int8') or {}).get('gate', 'n/a')}"
+            f" ({r.get('int8_fp32_nodes', 0)} MLP down-projections kept in fp32)",
+        ]
+        probe = r.get("quantization_probe")
+        if probe:
+            groups = ", ".join(f"{g} {n}" for g, n in probe["groups"].items())
+            out += [
+                f"- int8 layer probe (nodes per group: {groups}); each row quantizes only the"
+                " named group unless it says otherwise, plus the head and classifier Gemms,"
+                " which the quantizer converts before it reads its exclusion list, and is"
+                f" compared with the fp32 graph on the same {r['probes']} held-out inputs (fp32"
+                f" kappa vs teacher {_f(probe['fp32_kappa'])}); answered inputs are those the fp32"
+                " or the int8 graph scores at or above the bundle's threshold:",
+                "",
+                "| int8 variant | Quantized nodes | Size | Mean abs logit diff"
+                " | Max abs logit diff | Argmax agreement | Agreement on answered inputs"
+                " | Kappa drop |",
+                "|---|---|---|---|---|---|---|---|",
+            ]
+            for v in probe["variants"]:
+                out.append(
+                    f"| {v['variant']} | {v['quantized_nodes']} | {_f(v['size_mb'], 0)} MB"
+                    f" | {_f(v['mean_abs_diff'])} | {_f(v['max_abs_diff'])}"
+                    f" | {_f(v['agreement'])} | {_answered({'answered': probe['answered'], **v})}"
+                    f" | {v['kappa_drop']:+.3f} |"
+                )
+        out.append("")
+    return "\n".join(out)
+
+
+_ENGINE_NAMES = {
+    "pytorch": "PyTorch (in process)",
+    "onnx-fp32": "ONNX Runtime fp32 (in process)",
+    "onnx-int8": "ONNX Runtime int8 (in process)",
+    "http-fp32": "`anvil serve` fp32 (HTTP)",
+    "http-int8": "`anvil serve` int8 (HTTP)",
+}
+
+
+def _ms(stats: Mapping[str, Any] | None) -> str:
+    if not stats:
+        return "n/a"
+    return f"{stats['p50_ms']:.1f} / {stats['p95_ms']:.1f}"
+
+
+def _cpu(per_batch: object) -> str:
+    if not isinstance(per_batch, Mapping):
+        return _f(per_batch, 1)
+    return f"{_f(per_batch.get('batch1'), 1)} / {_f(per_batch.get('batch32'), 1)}"
+
+
+def render_bench(runs: list[tuple[str, Report, Report]]) -> str:
+    """Latency and throughput per engine, the student's cost per 1,000 inputs, the teacher's."""
+    if not runs:
+        return "No bench run yet: `make bench`.\n"
+    out: list[str] = []
+    for name, r, meta in runs:
+        cost = r["cost"]
+        price = cost["vcpu_hour_usd"]
+        out += [
+            f"#### {r['dataset']}: student `{_student_name(r['student_model'])}`,"
+            f" {r['threads']} threads",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; {meta.get('cpu', '?')},"
+            f" {meta.get('cpus', '?')} CPUs; inputs: the {r['inputs']} held-out texts (mean"
+            f" {_f(r['mean_words'], 1)} words), cycled; wall {_f(meta.get('wall_seconds'), 0)} s",
+            "",
+            "| Engine | Batch 1: p50 / p95 ms | Batch 1: inputs/s | Batch 32: p50 / p95 ms"
+            " | Batch 32: inputs/s | CPU seconds per 1k inputs (batch 1 / 32)"
+            f" | $ per 1k at ${price}/vCPU-hour, cheaper batch |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for engine, e in r["engines"].items():
+            c = cost.get(engine, {})
+            out.append(
+                f"| {_ENGINE_NAMES.get(engine, engine)} | {_ms(e.get('batch1'))}"
+                f" | {_f(e['batch1']['inputs_per_s'], 0)} | {_ms(e.get('batch32'))}"
+                f" | {_f(e['batch32']['inputs_per_s'], 0)} | {_cpu(c.get('core_seconds_per_1k'))}"
+                f" | {_f(c.get('usd_per_1k'), 5)} |"
+            )
+        concurrent = [
+            (engine, e["concurrent4_batch1"])
+            for engine, e in r["engines"].items()
+            if "concurrent4_batch1" in e
+        ]
+        if concurrent:
+            out += ["", "Four concurrent HTTP clients at batch 1:", ""]
+            out += [
+                f"- {_ENGINE_NAMES.get(engine, engine)}: {_f(c['inputs_per_s'], 0)} inputs/s,"
+                f" p50 / p95 {_ms(c)} ms"
+                for engine, c in concurrent
+            ]
+        t = r["teacher"]
+        recorded = t.get("recorded_cost")
+        live = t.get("live")
+        out += [
+            "",
+            f"The CPU price is an assumption (`--vcpu-hour-usd`), not a measurement; the CPU"
+            f" seconds are measured. Teacher `{t['model']}`: "
+            + (
+                f"${recorded['usd_per_1k']:.3f} per 1k inputs from {recorded['labels']} recorded"
+                " labels"
+                if recorded
+                else "no recorded Claude labels for this dataset yet, so its cost per 1k is under"
+                " To measure"
+            )
+            + (
+                f"; live latency p50 / p95 {_ms(live)} ms over {live['calls']} calls."
+                if live
+                else "; its latency needs `--teacher-live N` with a key (To measure)."
+            ),
+        ]
+        cal = r.get("calibration") or {}
+        if isinstance(cal.get("coverage"), int | float):
+            out.append(
+                f"At the bundle's threshold ({_f(cal.get('threshold'), 4)}, target kappa"
+                f" {cal.get('target_kappa')}, rule `{cal.get('rule')}`) the student answers"
+                f" {_pct(cal['coverage'])} of held-out inputs, so the cascade calls the teacher"
+                f" for {_pct(1 - cal['coverage'])} of traffic."
+            )
+        out.append("")
+    return "\n".join(out)
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
     return {
         "classify": render_classify(load_runs(results_dir)),
@@ -602,6 +866,9 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "select": render_select(load_select(results_dir)),
         "frontier": render_frontier(load_frontiers(results_dir)),
         "extract": render_extract(load_runs(results_dir, prefix="extract-")),
+        "calibration": render_calibration(load_runs(results_dir, prefix="calibration-")),
+        "export": render_export(load_runs(results_dir, prefix="export-")),
+        "bench": render_bench(load_runs(results_dir, prefix="bench-")),
     }
 
 

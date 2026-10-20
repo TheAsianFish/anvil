@@ -34,6 +34,15 @@ def test_env_parsing() -> None:
     assert Settings.from_env({"ANVIL_TEACHER_WORKERS": ""}).teacher_workers == 4
 
 
+def test_serve_threads() -> None:
+    assert Settings.from_env({}).serve_threads is None
+    assert Settings.from_env({"ANVIL_SERVE_THREADS": ""}).serve_threads is None
+    assert Settings.from_env({"ANVIL_SERVE_THREADS": "2"}).serve_threads == 2
+    for bad in ("two", "0"):
+        with pytest.raises(ConfigError, match="ANVIL_SERVE_THREADS"):
+            Settings.from_env({"ANVIL_SERVE_THREADS": bad})
+
+
 @pytest.mark.parametrize("value", ["four", "0"])
 def test_bad_worker_count(value: str) -> None:
     with pytest.raises(ConfigError, match="ANVIL_TEACHER_WORKERS"):

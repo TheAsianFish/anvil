@@ -28,3 +28,8 @@ class StudentError(AnvilError):
 class AlignmentError(ConfigError):
     """Too many teacher spans could not be matched to the input or the student's tokens: the
     prompt or the labels need fixing before a student can be trained on them."""
+
+
+class ExportError(AnvilError):
+    """A student could not be exported to ONNX, failed its parity gate, or an exported bundle
+    is missing or incomplete."""
