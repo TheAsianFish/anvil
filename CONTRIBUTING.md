@@ -26,7 +26,7 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make test-live` | tests that call Claude; skipped without `ANTHROPIC_API_KEY` |
 | `make record` | re-record the Claude fixtures under `tests/recordings/` (a few cents with Haiku) |
 | `make demo` | the offline vertical slice on the toy task (under two minutes) |
-| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md. `eval-classify` and `eval-extract` take `TEACHER=auto\|claude\|replay\|gold` (`auto` replays committed labels, else calls Claude when a key is set) |
+| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md. All three take `TEACHER=auto\|claude\|replay\|gold` (`auto` replays committed labels, else calls Claude when a key is set). `eval-generate` fine-tunes Qwen2.5-0.5B with LoRA on CPU (about 2 h) or on a Colab GPU (`notebooks/anvil_gpu.ipynb`) |
 | `make results` | re-render the RESULTS.md tables from `eval/results/` (a test fails when they are stale) |
 | `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies |
 | `make bench` | latency, throughput and cost table (M5) |
@@ -41,7 +41,8 @@ never edited by hand for numbers: generated tables sit between
 the renderer, names its source file. Eval dependencies (`datasets`) are in the
 `eval` dependency group, which `make eval-*` installs on demand; CI does not.
 `make eval-extract` reads its dataset's raw files with `huggingface_hub` and
-needs no extra group.
+needs no extra group; `make eval-generate` reads WikiSQL's parquet with pyarrow (the `eval`
+group). Judge verdicts a live run pays for are committed under `eval/labels/` too.
 Labels a live eval pays for are committed under `eval/labels/` so every later
 run replays them offline and for free.
 
@@ -58,20 +59,24 @@ default: ONNX Runtime's own choice).
 ```
 anvil/            package: spec, teacher/, store, students/, train/, evaluate/,
                   spans + align + extraction (M4), select + loop (M3), calibrate +
-                  export + runtime + serve (M5), pipeline, cli (M7 adds hub)
+                  export + runtime + serve (M5), outputs + chat + generation + merge,
+                  students/generator.py, train/generator.py, evaluate/sql.py,
+                  generation.py, judge.py (M6), pipeline, cli (M7 adds hub)
 examples/toy/     the toy ticket-triage task used by the demo and the tests
 examples/toy-extract/  the toy restaurant-slot extraction task (demo and tests)
+examples/toy-generate/ the toy text-to-SQL generation task (demo and tests)
 scripts/          demo.sh
 tests/            unit + integration; tests/recordings/ holds real Claude
                   responses replayed offline (empty until `make record`)
-eval/             classify.py and extract.py (the parity harnesses), calibration.py,
+eval/             classify.py, extract.py and generate.py (the parity harnesses; wikisql.py
+                  loads WikiSQL), calibration.py,
                   export.py and bench.py (M5, on the student student.py finds), data.py
                   (pinned dataset loaders), render.py (RESULTS.md tables),
-                  classify/*.yaml and extract/*.yaml (dataset, sample, ceiling
+                  classify/*.yaml, extract/*.yaml and generate/*.yaml (dataset, sample, ceiling
                   prompt, task spec), labels/ (recorded teacher labels),
                   results/, spikes/
 docs/             notes/ (spikes); M7 adds screenshots
-notebooks/        the Colab GPU run (M6)
+notebooks/        anvil_gpu.ipynb, the Colab GPU run (M6)
 ```
 
 ## Conventions

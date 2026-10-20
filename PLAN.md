@@ -407,6 +407,36 @@ Batches halve the cost of large pools and are used when a batch exceeds
   priced at a stated vCPU-hour rate (an input, not a measurement). With no key, the teacher
   is the gold labels throughout, so teacher latency and cost per 1,000 inputs are under "To
   measure".
+- **M6 (2026-10-20).** A `generate` task lists its answer fields under `outputs` (strings);
+  the teacher returns them through structured outputs and the store keeps them as one
+  canonical JSON object, so classify and extract prompt hashes are unchanged. A one-field
+  answer is trained as its bare value, not JSON: wrapping SQL would make the student escape
+  every double-quoted column name. The student is trained on its own chat template around
+  a system message (the task's instructions, not the teacher's JSON-format prompt) and the
+  input; prompt tokens are masked, and `anvil/chat.py` checks rather than assumes that the
+  generation prompt is a token prefix of the training sequence, that the answer ends with the
+  end-of-turn token (what the template adds after it is not trained), and that the answer's
+  tokens decode back to the teacher's text. An example longer than `max_length` is dropped,
+  never cut, under the same 5% gate as span alignment. The training loop gained
+  `trainable_only` checkpoints (the adapter, not 2 GB of frozen base per copy). Early
+  stopping uses greedy exact match on the validation slice with the validation loss as a
+  bounded tie-break: exact match stays 0 for several epochs at first, and a stop on that tie
+  kept the first epoch. Decoding is greedy with every setting written out, because Qwen's
+  shipped generation config samples and sets a repetition penalty of 1.1, which penalises
+  exactly the column names SQL has to repeat. "Merged export" is the adapter folded into the
+  base weights as a plain transformers checkpoint, gated on identical completions and logits
+  within 1e-3 against the adapter model; ONNX for a decoder needs a KV-cache graph and a
+  decoding loop, which is left out. WikiSQL is read from the Hub's parquet conversion at a
+  pinned commit (its loader is a script), each gold query rendered as SQLite over a table
+  named `t`; execution match runs both queries in an in-memory, authorizer-restricted,
+  step-limited SQLite copy of the question's table with case-insensitive text columns (as
+  WikiSQL's own evaluator). Because a small table lets different queries return the same rows,
+  the report also gives strict normalised-SQL match, execution match on questions whose
+  reference returns a row, and the judge sample, which compares a Claude judge's verdicts
+  with execution match item by item (it needs a key: "To measure"). The baseline is the base
+  model zero-shot on the same prompt. With no key the teacher is WikiSQL's own queries
+  (`TEACHER=gold`). `anvil loop` and `anvil calibrate` stay classify-only, and serving the
+  generator is not in this milestone.
 
 ## Milestones
 
