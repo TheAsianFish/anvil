@@ -7,8 +7,10 @@ module runs in the torch-free serving image, so it must never import torch or tr
 Escalation: an input whose top student probability is below the threshold is sent to the
 teacher; every such input of a request goes in one `Teacher.label` call. Whatever goes wrong
 with the teacher (a failure for one input, an exception, a label outside the model's label
-set), the request still succeeds: those inputs get the student's answer and an `error`.
-Input texts are never logged.
+set), the request still succeeds: those inputs get the student's answer and an `error`. A
+calibration that found no threshold means every input goes to the teacher, so such a bundle
+cannot be served without one (an explicit `threshold` overrides it). Input texts are never
+logged, and a teacher exception reaches the caller as its type name only.
 """
 
 # No `from __future__ import annotations`: FastAPI resolves endpoint annotations at runtime,
@@ -18,14 +20,15 @@ import re
 import threading
 import time
 import uuid
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, Literal, Protocol
 
 import numpy as np
 import numpy.typing as npt
-from fastapi import FastAPI, Header, Response
+from fastapi import FastAPI, Header, Request, Response
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, ValidationError
 
 from anvil.calibrate import THRESHOLD_TOLERANCE
@@ -70,7 +73,9 @@ class Prediction(BaseModel):
     source: Literal["student", "teacher"]
     student_label: str
     below_threshold: bool
-    """Confidence is under the threshold; always false when there is no threshold."""
+    """Confidence is under the threshold, or the calibration found no threshold (then every
+    input counts as below it); false everywhere when the bundle has no threshold and asked for
+    no target."""
     escalated: bool
     """The input was sent to the teacher (it may still have fallen back to the student)."""
     error: str | None
@@ -183,7 +188,9 @@ def _escalate(
         batch, error = exc.batch, f"teacher batch aborted: {type(exc.cause).__name__}"
         log.warning("teacher batch aborted", extra={"request_id": request_id, "error": error})
     except Exception as exc:  # any teacher failure degrades to the student, never a 500
-        batch, error = LabelBatch(), f"teacher error: {type(exc).__name__}: {exc}"
+        # Only the exception type leaves this function: its message may quote an API error
+        # body or the input text, which belong neither in a response nor in the log.
+        batch, error = LabelBatch(), f"teacher error: {type(exc).__name__}"
         log.warning(
             "teacher call failed",
             extra={"request_id": request_id, "error_type": type(exc).__name__},
@@ -222,8 +229,14 @@ def create_app(
     threshold: float | None = None,
     max_batch: int = 256,
     max_chars: int = 20_000,
+    max_body_bytes: int | None = None,
 ) -> FastAPI:
-    """The serving app. `threshold` overrides the bundle's calibrated `model.threshold`."""
+    """The serving app. `threshold` overrides the bundle's calibrated `model.threshold`.
+
+    `max_body_bytes` (default: room for `max_batch` texts of `max_chars` four-byte characters)
+    is checked against Content-Length before the body is read, since the validation limits
+    only apply once the whole body is in memory.
+    """
     thr = threshold if threshold is not None else model.threshold
     # A calibration that asked for a target kappa and found no threshold reaching it means the
     # student cannot be trusted at any coverage: every input goes to the teacher.
@@ -237,6 +250,16 @@ def create_app(
         raise ConfigError(f"threshold {thr} must be between 0 and 1")
     if max_batch < 1 or max_chars < 1:
         raise ConfigError("max_batch and max_chars must be at least 1")
+    max_body = max_body_bytes if max_body_bytes is not None else 4 * max_batch * max_chars + 4096
+    if max_body < 1:
+        raise ConfigError("max_body_bytes must be at least 1")
+    if unreachable and teacher is None:
+        raise ConfigError(
+            "the bundle's calibration found no threshold that keeps its target kappa, so every"
+            " input must go to the teacher, and no teacher is configured: pass --teacher claude"
+            " (with credentials) or --teacher fake, or an explicit --threshold to answer with"
+            " the student anyway"
+        )
     labels = list(model.labels)
     known = set(labels)
     metrics = Metrics()
@@ -246,6 +269,17 @@ def create_app(
         log.warning("the calibration found no threshold that keeps its target: escalating all")
     elif thr is None:
         log.warning("no threshold: every input is answered by the student, none escalated")
+    if model.variant == "int8" and (
+        teacher is None
+        or (model.threshold is not None and thr is not None and thr < model.threshold)
+    ):
+        # The int8 parity gate scored argmax agreement on the inputs the cascade answers at the
+        # bundle's threshold; below it, or with no teacher, int8 also answers inputs the gate
+        # only covered through the kappa-drop limit.
+        log.warning(
+            "the int8 variant answers inputs its parity gate scored only by kappa drop",
+            extra={"bundle_threshold": model.threshold, "threshold": thr, "teacher": teacher_id},
+        )
 
     class PredictRequest(BaseModel):
         texts: Annotated[
@@ -255,6 +289,21 @@ def create_app(
 
     app = FastAPI(title="anvil", summary="A distilled student with teacher escalation.")
     app.state.metrics = metrics
+
+    @app.middleware("http")
+    async def limit_body(
+        request: Request, call_next: Callable[[Request], Awaitable[Response]]
+    ) -> Response:
+        if request.method == "POST":
+            length = request.headers.get("content-length")
+            if length is None:
+                return JSONResponse({"detail": "Content-Length is required"}, status_code=411)
+            if not length.isdigit() or int(length) > max_body:
+                return JSONResponse(
+                    {"detail": f"request body must be at most {max_body} bytes"},
+                    status_code=413,
+                )
+        return await call_next(request)
 
     # Plain `def` endpoints: FastAPI runs them in its threadpool, since ORT and the teacher
     # block.

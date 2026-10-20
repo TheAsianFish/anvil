@@ -190,6 +190,29 @@ def test_unreachable_calibration_target_escalates_everything(fake: RecordingTeac
     assert explicit.get("/healthz").json()["escalate_all"] is False
 
 
+def test_unreachable_calibration_target_without_a_teacher_refuses_to_serve() -> None:
+    # Escalating everything needs someone to escalate to; without a teacher the server would
+    # answer every input with a student the calibration said cannot be trusted at any coverage.
+    model = StubModel(threshold=None, meta={"calibration": {"target_kappa": 0.95}})
+    with pytest.raises(ConfigError, match="no teacher is configured"):
+        create_app(model, None)
+    # An explicit threshold is the operator's override.
+    client = TestClient(create_app(model, None, threshold=0.5))
+    assert client.get("/healthz").json()["escalate_all"] is False
+
+
+def test_load_app_auto_without_credentials_refuses_an_unreachable_bundle(
+    tmp_path: Path, small_spec: TaskSpec, settings: Settings
+) -> None:
+    def load(bundle: Path, variant: Variant, threads: int | None) -> ServedModel:
+        meta = {**_spec_meta(small_spec), "calibration": {"target_kappa": 0.9}}
+        return StubModel(threshold=None, meta=meta)
+
+    with pytest.raises(ConfigError, match="no teacher is configured"):
+        load_app(tmp_path, teacher="auto", settings=settings, loader=load)
+    assert TestClient(load_app(tmp_path, teacher="fake", settings=settings, loader=load))
+
+
 def test_the_input_that_set_the_threshold_is_answered_despite_float32_rounding(
     fake: RecordingTeacher,
 ) -> None:
@@ -249,6 +272,8 @@ def test_teacher_exception_falls_back_for_all(exc: Exception) -> None:
     assert errors[0] == errors[2]
     assert isinstance(errors[0], str)
     assert type(exc).__name__ in errors[0] or "aborted" in errors[0]
+    assert "api down" not in errors[0]
+    assert "boom" not in errors[0]
     m = _metrics(client)
     assert m["anvil_escalations_total"] == 2
     assert m["anvil_escalation_failures_total"] == 2
@@ -289,6 +314,27 @@ def test_teacher_label_outside_label_set_falls_back() -> None:
 def test_validation(texts: list[str]) -> None:
     client = TestClient(create_app(StubModel(), None, max_batch=3, max_chars=10))
     assert client.post("/predict", json={"texts": texts}).status_code == 422
+
+
+def test_body_over_the_byte_limit_is_rejected_before_validation() -> None:
+    calls: list[int] = []
+
+    class Counting(StubModel):
+        def predict_proba(self, texts: Sequence[str]) -> npt.NDArray[np.float32]:
+            calls.append(len(texts))
+            return super().predict_proba(texts)
+
+    client = TestClient(create_app(Counting(), None, max_body_bytes=64))
+    assert client.post("/predict", json={"texts": [SURE]}).status_code == 200
+    r = client.post("/predict", json={"texts": ["x" * 100]})
+    assert r.status_code == 413
+    assert "64 bytes" in r.json()["detail"]
+    r = client.post("/predict", content=b"{}", headers={"transfer-encoding": "chunked"})
+    assert r.status_code == 411
+    assert calls == [1]
+    # The default limit has room for max_batch texts of max_chars four-byte characters.
+    wide = TestClient(create_app(StubModel(), None, max_batch=2, max_chars=4))
+    assert wide.post("/predict", json={"texts": ["\U0001f600" * 4] * 2}).status_code == 200
 
 
 def test_bad_body_shape_is_422() -> None:
