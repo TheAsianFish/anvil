@@ -52,11 +52,44 @@ class TeacherSpec(_Strict):
     """Thinking tokens count toward this and Opus 5.5 always thinks; unused tokens are free."""
 
 
+DEFAULT_LORA_TARGETS = [
+    "q_proj",
+    "k_proj",
+    "v_proj",
+    "o_proj",
+    "gate_proj",
+    "up_proj",
+    "down_proj",
+]
+"""Every linear layer of a Qwen2 (or Llama-style) decoder block: adapting attention alone
+leaves the MLPs, which hold most of the weights, frozen."""
+
+
+class LoraSpec(_Strict):
+    """LoRA settings of a `generate` student: the adapter is `B @ A` of rank `r`, scaled by
+    `alpha / r`, on each named linear layer; the base weights stay frozen."""
+
+    r: int = Field(default=16, ge=1, le=256)
+    alpha: int = Field(default=32, ge=1)
+    dropout: float = Field(default=0.05, ge=0, lt=1)
+    target_modules: list[str] = Field(default_factory=lambda: list(DEFAULT_LORA_TARGETS))
+
+    @field_validator("target_modules")
+    @classmethod
+    def _some_targets(cls, v: list[str]) -> list[str]:
+        if not v:
+            raise ValueError("LoRA needs at least one target module")
+        return v
+
+
 class StudentSpec(_Strict):
     model: str = "tiny"
-    """`tiny` builds a small random-init ModernBERT for tests and the demo; anything else is a
-    Hugging Face model id (default for real runs: `answerdotai/ModernBERT-base`)."""
+    """`tiny` builds a small random-init model for tests and the demo (a ModernBERT for
+    classify and extract, a Qwen2 decoder for generate); anything else is a Hugging Face model
+    id (defaults for real runs: `answerdotai/ModernBERT-base`, `Qwen/Qwen2.5-0.5B-Instruct`)."""
     max_length: int = Field(default=64, ge=8, le=8192)
+    """Tokens per input for the encoders; for a generator, the whole training sequence (chat
+    prompt plus answer), and an example longer than this is left out of training, not cut."""
     epochs: int = Field(default=8, ge=1)
     min_steps: int = Field(default=0, ge=0)
     """Raise `epochs` until training runs at least this many optimizer steps: with 100 labels
@@ -79,11 +112,33 @@ class StudentSpec(_Strict):
     """Share of the training labels held back to pick the best epoch (0 disables)."""
     patience: int = Field(default=2, ge=1)
     """Epochs without a better validation kappa before training stops early."""
+    lora: LoraSpec = LoraSpec()
+    """Generate students only: the adapter trained on the frozen decoder."""
+    max_new_tokens: int = Field(default=128, ge=1, le=4096)
+    """Generate students only: the longest answer decoding may produce."""
 
 
 class SplitSpec(_Strict):
     heldout_fraction: float = Field(default=0.25, gt=0, lt=1)
     seed: int = 0
+
+
+class Rewrite(_Strict):
+    """A `generate` rule of the fake teacher: when `pattern` matches the input (a case
+    insensitive `re.search`), each output field is its template with the match's groups
+    expanded (`\\1`, `\\g<name>`)."""
+
+    pattern: str
+    output: dict[str, str]
+
+    @field_validator("pattern")
+    @classmethod
+    def _compiles(cls, v: str) -> str:
+        try:
+            re.compile(v)
+        except re.error as exc:
+            raise ValueError(f"pattern {v!r} is not a regular expression: {exc}") from None
+        return v
 
 
 class FakeTeacherSpec(_Strict):
@@ -92,9 +147,12 @@ class FakeTeacherSpec(_Strict):
     For `classify`, the first label with a keyword present wins (else `default`), and `noise`
     flips that share of labels. For `extract`, every keyword occurrence is a mention of its
     type, and `noise` shifts that share of mentions' offsets by one character, the error a
-    real teacher makes most, so alignment has something to repair."""
+    real teacher makes most, so alignment has something to repair. For `generate`, the first
+    of `rewrites` whose pattern matches writes the answer, and an input none matches fails
+    (as a refusal would)."""
 
     rules: dict[str, list[str]] = Field(default_factory=dict)
+    rewrites: list[Rewrite] = Field(default_factory=list)
     default: str | None = None
     noise: float = Field(default=0.0, ge=0, le=1)
     seed: int = 0
@@ -106,12 +164,14 @@ class TaskSpec(_Strict):
     instructions: str
     labels: list[LabelDef] = Field(default_factory=list)
     """Classes for `classify`; entity types for `extract`."""
+    outputs: list[LabelDef] = Field(default_factory=list)
+    """Fields of a `generate` answer (each a string), in the order the teacher writes them."""
     teacher: TeacherSpec = TeacherSpec()
     student: StudentSpec = StudentSpec()
     splits: SplitSpec = SplitSpec()
     fake: FakeTeacherSpec | None = None
 
-    @field_validator("labels", mode="before")
+    @field_validator("labels", "outputs", mode="before")
     @classmethod
     def _labels_from_strings(cls, v: object) -> object:
         if isinstance(v, list):
@@ -128,9 +188,9 @@ class TaskSpec(_Strict):
     @model_validator(mode="after")
     def _check_kind(self) -> TaskSpec:
         if self.kind == "generate":
-            raise ValueError(
-                "kind 'generate' is not implemented yet (it lands in M6); use classify or extract"
-            )
+            return self._check_generate()
+        if self.outputs:
+            raise ValueError(f"`outputs` is for generate tasks; a {self.kind} task uses `labels`")
         names = [label.name for label in self.labels]
         if self.kind == "classify" and len(names) < 2:
             raise ValueError("a classify task needs at least two labels")
@@ -147,7 +207,32 @@ class TaskSpec(_Strict):
             unknown = known - set(names)
             if unknown:
                 raise ValueError(f"fake rules name unknown labels: {sorted(unknown)}")
+            if self.fake.rewrites:
+                raise ValueError("fake.rewrites are for generate tasks; use fake.rules")
         return self
+
+    def _check_generate(self) -> TaskSpec:
+        if self.labels:
+            raise ValueError("a generate task lists its answer fields under `outputs`, not labels")
+        names = self.output_names
+        if not names:
+            raise ValueError("a generate task needs at least one field under `outputs`")
+        if len(set(names)) != len(names):
+            raise ValueError("output field names must be unique")
+        if self.fake is not None:
+            if self.fake.rules or self.fake.default is not None:
+                raise ValueError("a generate task's fake teacher uses fake.rewrites, not rules")
+            for rw in self.fake.rewrites:
+                if sorted(rw.output) != sorted(names):
+                    raise ValueError(
+                        f"fake rewrite {rw.pattern!r} writes fields {sorted(rw.output)}, the"
+                        f" task's outputs are {sorted(names)}"
+                    )
+        return self
+
+    @property
+    def output_names(self) -> list[str]:
+        return [field.name for field in self.outputs]
 
     @property
     def label_names(self) -> list[str]:
@@ -163,13 +248,15 @@ class TaskSpec(_Strict):
         not which label a completed answer has. `PROMPT_FORMAT_VERSION` is in, so a change to
         how the spec is rendered into the request also starts a new key.
         """
-        payload = {
+        payload: dict[str, object] = {
             "format": PROMPT_FORMAT_VERSION,
             "kind": self.kind,
             "instructions": self.instructions.strip(),
             "labels": [label.model_dump() for label in self.labels],
             "effort": self.teacher.effort,
         }
+        if self.kind == "generate":  # only here, so classify and extract keys stay as they were
+            payload["outputs"] = [field.model_dump() for field in self.outputs]
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(blob).hexdigest()[:16]
 
