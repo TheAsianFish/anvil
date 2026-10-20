@@ -364,7 +364,7 @@ Findings:
 #### ag_news: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-ag_news-gold/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration banking77 ag_news --teacher gold` at `9b899ad`; student run `20261019-135236-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 98 s; spent $0.00
+- Command: `python -m eval.calibration --teacher gold` at `b127db2`; student run `20261020-012041-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 122 s; spent $0.00
 - Fitted temperature over the splits: 1.22 [1.10, 1.34]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
@@ -395,7 +395,7 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 #### banking77: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-banking77-gold/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration banking77 ag_news --teacher gold` at `9b899ad`; student run `20261019-124923-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 54 s; spent $0.00
+- Command: `python -m eval.calibration --teacher gold` at `b127db2`; student run `20261020-001737-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 58 s; spent $0.00
 - Fitted temperature over the splits: 1.24 [1.15, 1.31]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |

@@ -5,9 +5,9 @@
     "teacher_kind": "gold",
     "teacher_model": "gold",
     "student_model": "answerdotai/ModernBERT-base",
-    "student_run": "20261019-124923-n2000",
+    "student_run": "20261020-001737-n2000",
     "trained_here": false,
-    "scoring_seconds": 34.1
+    "scoring_seconds": 36.8
   },
   "n": 496,
   "labels": 77,
