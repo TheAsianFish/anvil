@@ -13,8 +13,8 @@ from __future__ import annotations
 import json
 import logging
 import shutil
-import tempfile
 import time
+import uuid
 import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
@@ -308,7 +308,10 @@ def export_student(
         raise ExportError(f"calibration temperature must be > 0, got {temperature}; recalibrate")
 
     out.parent.mkdir(parents=True, exist_ok=True)
-    tmp = Path(tempfile.mkdtemp(prefix=f".{out.name}.export-", dir=out.parent))
+    # A plain mkdir, not tempfile.mkdtemp: mkdtemp makes the directory private (0700), and the
+    # bundle is an artifact other users and containers read (`docker run -v bundle:/model`).
+    tmp = out.parent / f".{out.name}.export-{uuid.uuid4().hex[:12]}"
+    tmp.mkdir()
     try:
         meta: dict[str, object] = {
             "format": BUNDLE_FORMAT,

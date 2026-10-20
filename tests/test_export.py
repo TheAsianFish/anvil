@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import stat
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -120,6 +122,32 @@ def test_fp32_bundle_layout_and_meta(bundle: Exported) -> None:
     assert meta["variants"]["fp32"]["parity"]["max_abs_diff"] == bundle.report.fp32.max_abs_diff
     # No temporary export directory is left next to the bundle.
     assert {p.name for p in bundle.bundle.parent.iterdir()} == {"student", "bundle"}
+
+
+def test_bundle_directory_is_readable_by_other_users(bundle: Exported) -> None:
+    # The bundle is mounted into the serving container, which runs as another uid; a private
+    # (0700) directory, which tempfile.mkdtemp would make, fails there with "not readable".
+    umask = os.umask(0)
+    os.umask(umask)
+    assert stat.S_IMODE(bundle.bundle.stat().st_mode) == 0o777 & ~umask
+    assert stat.S_IMODE(bundle.bundle.stat().st_mode) & 0o044 == 0o044 & ~umask
+
+
+def test_reexport_replaces_an_existing_bundle_and_leaves_no_old_copy(
+    tmp_path: Path, bundle: Exported
+) -> None:
+    out = tmp_path / "bundle"
+    export_student(bundle.student_dir, out, PROBES[:3], calibration={"threshold": 0.3})
+    (out / "stale.txt").write_text("from the first export", encoding="utf-8")
+    stale_old = out.with_name(".bundle.old")
+    stale_old.mkdir()  # left behind by an interrupted earlier swap
+    report = export_student(bundle.student_dir, out, PROBES[:4], calibration={"threshold": 0.5})
+    assert report.bundle == out
+    meta = json.loads((out / BUNDLE_META).read_text(encoding="utf-8"))
+    assert meta["threshold"] == 0.5
+    assert meta["variants"]["fp32"]["parity"]["n"] == 4
+    assert not (out / "stale.txt").exists()
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["bundle"]
 
 
 def test_fp32_parity_on_padded_batch_and_single_inputs(bundle: Exported) -> None:
