@@ -20,8 +20,12 @@ so the connection is locked down before any of it runs:
 - a progress handler aborts a query after about `max_steps` VM instructions, so a
   `WITH RECURSIVE` loop or a cross join of the table with itself many times over cannot
   hang an eval, and a result longer than `max_rows` rows is refused;
-- the longest string or blob a query may build is capped (`zeroblob(1e9)` would otherwise
-  allocate a gigabyte).
+- the longest string or blob a query may build is capped at a few kilobytes (`zeroblob(1e9)`
+  would otherwise allocate a gigabyte, and the built-ins that are quadratic in their
+  arguments, `ltrim(X, Y)` or `instr`, run inside one VM instruction where the step limit
+  cannot interrupt them: at 10 KB the worst case is milliseconds), and the bytes a result
+  may hold in total are capped too, since the row cap alone would still let ten thousand
+  rows of large blobs exhaust memory.
 
 Bad SQL never raises: `execute` returns an `Execution` that carries the error instead, and
 a candidate (or a reference) that errors never matches.
@@ -47,14 +51,19 @@ _TYPES = ("text", "real")
 _ALLOWED_ACTIONS = frozenset(
     {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
 )
-_DENIED_FUNCTIONS = frozenset({"load_extension"})
+# `fts3_tokenizer` takes and returns raw pointers (its two-argument form registers one), so it
+# is refused even though the virtual tables that would use it are already denied.
+_DENIED_FUNCTIONS = frozenset({"load_extension", "fts3_tokenizer"})
 
 # How often (in VM instructions) the progress handler runs. Small enough that the step
 # limit overshoots by at most this much, large enough that the callback costs nothing.
 _PROGRESS_EVERY = 1000
-# Longest string or blob a query may build, in bytes. WikiSQL cells are short; this only
-# stops a query from allocating memory without bound.
-_MAX_LENGTH = 1_000_000
+# Longest string or blob a query may build, in bytes. WikiSQL cells are short (the longest is
+# well under a kilobyte); this stops a query from allocating memory without bound and keeps
+# the quadratic built-ins fast.
+_MAX_LENGTH = 10_000
+# Most bytes a result may hold across all its rows, in str and bytes values.
+_MAX_RESULT_BYTES = 1_000_000
 
 _ORDER_BY = re.compile(r"\border\s+by\b", re.IGNORECASE)
 _WHITESPACE = re.compile(r"\s+")
@@ -157,9 +166,11 @@ def execute(
 
     The category is "invalid_sql" (not a string, or empty), "step_limit" (aborted after
     about `max_steps` VM instructions), "too_many_rows" (more than `max_rows` rows),
-    "no_result" (the statement returns no result set, e.g. only a comment), or the sqlite3
-    exception's class name ("OperationalError" for syntax errors, unknown columns and denied
-    actions; "ProgrammingError" for more than one statement). Never raises for bad SQL.
+    "too_many_bytes" (the rows hold more than `_MAX_RESULT_BYTES` of text and blobs),
+    "no_result" (the statement returns no result set, e.g. only a comment), "memory" (the
+    interpreter ran out of memory building the rows), or the sqlite3 exception's class name
+    ("OperationalError" for syntax errors, unknown columns and denied actions;
+    "ProgrammingError" for more than one statement). Never raises for bad SQL.
     """
     if not isinstance(sql, str) or not sql.strip():
         return Execution(None, "invalid_sql: the SQL is empty or not a string")
@@ -175,21 +186,33 @@ def execute(
         return 0
 
     conn.set_progress_handler(progress, _PROGRESS_EVERY)
+    rows: list[tuple[object, ...]] = []
+    size = 0
     try:
         cursor = conn.execute(sql)
         if cursor.description is None:
             return Execution(None, "no_result: the statement returns no result set")
-        # The VM keeps stepping while rows are fetched, so the handler must stay installed.
-        rows = cursor.fetchmany(max_rows + 1)
+        # The VM keeps stepping while rows are fetched, so the handler must stay installed;
+        # rows are fetched one at a time so the byte budget stops a query before it has
+        # built a result too large to hold.
+        for row in cursor:
+            rows.append(tuple(row))
+            if len(rows) > max_rows:
+                return Execution(None, f"too_many_rows: more than {max_rows} rows")
+            size += sum(len(v) for v in row if isinstance(v, str | bytes))
+            if size > _MAX_RESULT_BYTES:
+                return Execution(
+                    None, f"too_many_bytes: the rows hold more than {_MAX_RESULT_BYTES} bytes"
+                )
     except (sqlite3.Error, sqlite3.Warning) as exc:
         if aborted:
             return Execution(None, f"step_limit: aborted after about {max_steps} VM steps")
         return Execution(None, f"{type(exc).__name__}: {exc}")
+    except MemoryError:
+        return Execution(None, "memory: the result could not be held in memory")
     finally:
         conn.set_progress_handler(None, 0)
-    if len(rows) > max_rows:
-        return Execution(None, f"too_many_rows: more than {max_rows} rows")
-    return Execution(tuple(tuple(row) for row in rows), None)
+    return Execution(tuple(rows), None)
 
 
 def _normalise_value(value: object) -> object:
@@ -213,14 +236,28 @@ class ExecMatch:
     match: bool
     reference: Execution
     candidate: Execution
+    reference_on_empty: Execution | None = None
+    """The reference run on the same table with no rows (None when it was not run)."""
 
     @property
     def reference_empty(self) -> bool:
-        """The reference ran and found nothing: no rows, or rows of NULLs only (an aggregate
-        over no matching rows returns one row holding NULL). A match here is weak evidence:
-        any query that finds nothing, `MIN` for `MAX` over the same empty set, matches it."""
+        """The reference ran and found nothing: its result does not depend on the table's
+        rows, which shows as the same result on a copy of the table with no rows at all. That
+        covers no rows, an aggregate over no matching rows (one row holding NULL, or 0 from
+        `COUNT`) and a constant. A match here is weak evidence: any query that finds nothing,
+        `MIN` for `MAX` over the same empty set or any `COUNT` with a wrong filter, matches
+        it, and doubling the table's rows cannot tell them apart either."""
         rows = self.reference.rows
-        return rows is not None and all(all(v is None for v in row) for row in rows)
+        if rows is None:
+            return False
+        if all(all(v is None for v in row) for row in rows):
+            return True
+        empty = self.reference_on_empty
+        return (
+            empty is not None
+            and empty.rows is not None
+            and _same_result(rows, empty.rows, ordered=False)
+        )
 
 
 def _same_result(
@@ -240,19 +277,33 @@ def execution_match(table: Table, reference_sql: str, candidate_sql: str) -> Exe
     Results are compared as multisets of rows (row order from SQLite is unspecified without
     an ORDER BY), or as ordered lists when the reference has an ORDER BY outside its string
     literals. Each query gets its own fresh connection, so nothing one does can affect the
-    other. A query that errors never matches, on either side.
+    other. A query that errors never matches, on either side. The reference also runs on a
+    copy of the table with no rows, which is what `ExecMatch.reference_empty` compares with.
     """
-    with closing(connect(table)) as conn:
-        reference = execute(conn, reference_sql)
-    with closing(connect(table)) as conn:
-        candidate = execute(conn, candidate_sql)
+    try:
+        with closing(connect(table)) as conn:
+            reference = execute(conn, reference_sql)
+        with closing(connect(table)) as conn:
+            candidate = execute(conn, candidate_sql)
+    except (sqlite3.Error, sqlite3.Warning) as exc:
+        # The table itself cannot be held (a NUL byte in a column name, thousands of
+        # columns): neither side ran, and neither matches.
+        failed = Execution(None, f"table: {type(exc).__name__}: {exc}")
+        return ExecMatch(match=False, reference=failed, candidate=failed)
+    on_empty: Execution | None = None
+    if reference.rows is not None:  # a property of the reference alone, whatever the candidate did
+        with closing(connect(Table(table.header, table.types, []))) as conn:
+            on_empty = execute(conn, reference_sql)
     if reference.rows is None or candidate.rows is None:
-        return ExecMatch(match=False, reference=reference, candidate=candidate)
+        return ExecMatch(
+            match=False, reference=reference, candidate=candidate, reference_on_empty=on_empty
+        )
     ordered = bool(_ORDER_BY.search(_without_literals(reference_sql)))
     return ExecMatch(
         match=_same_result(reference.rows, candidate.rows, ordered),
         reference=reference,
         candidate=candidate,
+        reference_on_empty=on_empty,
     )
 
 
@@ -266,7 +317,10 @@ def extract_sql(text: str) -> str:
     sql = text.strip()
     fence = _FENCE.search(sql)
     if fence is not None:
-        sql = fence.group(1).strip()
+        inner = fence.group(1).strip()
+        # A fence with nothing inside is a stray closing fence after the query ("SELECT 1
+        # ```"); the query is the text around it.
+        sql = inner if inner else sql.replace("```", "").strip()
     if sql.endswith(";"):
         sql = sql[:-1].rstrip()
     return sql
@@ -303,17 +357,21 @@ def _without_literals(sql: str) -> str:
     return " ".join(text for text, literal in _segments(sql) if not literal)
 
 
-def normalise_sql(sql: str) -> str:
+def normalise_sql(sql: str, casefold_literals: bool = False) -> str:
     """`sql` in a canonical spelling for strict exact match: outside single-quoted string
     literals, runs of whitespace become one space and letters are lower-cased; literal
-    contents are kept exactly. Leading and trailing whitespace and trailing semicolons are
-    removed.
+    contents are kept exactly unless `casefold_literals` lower-cases them too (the spelling
+    that matches how the sandbox compares text, case-insensitively). Leading and trailing
+    whitespace and trailing semicolons are removed.
 
     All trailing semicolons go, not just one, so that the function is idempotent ("x;;"
     would otherwise become "x;" and then "x").
     """
     pieces = [
-        text if literal else _WHITESPACE.sub(" ", text).lower() for text, literal in _segments(sql)
+        (text.lower() if casefold_literals else text)
+        if literal
+        else _WHITESPACE.sub(" ", text).lower()
+        for text, literal in _segments(sql)
     ]
     out = "".join(pieces).strip()
     while out.endswith(";"):

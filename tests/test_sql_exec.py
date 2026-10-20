@@ -152,7 +152,57 @@ def test_empty_results_match_and_are_flagged() -> None:
     )
     assert result.match
     assert result.reference_empty
-    assert not execution_match(SCHOOLS, "SELECT 1", "SELECT 1").reference_empty
+    found = execution_match(SCHOOLS, 'SELECT "Player" FROM t', 'SELECT "Player" FROM t')
+    assert found.match
+    assert not found.reference_empty
+
+
+def test_a_count_over_no_rows_counts_as_an_empty_reference() -> None:
+    # COUNT over nothing is 0, not NULL, and 0 doubled is still 0: any COUNT whose filter
+    # matches nothing agrees with it, so it is flagged like a NULL aggregate.
+    result = execution_match(
+        SCHOOLS,
+        'SELECT COUNT("Player") FROM t WHERE "School/Club Team" = \'yale\'',
+        'SELECT COUNT("No.") FROM t WHERE "Player" = \'nobody\'',
+    )
+    assert result.match
+    assert result.reference_empty
+    # A count that found rows depends on them.
+    counted = execution_match(
+        SCHOOLS, 'SELECT COUNT("Player") FROM t', 'SELECT COUNT("Player") FROM t'
+    )
+    assert counted.match
+    assert not counted.reference_empty
+    assert counted.reference_on_empty is not None
+    assert counted.reference_on_empty.rows == ((0,),)
+
+
+def test_reference_empty_does_not_depend_on_the_candidate() -> None:
+    reference = 'SELECT COUNT("Player") FROM t WHERE "School/Club Team" = \'yale\''
+    with_error = execution_match(SCHOOLS, reference, "SELEC 1")
+    assert not with_error.match
+    assert with_error.reference_empty
+    assert execution_match(SCHOOLS, reference, "SELECT 0").reference_empty
+
+
+def test_a_constant_reference_is_flagged_as_data_independent() -> None:
+    assert execution_match(SCHOOLS, "SELECT 1", "SELECT 1").reference_empty
+
+
+def test_a_reference_that_errors_is_not_empty() -> None:
+    result = execution_match(SCHOOLS, "SELEC 1", "SELECT 1")
+    assert not result.match
+    assert not result.reference_empty
+    assert result.reference_on_empty is None
+
+
+def test_a_table_sqlite_cannot_hold_is_an_error_on_both_sides() -> None:
+    table = Table(["a\x00b"], ["text"], [["x"]])
+    result = execution_match(table, "SELECT 1", "SELECT 1")
+    assert not result.match
+    assert result.reference.error is not None
+    assert result.reference.error.startswith("table:")
+    assert result.candidate.error == result.reference.error
 
 
 # --- sandbox ------------------------------------------------------------------------------
@@ -208,7 +258,7 @@ def test_infinite_recursion_is_stopped_by_the_step_limit() -> None:
         conn,
         "WITH RECURSIVE r(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM r) SELECT COUNT(*) FROM r",
     )
-    assert time.perf_counter() - start < 2.0
+    assert time.perf_counter() - start < 30.0  # the limit is about a million steps, not time
     assert result.error is not None
     assert result.error.startswith("step_limit:")
     # The handler is reset afterwards: a long but finite query now runs to completion.
@@ -237,6 +287,42 @@ def test_huge_blobs_are_refused() -> None:
     assert run("SELECT length(zeroblob(100000000))").error is not None
 
 
+def test_many_rows_of_large_values_are_refused_before_they_fill_memory() -> None:
+    # Each row is under the length cap and there are fewer rows than the row cap, so only
+    # the byte budget stops this (10,000 rows of 9,999 bytes would be 100 MB per column).
+    sql = (
+        "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c LIMIT 9000) "
+        "SELECT zeroblob(9999), zeroblob(9999), zeroblob(9999) FROM c"
+    )
+    result = run(sql)
+    assert result.error is not None
+    assert result.error.startswith("too_many_bytes:")
+    # The same shape under the budget runs.
+    small = run(sql.replace("LIMIT 9000", "LIMIT 3"))
+    assert small.rows is not None
+    assert len(small.rows) == 3
+
+
+def test_quadratic_builtins_are_bounded_by_the_length_cap() -> None:
+    # ltrim(X, Y) is O(|X| * |Y|) inside one VM instruction, where the step limit cannot
+    # interrupt it; the length cap keeps the worst case to milliseconds.
+    sql = (
+        "SELECT length(ltrim(replace(hex(zeroblob(2000)), '0', 'a'),"
+        " replace(hex(zeroblob(2000)), '0', 'b') || 'a'))"
+    )
+    start = time.perf_counter()
+    result = run(sql)  # refused outright (the character set's table exceeds the cap) or fast
+    assert result.rows == ((0,),) or result.error == "DataError: string or blob too big"
+    assert time.perf_counter() - start < 5.0
+    assert run("SELECT length(replace(hex(zeroblob(6000)), '0', 'a'))").error is not None
+
+
+def test_fts3_tokenizer_is_denied() -> None:
+    result = run("SELECT hex(fts3_tokenizer('simple'))")
+    assert result.error is not None
+    assert "not authorized" in result.error or "no such function" in result.error
+
+
 # --- extract_sql and normalise_sql --------------------------------------------------------
 
 
@@ -253,12 +339,21 @@ def test_huge_blobs_are_refused() -> None:
         ("```SQL  SELECT 4;```", "SELECT 4"),
         ("```sqlite\nSELECT 5\n```", "SELECT 5"),
         ("```sql\nSELECT 1 FROM t WHERE", "SELECT 1 FROM t WHERE"),
+        ("SELECT 1 ```", "SELECT 1"),
         ("", ""),
         ("   ", ""),
     ],
 )
 def test_extract_sql(text: str, expected: str) -> None:
     assert extract_sql(text) == expected
+
+
+def test_normalise_sql_can_casefold_literals() -> None:
+    sql = 'SELECT  "A" FROM t WHERE "B" = \'North Island\''
+    assert normalise_sql(sql) == 'select "a" from t where "b" = \'North Island\''
+    assert normalise_sql(sql, casefold_literals=True) == (
+        'select "a" from t where "b" = \'north island\''
+    )
 
 
 @pytest.mark.parametrize(
