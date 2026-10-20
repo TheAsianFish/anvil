@@ -5,7 +5,9 @@ examples and a `loss_fn(model, indices)` that returns the mean loss over those e
 loop owns everything that has to be identical across students and across restarts: seeded
 shuffling, AdamW with decoupled weight decay, linear warmup then linear decay, gradient
 accumulation, AMP, gradient clipping, early stopping on a validation metric, checkpoints that
-resume bit-exactly, and JSONL metrics per optimizer step and per epoch.
+resume bit-exactly, and JSONL metrics per optimizer step and per epoch. A student that trains
+an adapter on a frozen model (LoRA) asks for `trainable_only` checkpoints, so a checkpoint
+holds the adapter rather than another copy of a base model that never changes.
 """
 
 from __future__ import annotations
@@ -145,6 +147,7 @@ def fit(
     keep_checkpoint: bool = False,
     metrics_path: Path | None = None,
     data_fingerprint: str = "",
+    trainable_only: bool = False,
 ) -> TrainResult:
     """Train `model` in place and return what happened.
 
@@ -156,7 +159,9 @@ def fit(
     CPU, where the tests run; some CUDA kernels are not). The checkpoint files are deleted when
     training completes unless `keep_checkpoint`. `data_fingerprint` (a digest of the examples
     behind `loss_fn`) is folded into the checkpoint fingerprint, so resuming on different data
-    is refused instead of silently mixing two datasets.
+    is refused instead of silently mixing two datasets. With `trainable_only`, checkpoints and
+    the kept best epoch hold only the parameters that train (the frozen ones cannot differ
+    between epochs, and for a 0.5B base model they would be 2 GB per copy).
     """
     _check(config, n_examples, evaluate, checkpoint_dir)
     started = time.perf_counter()
@@ -181,7 +186,17 @@ def fit(
     resumed_at: int | None = None
     last = checkpoint_dir / LAST if checkpoint_dir is not None else None
     if resume and last is not None and last.exists():
-        state = _load(last, fingerprint, model, optimizer, scheduler, scaler, generator, device)
+        state = _load(
+            last,
+            fingerprint,
+            model,
+            optimizer,
+            scheduler,
+            scaler,
+            generator,
+            device,
+            trainable_only,
+        )
         resumed_at = state.step
         log.info("resumed", extra={"checkpoint": str(last), "at_step": state.step})
     elif checkpoint_dir is not None:
@@ -189,7 +204,17 @@ def fit(
 
     def save() -> None:
         assert checkpoint_dir is not None
-        _save(checkpoint_dir, fingerprint, state, model, optimizer, scheduler, scaler, generator)
+        _save(
+            checkpoint_dir,
+            fingerprint,
+            state,
+            model,
+            optimizer,
+            scheduler,
+            scaler,
+            generator,
+            trainable_only,
+        )
 
     metrics = _open_metrics(metrics_path, state if resumed_at is not None else None)
     model.train()
@@ -262,7 +287,8 @@ def fit(
                 if improved and not math.isnan(metric):  # a NaN metric never becomes the best
                     state.best_metric, state.best_epoch, state.bad_epochs = metric, state.epoch, 0
                     state.best_state = {
-                        k: v.detach().to("cpu", copy=True) for k, v in model.state_dict().items()
+                        k: v.detach().to("cpu", copy=True)
+                        for k, v in model_state(model, trainable_only).items()
                     }
                 else:
                     state.bad_epochs += 1
@@ -285,7 +311,7 @@ def fit(
             metrics.close()
 
     if state.best_state is not None and state.best_epoch != state.epoch:
-        model.load_state_dict(state.best_state)
+        load_model_state(model, state.best_state, trainable_only)
     model.eval()
     if checkpoint_dir is not None and not keep_checkpoint:
         remove_checkpoint(checkpoint_dir)
@@ -333,6 +359,29 @@ def _device_of(model: torch.nn.Module) -> torch.device:
         return next(model.parameters()).device
     except StopIteration:
         raise StudentError("the model has no parameters to train") from None
+
+
+def model_state(model: torch.nn.Module, trainable_only: bool) -> StateDict:
+    """The weights a checkpoint keeps: the whole state dict, or only the training parameters."""
+    if not trainable_only:
+        return model.state_dict()
+    return {name: p.detach() for name, p in model.named_parameters() if p.requires_grad}
+
+
+def load_model_state(model: torch.nn.Module, state: StateDict, trainable_only: bool) -> None:
+    """Load what `model_state` saved. A partial state must name exactly the parameters that
+    train now: `strict=False` alone would let a checkpoint of another adapter (a different
+    rank or target list) load nothing and resume from untrained weights without a word."""
+    if not trainable_only:
+        model.load_state_dict(state)
+        return
+    expected = {name for name, p in model.named_parameters() if p.requires_grad}
+    if set(state) != expected:
+        missing, extra = sorted(expected - set(state)), sorted(set(state) - expected)
+        raise RuntimeError(
+            f"trainable parameters differ: missing {missing[:3]}, unexpected {extra[:3]}"
+        )
+    model.load_state_dict(state, strict=False)
 
 
 def _resolve_amp(mode: AmpMode, device: torch.device) -> torch.dtype | None:
@@ -471,6 +520,7 @@ def _save(
     scheduler: torch.optim.lr_scheduler.LRScheduler,
     scaler: torch.amp.GradScaler,
     generator: torch.Generator,
+    trainable_only: bool = False,
 ) -> None:
     """Write `last.pt` atomically.
 
@@ -490,7 +540,7 @@ def _save(
     payload: dict[str, object] = {
         "version": CHECKPOINT_VERSION,
         "fingerprint": fingerprint,
-        "model": model.state_dict(),
+        "model": model_state(model, trainable_only),
         "optimizer": optimizer.state_dict(),
         "scheduler": scheduler.state_dict(),
         "scaler": scaler.state_dict(),
@@ -537,6 +587,7 @@ def _load(
     scaler: torch.amp.GradScaler,
     generator: torch.Generator,
     device: torch.device,
+    trainable_only: bool = False,
 ) -> _State:
     ckpt = _read(path)
     if ckpt.get("version") != CHECKPOINT_VERSION:
@@ -552,7 +603,7 @@ def _load(
             " without --resume) to start over"
         )
     try:
-        model.load_state_dict(ckpt["model"])
+        load_model_state(model, ckpt["model"], trainable_only)
         optimizer.load_state_dict(ckpt["optimizer"])
         scheduler.load_state_dict(ckpt["scheduler"])
         if ckpt["scaler"]:

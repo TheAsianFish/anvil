@@ -552,3 +552,87 @@ def test_lr_is_logged_with_significant_digits(tmp_path: Path) -> None:
     decay = lrs[lrs.index(max(lrs)) :]
     assert decay == sorted(decay, reverse=True)
     assert len(set(decay)) == len(decay)  # every decay step is distinct in the log
+
+
+# --- trainable_only: checkpoints of the parameters that train (a LoRA adapter) ----------
+
+
+def _partly_frozen(freeze: tuple[str, ...] = ("0.",)) -> torch.nn.Module:
+    """The MLP with the parameters whose names start with `freeze` frozen."""
+    model = _mlp()
+    for name, p in model.named_parameters():
+        if name.startswith(freeze):
+            p.requires_grad_(False)
+    return model
+
+
+def _trainable_names(model: torch.nn.Module) -> set[str]:
+    return {n for n, p in model.named_parameters() if p.requires_grad}
+
+
+def _named(model: torch.nn.Module) -> dict[str, torch.Tensor]:
+    return {n: p.detach().clone() for n, p in model.named_parameters()}
+
+
+def test_trainable_only_checkpoints_hold_only_trainable_parameters(tmp_path: Path) -> None:
+    with pytest.raises(SimulatedCrashError):
+        fit(_partly_frozen(), N, _loss_fn(20), RESUME, evaluate=_neg_loss,
+            checkpoint_dir=tmp_path / "ckpt", trainable_only=True)  # fmt: skip
+    ckpt = torch.load(tmp_path / "ckpt" / LAST, weights_only=True)
+    model = _partly_frozen()
+    assert _trainable_names(model) == {"1.weight", "1.bias", "4.weight", "4.bias"}
+    assert set(ckpt["model"]) == _trainable_names(model)
+    best = sorted((tmp_path / "ckpt").glob("best-epoch*.pt"))
+    assert best
+    assert set(torch.load(best[-1], weights_only=True)) == _trainable_names(model)
+
+
+def test_trainable_only_resume_is_bit_exact(tmp_path: Path) -> None:
+    ref_model = _partly_frozen()
+    ref = fit(ref_model, N, _loss_fn(), dataclasses.replace(RESUME, checkpoint_every=None),
+              evaluate=_neg_loss, trainable_only=True)  # fmt: skip
+    with pytest.raises(SimulatedCrashError):
+        fit(_partly_frozen(), N, _loss_fn(37), RESUME, evaluate=_neg_loss,
+            checkpoint_dir=tmp_path / "ckpt", trainable_only=True)  # fmt: skip
+    model = _partly_frozen()
+    resumed = fit(model, N, _loss_fn(), RESUME, evaluate=_neg_loss,
+                  checkpoint_dir=tmp_path / "ckpt", resume=True, trainable_only=True)  # fmt: skip
+    assert resumed.resumed_at_step == 18
+    assert resumed.epoch_losses == ref.epoch_losses
+    for a, b in zip(ref_model.parameters(), model.parameters(), strict=True):
+        assert torch.equal(a, b)
+
+
+def test_trainable_only_resume_with_other_trainable_parameters_is_refused(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(SimulatedCrashError):
+        fit(_partly_frozen(), N, _loss_fn(20), RESUME, evaluate=_neg_loss,
+            checkpoint_dir=tmp_path / "ckpt", trainable_only=True)  # fmt: skip
+    for other in (_partly_frozen(("0.", "1.")), _partly_frozen(("4.",))):
+        with pytest.raises(StudentError, match="does not fit this model"):
+            fit(other, N, _loss_fn(), RESUME, evaluate=_neg_loss,
+                checkpoint_dir=tmp_path / "ckpt", resume=True, trainable_only=True)  # fmt: skip
+
+
+def test_trainable_only_restores_the_best_epoch_and_leaves_frozen_weights(
+    tmp_path: Path,
+) -> None:
+    script = [0.5, 0.9, 0.6, 0.55, 0.7]
+    config = dataclasses.replace(RESUME, epochs=5, patience=2, checkpoint_every=None)
+    model = _partly_frozen()
+    initial = _named(model)
+    snapshots: dict[int, list[torch.Tensor]] = {}
+    result = fit(model, N, _loss_fn(), config, evaluate=_scripted(script, 0, snapshots),
+                 trainable_only=True)  # fmt: skip
+    assert (result.best_epoch, result.epochs, result.stopped_early) == (2, 4, True)
+    names = [n for n, _ in model.named_parameters()]
+    best = dict(zip(names, snapshots[2], strict=True))
+    last = dict(zip(names, snapshots[4], strict=True))
+    trainable = _trainable_names(model)
+    for name, value in _named(model).items():
+        if name in trainable:
+            assert torch.equal(value, best[name]), name
+            assert not torch.equal(value, last[name]), name
+        else:
+            assert torch.equal(value, initial[name]), name
