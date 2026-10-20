@@ -128,6 +128,7 @@ class LoraGenerator:
         max_length: int,
         max_new_tokens: int,
         extra_meta: dict[str, object] | None = None,
+        extra_stop_ids: Sequence[int] = (),
     ) -> None:
         if not getattr(tokenizer, "chat_template", None):
             raise StudentError(
@@ -144,7 +145,11 @@ class LoraGenerator:
         self.max_new_tokens = max_new_tokens
         self.meta: dict[str, object] = dict(extra_meta or {})
         self.end_id = end_of_turn_id(tokenizer)
-        self.stop_ids = sorted({self.end_id, *_ids_of(tokenizer.eos_token_id)})
+        # The base model's own end-of-text token stops decoding too: Qwen2.5-Instruct's
+        # tokenizer names only <|im_end|> as eos, while its generation config also stops on
+        # <|endoftext|>, which the untrained base model (the zero-shot baseline) can emit.
+        self.stop_ids = sorted({self.end_id, *_ids_of(tokenizer.eos_token_id), *extra_stop_ids})
+        self.meta["base_stop_ids"] = [int(x) for x in extra_stop_ids]
         self.chat: ChatReport | None = None
         """The alignment report of the last `fit` (what the template and max_length cost)."""
         self._set_greedy(model)
@@ -170,6 +175,7 @@ class LoraGenerator:
                     " student.model: tiny"
                 ) from exc
         base.to(_device())
+        base_stops = _ids_of(getattr(base.generation_config, "eos_token_id", None))
         model = _wrap(base, spec.lora)
         return cls(
             model,
@@ -179,6 +185,7 @@ class LoraGenerator:
             spec.max_length,
             spec.max_new_tokens,
             extra_meta={"student_model": spec.model, "lora": spec.lora.model_dump()},
+            extra_stop_ids=base_stops,
         )
 
     @property
@@ -223,6 +230,7 @@ class LoraGenerator:
             self.max_length,
             self.end_id,
             input_ids,
+            max_answer=self.max_new_tokens,
         )
 
     def prompts(self, texts: Sequence[str]) -> list[list[int]]:
@@ -313,6 +321,10 @@ class LoraGenerator:
         return merged
 
     def save(self, path: Path) -> None:
+        if "merged_from" in self.meta:
+            raise StudentError(
+                "a merged export has no adapter to save as a student; train one with `anvil train`"
+            )
         path.mkdir(parents=True, exist_ok=True)
         self.model.save_pretrained(path / ADAPTER_DIR)
         self.tokenizer.save_pretrained(path)
@@ -350,6 +362,7 @@ class LoraGenerator:
             system = str(meta.pop("system"))
             max_length = int(meta.pop("max_length"))
             max_new_tokens = int(meta.pop("max_new_tokens"))
+            base_stops = [int(x) for x in meta.pop("base_stop_ids", [])]
             base_id = str(meta.get("student_model", ""))
             source = str(path / BASE_DIR) if (path / BASE_DIR).exists() else base_id
             tokenizer = AutoTokenizer.from_pretrained(path)
@@ -361,7 +374,7 @@ class LoraGenerator:
             raise StudentError(
                 f"{path} is not a complete Anvil generator ({exc}); train one with `anvil train`"
             ) from exc
-        return cls(model, tokenizer, outputs, system, max_length, max_new_tokens, meta)
+        return cls(model, tokenizer, outputs, system, max_length, max_new_tokens, meta, base_stops)
 
 
 def _ids_of(value: object) -> list[int]:

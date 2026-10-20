@@ -39,6 +39,10 @@ def _tokenizer(template: str) -> PreTrainedTokenizerFast:
     return tok
 
 
+def _dropped(**counts: int) -> dict[str, int]:
+    return {**dict.fromkeys(DROP_REASONS, 0), **counts}
+
+
 # --- targets and completions --------------------------------------------------------------
 
 
@@ -52,6 +56,13 @@ def test_messages_layout() -> None:
 
 def test_one_field_target_is_the_bare_value() -> None:
     assert render_target({"sql": 'SELECT "a b" FROM t'}, ["sql"]) == 'SELECT "a b" FROM t'
+
+
+def test_one_field_target_is_stripped() -> None:
+    # A leading newline would merge with the template's own into one token on a BPE
+    # tokenizer like Qwen's, so the generation prompt would no longer be a token prefix.
+    assert render_target({"sql": "\nSELECT 1  \n"}, ["sql"]) == "SELECT 1"
+    assert render_target({"a": " x ", "b": "y"}, ["a", "b"]) == '{"a":" x ","b":"y"}'
 
 
 def test_several_fields_are_canonical_json_in_spec_order() -> None:
@@ -154,7 +165,7 @@ def test_build_examples_reports_drops_with_ids() -> None:
     built, report = build_examples(TOK, SYSTEM, texts, targets, limit, END, ["x", "y", "z"])
     assert [b is None for b in built] == [False, True, False]
     assert report.examples == 3
-    assert report.dropped == {"too_long": 1, "not_roundtrip": 0}
+    assert report.dropped == _dropped(too_long=1)
     assert report.dropped_ids == ["y"]
     assert report.unusable == 1
     _, unnamed = build_examples(TOK, SYSTEM, texts, targets, limit, END)
@@ -196,10 +207,56 @@ TRIMS = (
 )
 
 
-def test_a_generation_prompt_that_is_not_a_prefix_is_refused() -> None:
+def test_a_generation_prompt_that_is_not_a_prefix_drops_the_example() -> None:
     tok = _tokenizer(NOT_PREFIX)
-    with pytest.raises(StudentError, match="not a prefix"):
-        build_example(tok, SYSTEM, "q", "SELECT 1", 1000, END)
+    assert build_example(tok, SYSTEM, "q", "SELECT 1", 1000, END) == "not_prefix"
+    # A template that does it to every answer fails the gate, with the reason named.
+    _, report = build_examples(tok, SYSTEM, ["q", "r"], ["SELECT 1", "SELECT 2"], 1000, END)
+    assert report.dropped == _dropped(not_prefix=2)
+    with pytest.raises(AlignmentError, match="merges the end of the prompt"):
+        report.check()
+
+
+def test_a_merge_at_the_boundary_drops_only_that_answer() -> None:
+    # A tokenizer whose merges join the template's newline with an answer's leading one
+    # (Qwen's `\n\n` token): the answer with the leading newline is the one dropped.
+    from tokenizers import Tokenizer, decoders, models, pre_tokenizers
+
+    alphabet = sorted(pre_tokenizers.ByteLevel.alphabet())
+    vocab = {ch: i for i, ch in enumerate(alphabet)}
+    vocab["ĊĊ"] = len(vocab)
+    inner = Tokenizer(models.BPE(vocab=vocab, merges=[("Ċ", "Ċ")]))
+    inner.pre_tokenizer = pre_tokenizers.ByteLevel(add_prefix_space=False, use_regex=False)
+    inner.decoder = decoders.ByteLevel()
+    inner.add_special_tokens(["<|endoftext|>", "<|im_start|>", "<|im_end|>"])
+    tok = PreTrainedTokenizerFast(  # type: ignore[no-untyped-call]
+        tokenizer_object=inner,
+        eos_token="<|im_end|>",
+        pad_token="<|endoftext|>",
+        additional_special_tokens=["<|im_start|>"],
+    )
+    tok.chat_template = TOK.chat_template
+    end = end_of_turn_id(tok)
+    built, report = build_examples(tok, SYSTEM, ["q", "r"], ["SELECT 1", "\nSELECT 2"], 1000, end)
+    assert isinstance(built[0], Example)
+    assert built[1] is None
+    assert report.dropped == _dropped(not_prefix=1)
+
+
+def test_an_answer_longer_than_max_new_tokens_is_dropped() -> None:
+    short = build_example(TOK, SYSTEM, "q", "SELECT 1", 1000, END, max_answer=9)
+    assert isinstance(short, Example)
+    assert short.answer_tokens == 9  # 8 bytes and the end token
+    assert build_example(TOK, SYSTEM, "q", "SELECT 1", 1000, END, max_answer=8) == (
+        "answer_too_long"
+    )
+    _, report = build_examples(
+        TOK, SYSTEM, ["q", "r"], ["SELECT 1", "SELECT 10"], 1000, END, max_answer=9
+    )
+    assert report.dropped == _dropped(answer_too_long=1)
+    assert report.longest_answer == 10
+    with pytest.raises(AlignmentError, match=r"raise student\.max_new_tokens .*10 tokens"):
+        report.check(max_rate=0.1)
 
 
 def test_a_template_without_an_end_token_is_refused() -> None:
@@ -220,7 +277,7 @@ def test_a_trimming_template_does_not_round_trip() -> None:
     assert isinstance(build_example(tok, SYSTEM, "q", "SELECT 1", 1000, end), Example)
     assert build_example(tok, SYSTEM, "q", "SELECT 1  ", 1000, end) == "not_roundtrip"
     _, report = build_examples(tok, SYSTEM, ["q", "r"], ["SELECT 1", " x"], 1000, end)
-    assert report.dropped == {"too_long": 0, "not_roundtrip": 1}
+    assert report.dropped == _dropped(not_roundtrip=1)
 
 
 # --- the report ---------------------------------------------------------------------------
@@ -253,9 +310,16 @@ def test_as_dict() -> None:
     report = _report(40, 2)
     report.dropped_ids = [str(i) for i in range(30)]
     d = report.as_dict()
-    assert set(d) == {"examples", "dropped", "dropped_rate", "longest", "dropped_ids"}
+    assert set(d) == {
+        "examples",
+        "dropped",
+        "dropped_rate",
+        "longest",
+        "longest_answer",
+        "dropped_ids",
+    }
     assert d["examples"] == 40
-    assert d["dropped"] == {"too_long": 2, "not_roundtrip": 0}
+    assert d["dropped"] == _dropped(too_long=2)
     assert d["dropped_rate"] == pytest.approx(0.05)
     assert d["longest"] == 77
     assert d["dropped_ids"] == [str(i) for i in range(20)]  # capped for the log

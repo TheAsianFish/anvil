@@ -26,7 +26,7 @@ SYSTEM = "SQL."
 COLUMNS = ["name", "age", "city", "zip", "id", "email"]
 TABLES = ["users", "orders", "items", "shops", "tags", "logs", "notes", "teams", "pets", "cars"]
 SPEC = StudentSpec(
-    model="tiny", max_length=96, max_new_tokens=24, epochs=4, batch_size=8,
+    model="tiny", max_length=96, max_new_tokens=32, epochs=4, batch_size=8,
     learning_rate=1e-2, validation_fraction=0.0, warmup_ratio=0.0, seed=0,
 )  # fmt: skip
 
@@ -138,6 +138,33 @@ def test_generation_config_is_greedy_and_stops_at_the_end_of_turn() -> None:
     assert student.end_id in student.stop_ids
 
 
+def test_the_base_models_own_stop_tokens_stop_decoding_and_survive_a_save(
+    trained: LoraGenerator, tmp_path: Path
+) -> None:
+    # Qwen2.5-Instruct's tokenizer names only <|im_end|> as eos while its generation config
+    # also stops on <|endoftext|>; the base model's ids are kept in the student's meta.
+    pad = int(trained.tokenizer.pad_token_id)
+    assert pad not in trained.stop_ids
+    student = LoraGenerator(
+        trained.model, trained.tokenizer, OUTPUTS, SYSTEM, SPEC.max_length, SPEC.max_new_tokens,
+        extra_meta={"student_model": "tiny"}, extra_stop_ids=[pad],
+    )  # fmt: skip
+    assert pad in student.stop_ids
+    assert student.end_id in student.stop_ids
+    config = student.model.generation_config
+    assert pad in config.eos_token_id
+    assert student.end_id in config.eos_token_id
+    student.save(tmp_path / "s")
+    assert LoraGenerator.load(tmp_path / "s").stop_ids == student.stop_ids
+    student.model.generation_config = trained.model.generation_config  # restore the fixture
+    LoraGenerator._set_greedy(trained, trained.model)
+
+
+def test_build_reads_the_base_models_generation_config_stops() -> None:
+    student = _student()
+    assert student.meta["base_stop_ids"] == [student.end_id]  # the tiny config's eos
+
+
 def test_a_tokenizer_without_a_template_or_pad_is_refused() -> None:
     student = _student()
     student.tokenizer.chat_template = None
@@ -243,7 +270,9 @@ def test_a_few_too_long_examples_are_dropped_and_reported() -> None:
     result = student.fit(texts, answers, SPEC.model_copy(update={"epochs": 1}))
     assert result.examples == 38
     assert student.chat is not None
-    assert student.chat.dropped == {"too_long": 2, "not_roundtrip": 0}
+    assert student.chat.dropped == {
+        "too_long": 2, "answer_too_long": 0, "not_prefix": 0, "not_roundtrip": 0
+    }  # fmt: skip
     assert student.chat.dropped_ids == ["0", "1"]
     named = _student()
     named.fit(texts, answers, SPEC.model_copy(update={"epochs": 1}),

@@ -172,4 +172,5 @@ def load_merged(path: Path) -> LoraGenerator:
         int(meta["max_length"]),
         int(meta["max_new_tokens"]),
         extra_meta={"merged_from": meta.get("student")},
+        extra_stop_ids=[int(x) for x in meta.get("stop_ids", [])],
     )

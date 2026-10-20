@@ -17,8 +17,10 @@ Three things are checked rather than assumed, because each one fails silently ot
   content would teach a different string from the teacher's).
 
 An example whose sequence is longer than `max_length` is left out, never cut: a truncated
-answer would teach the student to stop mid-query. Like span alignment, the losses are
-counted, and training refuses to start when they pass `MAX_DROPPED_RATE`.
+answer would teach the student to stop mid-query. So is one whose answer has more tokens than
+the student may generate (`max_new_tokens`): it would train fine and could never be answered
+in full, which caps exact match silently. Like span alignment, the losses are counted, and
+training refuses to start when they pass `MAX_DROPPED_RATE`.
 """
 
 from __future__ import annotations
@@ -37,7 +39,7 @@ IGNORE = -100
 MAX_DROPPED_RATE = 0.05
 """Training refuses to start when more than this share of examples cannot be used."""
 
-DROP_REASONS = ("too_long", "not_roundtrip")
+DROP_REASONS = ("too_long", "answer_too_long", "not_prefix", "not_roundtrip")
 
 
 def messages(system: str, text: str, answer: str | None = None) -> list[dict[str, str]]:
@@ -53,9 +55,14 @@ def render_target(fields: Mapping[str, str], names: Sequence[str]) -> str:
 
     A one-field answer is its bare value: wrapping a SQL query in JSON would make the student
     escape every double-quoted column name, a skill the task does not need, and spend tokens
-    on the wrapper. Several fields are the canonical JSON object (`anvil.outputs`)."""
+    on the wrapper. Several fields are the canonical JSON object (`anvil.outputs`).
+
+    Surrounding whitespace is dropped from a bare value: a leading newline would merge with
+    the template's own newline into one token (Qwen's `\n\n`), so the generation prompt
+    would no longer be a prefix of the training sequence, and answers are compared stripped
+    anyway (`parse_completion`)."""
     if len(names) == 1:
-        return fields[names[0]]
+        return fields[names[0]].strip()
     return encode_output(fields, names)
 
 
@@ -95,6 +102,8 @@ class ChatReport:
     dropped: dict[str, int] = field(default_factory=lambda: dict.fromkeys(DROP_REASONS, 0))
     longest: int = 0
     """Tokens in the longest full sequence, kept or not (what `max_length` must hold)."""
+    longest_answer: int = 0
+    """Tokens in the longest answer with its end token (what `max_new_tokens` must hold)."""
     dropped_ids: list[str] = field(default_factory=list)
 
     @property
@@ -111,6 +120,7 @@ class ChatReport:
             "dropped": dict(self.dropped),
             "dropped_rate": self.dropped_rate,
             "longest": self.longest,
+            "longest_answer": self.longest_answer,
             "dropped_ids": self.dropped_ids[:20],
         }
 
@@ -123,6 +133,17 @@ class ChatReport:
                 hints.append(
                     f"raise student.max_length (the longest sequence is {self.longest} tokens)"
                     " or shorten the inputs"
+                )
+            if self.dropped["answer_too_long"]:
+                hints.append(
+                    "raise student.max_new_tokens (the longest answer is"
+                    f" {self.longest_answer} tokens with its end token)"
+                )
+            if self.dropped["not_prefix"]:
+                hints.append(
+                    "the template or tokenizer merges the end of the prompt with the start of"
+                    " these answers, so the student would train on a prompt it never sees;"
+                    " use a tokenizer whose template tokenizes the two consistently"
                 )
             if self.dropped["not_roundtrip"]:
                 hints.append(
@@ -174,11 +195,14 @@ def build_example(
     target: str,
     max_length: int,
     end_id: int,
+    max_answer: int | None = None,
 ) -> Example | str:
     """The training sequence of one example, or the reason it cannot be used (one of
-    `DROP_REASONS`). Raises `StudentError` when the template itself is unusable: that is
-    not a property of one example, and every other example would fail the same way."""
-    return _build(tokenizer, system, text, target, max_length, end_id)[0]
+    `DROP_REASONS`). `max_answer` is the most tokens an answer may have with its end token
+    (the student's `max_new_tokens`); None does not check it. Raises `StudentError` when the
+    template itself is unusable (it closes the assistant's turn without the end token): that
+    is not a property of one example, and every other example would fail the same way."""
+    return _build(tokenizer, system, text, target, max_length, end_id, max_answer)[0]
 
 
 def _build(
@@ -188,16 +212,12 @@ def _build(
     target: str,
     max_length: int,
     end_id: int,
-) -> tuple[Example | str, int]:
-    """`build_example`, and the length of the full sequence whether or not it is kept."""
+    max_answer: int | None,
+) -> tuple[Example | str, int, int]:
+    """`build_example`, and the lengths of the full sequence and of the answer with its end
+    token, whether or not the example is kept."""
     prompt = prompt_ids(tokenizer, system, text)
     full = _ids(tokenizer.apply_chat_template(messages(system, text, target), tokenize=True))
-    if full[: len(prompt)] != prompt:
-        raise StudentError(
-            "the chat template's generation prompt is not a prefix of the templated"
-            " conversation, so the student would train on a prompt it never sees when it"
-            " answers; use a tokenizer whose template tokenizes the two consistently"
-        )
     answer = full[len(prompt) :]
     if end_id not in answer:
         raise StudentError(
@@ -205,12 +225,21 @@ def _build(
             " template closes assistant turns differently from the probe it was checked with"
         )
     answer = answer[: answer.index(end_id) + 1]  # what follows the end token is never generated
-    sequence = prompt + answer
-    if len(sequence) > max_length:
-        return "too_long", len(sequence)
+    length = len(prompt) + len(answer)
+    if full[: len(prompt)] != prompt:
+        # The tokenizer merged the end of the prompt with the start of this answer (a
+        # template's trailing newline with an answer's leading one), so the sequence does
+        # not start with the prompt the student generates from. One answer's property, not
+        # the template's: it is dropped and counted, and the gate reports a template that
+        # does it to every answer.
+        return "not_prefix", length, len(answer)
+    if length > max_length:
+        return "too_long", length, len(answer)
+    if max_answer is not None and len(answer) > max_answer:
+        return "answer_too_long", length, len(answer)
     if tokenizer.decode(answer[:-1]) != target:
-        return "not_roundtrip", len(sequence)
-    return Example(sequence, [IGNORE] * len(prompt) + answer), len(sequence)
+        return "not_roundtrip", length, len(answer)
+    return Example(prompt + answer, [IGNORE] * len(prompt) + answer), length, len(answer)
 
 
 def build_examples(
@@ -221,6 +250,7 @@ def build_examples(
     max_length: int,
     end_id: int,
     input_ids: Sequence[str] | None = None,
+    max_answer: int | None = None,
 ) -> tuple[list[Example | None], ChatReport]:
     """`build_example` over a dataset: one entry per text (None where dropped) and the report."""
     if len(texts) != len(targets):
@@ -229,8 +259,11 @@ def build_examples(
     out: list[Example | None] = []
     for i, (text, target) in enumerate(zip(texts, targets, strict=True)):
         report.examples += 1
-        built, length = _build(tokenizer, system, text, target, max_length, end_id)
+        built, length, answer = _build(
+            tokenizer, system, text, target, max_length, end_id, max_answer
+        )
         report.longest = max(report.longest, length)
+        report.longest_answer = max(report.longest_answer, answer)
         if isinstance(built, str):
             report.dropped[built] += 1
             report.dropped_ids.append(input_ids[i] if input_ids is not None else str(i))

@@ -11,7 +11,7 @@ import torch
 from transformers import AutoModelForCausalLM
 
 from anvil import merge
-from anvil.errors import ExportError
+from anvil.errors import ExportError, StudentError
 from anvil.merge import MERGED_FORMAT, MERGED_META, export_generator, load_merged
 from anvil.outputs import encode_output
 from anvil.spec import StudentSpec
@@ -19,7 +19,7 @@ from anvil.students.generator import LoraGenerator
 
 OUTPUTS = ["sql"]
 SPEC = StudentSpec(
-    model="tiny", max_length=96, max_new_tokens=16, epochs=6, batch_size=8,
+    model="tiny", max_length=96, max_new_tokens=32, epochs=6, batch_size=8,
     learning_rate=1e-2, validation_fraction=0.0, warmup_ratio=0.0, seed=0,
 )  # fmt: skip
 PROBES = ["show id of cars", "show name of users please", "x", "show age of pets"]
@@ -150,6 +150,16 @@ def test_load_merged_answers_as_the_adapter(merged_dir: Path, student_dir: Path)
     assert merged.adapter_parameters == 0
     texts = [*PROBES, "show city of orders"]
     assert merged.generate(texts) == LoraGenerator.load(student_dir).generate(texts)
+
+
+def test_load_merged_keeps_the_stop_ids_and_cannot_be_saved_as_a_student(
+    merged_dir: Path, student_dir: Path, tmp_path: Path
+) -> None:
+    merged = load_merged(merged_dir)
+    assert merged.stop_ids == LoraGenerator.load(student_dir).stop_ids
+    with pytest.raises(StudentError, match="no adapter to save"):
+        merged.save(tmp_path / "again")
+    assert not (tmp_path / "again").exists()
 
 
 def test_load_merged_refuses_a_dir_without_meta(tmp_path: Path) -> None:
