@@ -17,6 +17,7 @@ from onnx import TensorProto, helper
 import anvil.export as export_mod
 from anvil.errors import ExportError
 from anvil.export import (
+    SINGLE_PROBES,
     ExportReport,
     _fp32_gate,
     _int8_gate,
@@ -139,8 +140,8 @@ def test_reexport_replaces_an_existing_bundle_and_leaves_no_old_copy(
     out = tmp_path / "bundle"
     export_student(bundle.student_dir, out, PROBES[:3], calibration={"threshold": 0.3})
     (out / "stale.txt").write_text("from the first export", encoding="utf-8")
-    stale_old = out.with_name(".bundle.old")
-    stale_old.mkdir()  # left behind by an interrupted earlier swap
+    out.with_name(".bundle.old").mkdir()  # left behind by an interrupted earlier swap
+    out.with_name(".bundle.export-0123456789ab").mkdir()  # and by an export that was killed
     report = export_student(bundle.student_dir, out, PROBES[:4], calibration={"threshold": 0.5})
     assert report.bundle == out
     meta = json.loads((out / BUNDLE_META).read_text(encoding="utf-8"))
@@ -205,9 +206,31 @@ def test_int8_export_reports_its_gate(bundle: Exported) -> None:
     assert (bundle.bundle / "model.int8.onnx").exists() is q8.passed
     # The bundle has a threshold (0.4), so agreement is also measured on the answered probes.
     assert q8.answered is not None
-    assert 0 <= q8.answered <= q8.n
+    # Every probe batched, plus the first SINGLE_PROBES served alone.
+    assert 0 <= q8.answered <= q8.n + min(q8.n, SINGLE_PROBES)
     assert q8.agreement_answered is not None
-    assert "answers at threshold 0.4000" in q8.gate
+    assert "answers at threshold 0.4000, batched and one at a time" in q8.gate
+    assert "kappa drop vs teacher on all probes" in q8.gate
+
+
+def test_int8_gate_scores_the_probes_served_alone_too(bundle: Exported) -> None:
+    # Dynamic int8 scales activations per batch, so a probe's int8 logits differ between the
+    # padded batch and a single-input call; the gate compares both against fp32's own runs.
+    q8 = bundle.report.int8
+    assert q8 is not None
+    fp32 = OnnxStudent.load(bundle.bundle)
+    int8 = OnnxStudent.load(bundle.bundle, "int8", require_parity=False)
+    batched = int8.logits(PROBES)
+    singles = np.concatenate([int8.logits([t]) for t in PROBES[:SINGLE_PROBES]])
+    assert np.abs(batched[: len(singles)] - singles).max() > 1e-6  # the batch mates matter
+    fp32_batched = fp32.logits(PROBES)
+    fp32_singles = np.concatenate([fp32.logits([t]) for t in PROBES[:SINGLE_PROBES]])
+    got = np.concatenate([batched, singles])
+    ref = np.concatenate([fp32_batched, fp32_singles])
+    assert q8.max_abs_diff == pytest.approx(float(np.abs(got - ref).max()), rel=1e-5)
+    assert q8.agreement == pytest.approx(float((got.argmax(1) == ref.argmax(1)).mean()))
+    answered = answered_by_either(ref, got, 1.5, 0.4 - 1e-6)
+    assert q8.answered == int(answered.sum())
 
 
 def test_int8_that_fails_its_gate_is_recorded_and_not_shipped(

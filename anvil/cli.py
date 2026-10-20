@@ -359,10 +359,16 @@ def export_cmd(
                 if p.kappa is not None and p.kappa_drop is not None
                 else ""
             )
+            answered = (
+                f" ({p.agreement_answered:.3f} on the {p.answered} probe runs either graph"
+                " answers)"
+                if p.agreement_answered is not None and p.answered is not None
+                else ""
+            )
             print(
                 f"{p.variant}: {'passed' if p.passed else 'FAILED'} parity vs {p.reference} on"
                 f" {p.n} inputs: max |logit diff| {p.max_abs_diff:.2e}, agreement"
-                f" {p.agreement:.3f}{kappa}; {p.size_mb:.1f} MB ({p.gate})"
+                f" {p.agreement:.3f}{answered}{kappa}; {p.size_mb:.1f} MB ({p.gate})"
             )
         print(f"bundle {r.bundle}; serve it with `anvil serve {r.bundle}`")
         if r.int8 is not None and not r.int8.passed:

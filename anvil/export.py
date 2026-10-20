@@ -4,8 +4,11 @@ Decisions from docs/notes/onnx-export-spike.md: `torch.onnx.export(dynamo=True)`
 batch and sequence axes; fp32 must match PyTorch to 1e-4 with identical argmax on the probe
 texts or nothing is written; int8 is opt-in, per-tensor dynamic quantization with the MLP
 down-projection MatMuls kept in fp32, gated on argmax agreement with the fp32 graph on the
-inputs the cascade answers and on the kappa drop (a logit tolerance does not work for int8).
-The bundle layout is described in `anvil.runtime`.
+inputs the cascade answers and on the kappa drop over every probe (a logit tolerance does not
+work for int8). Both graphs run the probes batched and the first SINGLE_PROBES one at a time:
+dynamic quantization scales activations per batch, so an int8 logit depends on the input's
+batch mates, and a served request is often a single input. The bundle layout is described in
+`anvil.runtime`.
 """
 
 from __future__ import annotations
@@ -43,7 +46,9 @@ from anvil.students.tagger import META_FILE as TAGGER_META_FILE
 
 FP32_MAX_ABS_DIFF = 1e-4  # spike measured 8e-06 on ModernBERT-base
 INT8_MIN_AGREEMENT = 0.98  # argmax agreement with the fp32 ONNX model
-INT8_MAX_KAPPA_DROP = 0.01  # kappa vs teacher, fp32 ONNX minus int8, when teacher labels are given
+INT8_MAX_KAPPA_DROP = (
+    0.01  # kappa vs teacher on all probes, fp32 ONNX minus int8, when labels are given
+)
 # Probe texts also run one at a time (up to this many), so a graph that only works at the
 # traced batch size, or only padded, fails the gate.
 SINGLE_PROBES = 16
@@ -70,8 +75,10 @@ class Parity:
     gate: str
     size_mb: float
     seconds: float
-    answered: int | None = None  # int8: probes fp32 or int8 answers at the bundle threshold
-    agreement_answered: float | None = None  # int8: argmax agreement on those probes
+    answered: int | None = None
+    """int8: probe runs (every probe batched, plus the single-input runs) in which fp32 or int8
+    reaches the bundle's threshold."""
+    agreement_answered: float | None = None  # int8: argmax agreement over those runs
 
 
 @dataclass(frozen=True)
@@ -154,12 +161,13 @@ def _int8_gate(
 ) -> tuple[bool, str]:
     """`agreement` is measured on the probes the cascade answers under fp32 or int8 (all of
     them without a threshold): an int8 flip on an input that both graphs escalate to the
-    teacher never reaches a caller.
+    teacher never reaches a caller. The kappa drop is over every probe, so a served int8 graph
+    that answers everything (no teacher, or a lower threshold) is still bounded.
     On the Banking77 student every int8 flip was on an escalated input (RESULTS.md)."""
     rule = f"agreement with fp32 onnx on {scope} >= {INT8_MIN_AGREEMENT}"
     passed = agreement >= INT8_MIN_AGREEMENT
     if kappa_drop is not None:
-        rule += f" and kappa drop vs teacher <= {INT8_MAX_KAPPA_DROP}"
+        rule += f" and kappa drop vs teacher on all probes <= {INT8_MAX_KAPPA_DROP}"
         passed = passed and kappa_drop <= INT8_MAX_KAPPA_DROP
     return passed, rule
 
@@ -308,6 +316,8 @@ def export_student(
         raise ExportError(f"calibration temperature must be > 0, got {temperature}; recalibrate")
 
     out.parent.mkdir(parents=True, exist_ok=True)
+    for stale in out.parent.glob(f".{out.name}.export-*"):  # left by an interrupted export
+        shutil.rmtree(stale, ignore_errors=True)
     # A plain mkdir, not tempfile.mkdtemp: mkdtemp makes the directory private (0700), and the
     # bundle is an artifact other users and containers read (`docker run -v bundle:/model`).
     tmp = out.parent / f".{out.name}.export-{uuid.uuid4().hex[:12]}"
@@ -364,9 +374,7 @@ def export_student(
         q8: Parity | None = None
         excluded = 0
         if int8:
-            q8, excluded = _export_int8(
-                student, tmp, texts, got[: len(texts)], teacher_labels, meta
-            )
+            q8, excluded = _export_int8(student, tmp, texts, got, teacher_labels, meta)
             variants["int8"] = {
                 "file": VARIANT_FILES["int8"],
                 "parity": asdict(q8),
@@ -383,7 +391,12 @@ def export_student(
             shutil.rmtree(old)
         if out.exists():
             out.rename(old)
-        tmp.rename(out)
+        try:
+            tmp.rename(out)
+        except OSError:
+            if old.exists() and not out.exists():
+                old.rename(out)  # put the previous bundle back
+            raise
         if old.exists():
             shutil.rmtree(old, ignore_errors=True)
     finally:
@@ -417,10 +430,13 @@ def _export_int8(
         )
     except Exception as exc:  # the quantizer raises ORT and onnx exception types
         raise ExportError(f"int8 quantization failed: {type(exc).__name__}: {exc}") from exc
-    got = OnnxStudent(tmp, q_path, meta, "int8").logits(texts)
+    # `fp32_logits` and `got` hold every probe batched, then the first SINGLE_PROBES alone:
+    # dynamic int8 scales activations per batch, so the same text can get different int8
+    # logits with different batch mates, and the gate must see it served alone too.
+    got = _probe_logits(texts, OnnxStudent(tmp, q_path, meta, "int8").logits)
     max_diff, mean_diff, agreement = _compare(got, fp32_logits)
     kappa, ref_kappa, drop = _kappas(student.labels, got, fp32_logits, teacher_labels)
-    answered = np.ones(len(texts), dtype=bool)
+    answered = np.ones(len(got), dtype=bool)
     scope = "all probes"
     threshold = meta.get("threshold")
     if isinstance(threshold, int | float):
@@ -428,10 +444,12 @@ def _export_int8(
         cut = threshold - THRESHOLD_TOLERANCE
         # A flip reaches a caller when either graph would answer the input itself: the
         # threshold was calibrated on fp32, but int8's own confidence decides when it serves.
-        answered = answered_by_either(fp32_logits[: len(texts)], got, temperature, cut)
-        scope = f"the probes fp32 or int8 answers at threshold {threshold:.4f}"
-    n = len(texts)
-    same = got[:n].argmax(axis=1) == fp32_logits[:n].argmax(axis=1)
+        answered = answered_by_either(fp32_logits, got, temperature, cut)
+        scope = (
+            f"the probes fp32 or int8 answers at threshold {threshold:.4f}, batched and one at"
+            " a time"
+        )
+    same = got.argmax(axis=1) == fp32_logits.argmax(axis=1)
     # With no answered probe there is nothing a caller could see differ.
     on_answered = float(same[answered].mean()) if answered.any() else 1.0
     passed, gate = _int8_gate(on_answered, drop, scope)
