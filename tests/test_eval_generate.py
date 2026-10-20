@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -12,7 +13,7 @@ from anvil.evaluate.judge import Verdict, judge_sample, rubric_hash, write_verdi
 from anvil.evaluate.sql import Table
 from anvil.settings import Settings
 from anvil.teacher.base import Item
-from eval import generate
+from eval import generate, render
 from eval.generate import (
     EvalConfig,
     ExportCfg,
@@ -20,6 +21,7 @@ from eval.generate import (
     _judge,
     _override,
     load_config,
+    rescore,
     run,
     score_pair,
     slices,
@@ -394,3 +396,71 @@ def test_doubled_rows_expose_a_missing_aggregate_but_not_an_equivalent_query() -
     assert stats["execution_match_doubled"]["estimate"] == 0.5  # type: ignore[index]
     assert stats["coincidental_matches"] == 1
     assert generate.doubled(table).rows == [*table.rows, *table.rows]
+
+
+# --- rescoring a finished run ----------------------------------------------------------------
+
+
+def _copy_run(out: Path, tmp_path: Path) -> Path:
+    copy = tmp_path / "results"
+    shutil.copytree(out, copy)
+    return copy
+
+
+def test_rescore_with_the_same_scorer_changes_nothing_but_meta(
+    gold_run: tuple[dict[str, object], Path], tmp_path: Path
+) -> None:
+    report, out = gold_run
+    copy = _copy_run(out, tmp_path)
+    data, examples = sample_examples(fake_wikisql(), SIZE, 0)
+    again = rescore(copy, data, examples, "again", {"git_sha": "y", "git_dirty": True})
+    assert again == json.loads(json.dumps(report))
+    meta = json.loads((copy / "meta.json").read_text(encoding="utf-8"))
+    assert meta["command"] == "test"
+    assert meta["rescored"]["command"] == "again"
+    assert meta["rescored"]["git_sha"] == "y"
+    text = render.render_generate([("generate-toy-gold", again, meta)])
+    assert "- Rescored: `again` at `y` (dirty tree)" in text
+    assert "Rescored" not in render.render_generate([("generate-toy-gold", report, {})])
+
+
+def test_rescore_recomputes_every_statistic_from_the_stored_queries(
+    gold_run: tuple[dict[str, object], Path], tmp_path: Path
+) -> None:
+    report, out = gold_run
+    copy = _copy_run(out, tmp_path)
+    stale = json.loads((copy / "report.json").read_text(encoding="utf-8"))
+    stale["agreement"] = {"n": -1}
+    stale["slices"] = {}
+    stale["gold"]["student_vs_gold"] = {}
+    stale["baselines"]["zero_shot"]["execution_match"] = {}
+    stale["predictions"]["execution_match"] = [
+        not f for f in stale["predictions"]["execution_match"]
+    ]
+    (copy / "report.json").write_text(json.dumps(stale), encoding="utf-8")
+    data, examples = sample_examples(fake_wikisql(), SIZE, 0)
+    again = rescore(copy, data, examples, "again", {"git_sha": "y", "git_dirty": False})
+    assert again == json.loads(json.dumps(report))
+
+
+def test_rescore_without_a_finished_run_is_a_config_error(tmp_path: Path) -> None:
+    data, examples = sample_examples(fake_wikisql(), SIZE, 0)
+    with pytest.raises(ConfigError, match="nothing to rescore"):
+        rescore(
+            tmp_path / "absent", data, examples, provenance={"git_sha": "x", "git_dirty": False}
+        )
+
+
+def test_rescore_refuses_questions_outside_the_sample(
+    gold_run: tuple[dict[str, object], Path], tmp_path: Path
+) -> None:
+    _, out = gold_run
+    copy = _copy_run(out, tmp_path)
+    data, examples = sample_examples(fake_wikisql(), SIZE, 0)
+    first = next(iter(examples))
+    fewer = {k: v for k, v in examples.items() if k != first}
+    stored = json.loads((copy / "report.json").read_text(encoding="utf-8"))
+    if first not in stored["predictions"]["input_id"]:
+        fewer = {k: v for k, v in examples.items() if k != stored["predictions"]["input_id"][0]}
+    with pytest.raises(ConfigError, match="not in the sample"):
+        rescore(copy, data, fewer, provenance={"git_sha": "x", "git_dirty": False})

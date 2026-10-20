@@ -397,6 +397,18 @@ def _errors(stats: Mapping[str, Any]) -> str:
     return ", ".join(f"{k} {v}" for k, v in sorted(errors.items())) or "none"
 
 
+def _rescored(meta: Report) -> list[str]:
+    """The line saying a run's stored queries were scored again by a later scorer, if so."""
+    again = meta.get("rescored")
+    if not again:
+        return []
+    return [
+        f"- Rescored: `{again.get('command', '')}` at `{str(again.get('git_sha', ''))[:7]}`"
+        f"{' (dirty tree)' if again.get('git_dirty') else ''} (the stored queries scored"
+        " again by the current scorer; training and decoding not repeated)"
+    ]
+
+
 def _generate_details(name: str, r: Report, meta: Report) -> list[str]:
     ag, t, s = r["agreement"], r["teacher"], r["student"]
     train = s.get("train") or {}
@@ -414,6 +426,7 @@ def _generate_details(name: str, r: Report, meta: Report) -> list[str]:
         f" {meta.get('n_resamples')} bootstrap resamples (by question); {meta.get('cpus')} CPUs"
         f" ({meta.get('device', 'cpu')}); wall {_f(meta.get('wall_seconds'), 0)} s; spent"
         f" ${r['spent_usd']:.4f}",
+        *_rescored(meta),
         f"- Data: {d['repo']}@{str(d['revision'])[:7]} `{d.get('file')}` ({d['license']}),"
         f" {d['sampled']} questions sampled (seed {d['sample_seed']}, tables of at most"
         f" {d.get('max_columns')} columns, sha256 {str(d['sample_sha256'])[:12]}); held-out"

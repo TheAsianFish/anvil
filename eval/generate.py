@@ -24,7 +24,8 @@ dataset's own queries are the teacher (model id `gold`). Raw output goes to
 `train-metrics.jsonl`); `python -m eval.render` builds the RESULTS.md table. Overrides
 (`--student`, `--epochs`, `--size`, `--max-length`, `--resamples`, `--no-baseline`) make a
 smoke run under
-`...-smoke/`.
+`...-smoke/`. `--rescore` scores a finished run's stored queries again with the current
+scorer, without labelling or training.
 """
 
 from __future__ import annotations
@@ -40,6 +41,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import yaml
@@ -626,6 +628,91 @@ def run(
     return report
 
 
+def rescore(
+    out_dir: Path,
+    data: Sample,
+    examples: Mapping[str, SqlExample],
+    command: str = "",
+    provenance: Mapping[str, object] | None = None,
+) -> dict[str, object]:
+    """Score a finished run's stored queries again with the current `anvil.evaluate.sql`,
+    without labelling, training or decoding: the queries are deterministic outputs of the
+    run, the scoring is not, so a scoring fix should not cost the hours of training it took
+    to get them. Every statistic built from execution results is recomputed (agreement, the
+    zero-shot baseline and its paired difference, slices, the gold rows, the judge's agreement
+    with execution match from its stored verdicts); timings, training and the export are
+    kept. `meta.json` keeps the original run's command and records this one under
+    `rescored`."""
+    report_path, meta_path = out_dir / "report.json", out_dir / "meta.json"
+    try:
+        # Any: the parsed report is nested JSON written by `run`, edited in place here.
+        report: dict[str, Any] = json.loads(report_path.read_text(encoding="utf-8"))
+        meta: dict[str, Any] = json.loads(meta_path.read_text(encoding="utf-8"))
+    except FileNotFoundError as exc:
+        raise ConfigError(f"nothing to rescore: {exc.filename} is missing; run the eval") from exc
+    prov = dict(provenance) if provenance is not None else git_provenance()
+    n_resamples, seed = int(meta["n_resamples"]), int(meta["seed"])
+    preds = report["predictions"]
+    ids: list[str] = preds["input_id"]
+    missing = [i for i in ids if i not in examples]
+    if missing:
+        raise ConfigError(
+            f"{len(missing)} stored questions (first {missing[0]}) are not in the sample; the"
+            " config or the dataset changed since the run, so run the eval again"
+        )
+    texts_by_id = {it.id: it.text for it in data.items}
+    held_examples = [examples[i] for i in ids]
+    held_tables = [ex.table() for ex in held_examples]
+    texts = [texts_by_id[i] for i in ids]
+    teacher_sql, student_sql = preds["teacher"], preds["student"]
+
+    agreement, matches = score_pair(held_tables, teacher_sql, student_sql, n_resamples, seed)
+    flags = [m.match for m in matches]
+    report["agreement"] = agreement
+    report["slices"] = slices(held_examples, texts, flags)
+    zero = report["baselines"].get("zero_shot", {})
+    if "skipped" not in zero:
+        base_stats, base_matches = score_pair(
+            held_tables, teacher_sql, preds["zero_shot"], n_resamples, seed
+        )
+        diff = paired_difference_ci(
+            flags, [m.match for m in base_matches], n_resamples=n_resamples, seed=seed
+        )
+        report["baselines"]["zero_shot"] = {
+            **zero,
+            **base_stats,
+            "student_minus_zero_shot": asdict(diff),
+        }
+    gold_sql = [ex.sql for ex in held_examples]
+    report["gold"]["student_vs_gold"] = score_pair(
+        held_tables, gold_sql, student_sql, n_resamples, seed
+    )[0]
+    if "teacher_vs_gold" in report["gold"]:
+        report["gold"]["teacher_vs_gold"] = score_pair(
+            held_tables, gold_sql, teacher_sql, n_resamples, seed
+        )[0]
+    judged = report["judge"]
+    if "verdicts" in judged:
+        verdicts = [Verdict(**v) for v in judged["verdicts"]]
+        by_id = dict(zip(ids, flags, strict=True))
+        judged["vs_execution_match"] = asdict(
+            judge_vs_metric(verdicts, {v.id: by_id[v.id] for v in verdicts})
+        )
+    preds["execution_match"] = flags
+    preds["student_error"] = [m.candidate.error for m in matches]
+
+    meta["rescored"] = {
+        "command": command,
+        "git_sha": prov["git_sha"],
+        "git_dirty": prov["git_dirty"],
+        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+    }
+    report_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+    meta_path.write_text(json.dumps(meta, indent=2) + "\n", encoding="utf-8")
+    logger.info("rescore finished", extra={"dataset": report["dataset"]["name"]})
+    return report
+
+
 def _cuda() -> bool:
     import torch
 
@@ -705,6 +792,11 @@ def main(argv: list[str] | None = None) -> int:
         "--no-baseline", action="store_true", help="skip the zero-shot base model (smoke runs)"
     )
     parser.add_argument("--out", type=Path, help="results directory (one dataset only)")
+    parser.add_argument(
+        "--rescore",
+        action="store_true",
+        help="score a finished run's stored queries again with the current scorer (no training)",
+    )
     args = parser.parse_args(argv)
     if args.out is not None and len(args.datasets) > 1:
         parser.error("--out takes one dataset; several would overwrite each other")
@@ -740,6 +832,10 @@ def main(argv: list[str] | None = None) -> int:
             kind = resolve_teacher_kind(args.teacher, config)
             model = "gold" if kind == "gold" else config.spec.teacher.model
             out = args.out or results_dir(name, model, smoke=smoke)
+            if args.rescore:
+                report = rescore(out, data, examples, command, provenance)
+                print(summary_line(report, out))  # noqa: T201 - the final summary
+                continue
             report = run(
                 config,
                 data,
