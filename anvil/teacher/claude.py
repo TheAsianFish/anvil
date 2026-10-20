@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, wait
 
 from anvil.errors import TeacherError
 from anvil.log import get_logger
+from anvil.outputs import encode_output
 from anvil.spans import Mention, encode_answer
 from anvil.spec import TaskSpec
 from anvil.teacher.base import BatchAbortedError, Failure, Item, Label, LabelBatch
@@ -25,21 +26,33 @@ EXTRACT_RULES = """Return every entity mention in the input. For each one give:
 Mentions must not overlap. If the input has no entities, return an empty list."""
 
 
+GENERATE_RULES = "Answer with a JSON object that gives every field."
+
+
 def system_prompt(spec: TaskSpec) -> str:
-    heading = "Entity types:" if spec.kind == "extract" else "Labels:"
+    heading = {"extract": "Entity types:", "generate": "Fields:"}.get(spec.kind, "Labels:")
     lines = [spec.instructions.strip(), "", heading]
-    for label in spec.labels:
+    for label in spec.outputs if spec.kind == "generate" else spec.labels:
         lines.append(
             f"- {label.name}: {label.description}" if label.description else f"- {label.name}"
         )
     if spec.kind == "extract":
         lines += ["", EXTRACT_RULES]
+    elif spec.kind == "generate":
+        lines += ["", GENERATE_RULES]
     else:
         lines += ["", "Answer with the single best label for the input."]
     return "\n".join(lines)
 
 
 def output_schema(spec: TaskSpec) -> JSONDict:
+    if spec.kind == "generate":
+        return {
+            "type": "object",
+            "properties": {name: {"type": "string"} for name in spec.output_names},
+            "required": spec.output_names,
+            "additionalProperties": False,
+        }
     if spec.kind == "extract":
         # The text is what alignment trusts; the offset only says which occurrence is meant.
         # No `minimum` on start: structured outputs do not support numeric bounds, and a
@@ -212,6 +225,13 @@ class ClaudeTeacher:
             if isinstance(mentions, str):
                 return fail(mentions)
             value = encode_answer(mentions)
+        elif self._spec.kind == "generate":
+            if not isinstance(answer, dict):
+                return fail(f"output is not a JSON object: {text[:80]!r}")
+            try:
+                value = encode_output(answer, self._spec.output_names)
+            except ValueError as exc:
+                return fail(str(exc))
         else:
             choice = answer.get("label") if isinstance(answer, dict) else None
             if not isinstance(choice, str) or choice not in self._spec.label_names:

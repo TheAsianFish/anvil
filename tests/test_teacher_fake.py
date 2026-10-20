@@ -90,3 +90,78 @@ def test_model_id_changes_with_the_rules(toy_spec: TaskSpec) -> None:
 def test_needs_fake_section(toy_spec: TaskSpec) -> None:
     with pytest.raises(ConfigError, match="fake"):
         FakeTeacher(toy_spec.model_copy(update={"fake": None}))
+
+
+def _generate(rewrites: list[dict[str, object]], outputs: list[str] | None = None) -> TaskSpec:
+    return TaskSpec.model_validate(
+        {
+            "name": "sql",
+            "kind": "generate",
+            "instructions": "Write SQL.",
+            "outputs": outputs or ["sql"],
+            "fake": {"rewrites": rewrites},
+        }
+    )
+
+
+REWRITES: list[dict[str, object]] = [
+    {"pattern": r"how old is (\w+)", "output": {"sql": "SELECT age FROM t WHERE name = '\\1'"}},
+    {
+        "pattern": r"older than (?P<n>\d+)",
+        "output": {"sql": r"SELECT name FROM t WHERE age > \g<n>"},
+    },
+    {"pattern": r"how old", "output": {"sql": "never reached for the inputs above"}},
+]
+
+
+def test_generate_rewrites_expand_groups_and_carry_provenance() -> None:
+    spec = _generate(REWRITES)
+    teacher = FakeTeacher(spec)
+    items = [
+        Item("a", "How OLD is Ada?"),  # case insensitive; the group keeps the input's case
+        Item("b", "who is older than 40"),
+        Item("c", "how old are they"),
+    ]
+    batch = teacher.label(items)
+    assert batch.failures == []
+    assert [lb.label for lb in batch.labels] == [
+        '{"sql":"SELECT age FROM t WHERE name = \'Ada\'"}',
+        '{"sql":"SELECT name FROM t WHERE age > 40"}',
+        '{"sql":"never reached for the inputs above"}',
+    ]
+    assert all(lb.prompt_hash == spec.prompt_hash for lb in batch.labels)
+    assert all(lb.teacher_model == teacher.model_id for lb in batch.labels)
+    assert batch.spent_usd == 0.0
+
+
+def test_generate_first_matching_rewrite_wins() -> None:
+    first, _, catch_all = REWRITES
+    teacher = FakeTeacher(_generate([catch_all, first]))
+    assert teacher.rewrite("how old is Ada") == '{"sql":"never reached for the inputs above"}'
+    assert FakeTeacher(_generate(REWRITES)).rewrite("how old is Ada") == (
+        '{"sql":"SELECT age FROM t WHERE name = \'Ada\'"}'
+    )
+
+
+def test_generate_without_a_match_is_a_failure() -> None:
+    batch = FakeTeacher(_generate(REWRITES)).label([Item("x", "hello"), Item("y", "how old")])
+    assert [lb.input_id for lb in batch.labels] == ["y"]
+    (failure,) = batch.failures
+    assert failure.input_id == "x"
+    assert "no fake rewrite matches" in failure.reason
+
+
+def test_generate_rewrites_write_fields_in_spec_order() -> None:
+    rule: dict[str, object] = {
+        "pattern": r"(\w+)",
+        "output": {"why": "because \\1", "sql": "SELECT \\1"},
+    }
+    teacher = FakeTeacher(_generate([rule], outputs=["sql", "why"]))
+    assert teacher.rewrite("x") == '{"sql":"SELECT x","why":"because x"}'
+
+
+def test_generate_model_id_changes_with_the_rewrites() -> None:
+    other = [{**REWRITES[0], "output": {"sql": "SELECT 1"}}, *REWRITES[1:]]
+    assert FakeTeacher.model_id_for(_generate(REWRITES)) != FakeTeacher.model_id_for(
+        _generate(other)
+    )
