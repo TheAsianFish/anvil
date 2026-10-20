@@ -1,0 +1,32 @@
+{
+  "command": "python -m eval.generate wikisql --teacher gold",
+  "git_sha": "795cc7de56ad47dbe587b6c05fd3c615d7b4fbc0",
+  "git_dirty": false,
+  "anvil": "0.1.0.dev0",
+  "python": "3.12.3",
+  "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+  "cpus": 4,
+  "device": "cpu",
+  "versions": {
+    "torch": "2.14.1+cpu",
+    "transformers": "5.20.1",
+    "numpy": "2.5.4",
+    "scikit-learn": "1.9.1",
+    "datasets": "5.1.0",
+    "anthropic": "1.15.0"
+  },
+  "seed": 0,
+  "n_resamples": 1000,
+  "teacher_model": "gold",
+  "student_model": "Qwen/Qwen2.5-0.5B-Instruct",
+  "judge_model": "claude-haiku-5-5",
+  "wall_seconds": 6201.0,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-20T13:11:42Z",
+  "rescored": {
+    "command": "python -m eval.generate wikisql --teacher gold --rescore --out /tmp/rescore/run",
+    "git_sha": "210aa911fa132664dac33b2b3f187476a3542d5a",
+    "git_dirty": false,
+    "finished_at": "2026-10-20T14:25:29Z"
+  }
+}
