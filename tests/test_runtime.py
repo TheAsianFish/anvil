@@ -97,6 +97,22 @@ def test_parity_gate_refuses_a_failed_variant_unless_overridden(
     np.testing.assert_array_equal(student.logits(PROBES), expected)
 
 
+def test_variant_file_is_resolved_inside_the_bundle(
+    edited: Callable[[Callable[[dict[str, object]], None]], Path], tmp_path: Path
+) -> None:
+    outside = tmp_path / "outside.onnx"
+    outside.write_bytes(b"not a model")
+
+    def point_outside(meta: dict[str, object]) -> None:
+        variants = meta["variants"]
+        assert isinstance(variants, dict)
+        variants["fp32"]["file"] = str(outside)
+
+    path = edited(point_outside)
+    with pytest.raises(ExportError, match="missing from the bundle"):
+        OnnxStudent.load(path)
+
+
 def test_int8_variant_loads_when_it_passed(bundle: Exported) -> None:
     assert bundle.report.int8 is not None
     if bundle.report.int8.passed:

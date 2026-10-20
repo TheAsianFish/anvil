@@ -169,7 +169,8 @@ class OnnxStudent:
                 f" ({info.get('parity')}), so it is not served; use the fp32 variant or"
                 f" {_EXPORT_HINT}"
             )
-        model_file = bundle / str(info.get("file") or VARIANT_FILES[variant])
+        # A file name only: the meta is operator data, but it must not point outside the bundle.
+        model_file = bundle / Path(str(info.get("file") or VARIANT_FILES[variant])).name
         if not model_file.is_file():
             raise ExportError(f"{model_file} is missing from the bundle; {_EXPORT_HINT}")
         student = cls(bundle, model_file, meta, variant, threads)
