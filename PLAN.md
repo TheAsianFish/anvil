@@ -436,7 +436,12 @@ Batches halve the cost of large pools and are used when a batch exceeds
   with execution match item by item (it needs a key: "To measure"). The baseline is the base
   model zero-shot on the same prompt. With no key the teacher is WikiSQL's own queries
   (`TEACHER=gold`). `anvil loop` and `anvil calibrate` stay classify-only, and serving the
-  generator is not in this milestone.
+  generator is not in this milestone. Scoring found that 22 of 300 WikiSQL references aggregate over
+  no matching rows and return one `NULL` row, which any other aggregate over nothing matches.
+  They now count as empty references. Since training and greedy decoding are deterministic,
+  `eval.generate --rescore` scores a run's stored queries again instead of retraining for two
+  hours. A recorded judge verdict is keyed by the question and a hash of the exact pair judged,
+  since the candidate is the student's query and changes with every retrain.
 
 ## Milestones
 
@@ -445,5 +450,5 @@ Batches halve the cost of large pools and are used when a batch exceeds
 - [x] M3: Active learning and the frontier — `select.py` interface with the `random` baseline, property tests and the synthetic selection study; `anvil loop` with label and dollar budgets, from-scratch retrains and `frontier.jsonl`; `make eval-frontier` (3 seeds, 5 budgets, every strategy present) and `make eval-select`; RESULTS.md frontier table with "labels to kappa 0.8 / 0.9". Done when the loop runs end to end offline with the fake teacher and the frontier table is produced from real labels where a key exists.
 - [x] M4: Extraction — teacher schema with character-offset spans, `align.py` (verification, token snapping, unaligned-rate report), `EncoderTagger`, entity-level F1 and token kappa vs teacher, `make eval-extract` on MIT Restaurant. Done when alignment has tests for off-by-one, overlapping and unicode cases and the extraction eval writes its table.
 - [x] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
-- [ ] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.
+- [x] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.
 - [ ] M7: Release readiness — `anvil push` with the rendered model card, PyPI and GHCR workflows with `if:` guards, RELEASE.md with the secrets to add, README (architecture, results table, demo, roadmap), final RESULTS.md with every measured number and its cost, CONTRIBUTING.md refreshed. Done when a clean-venv wheel install runs `anvil --help` and the demo, and every README number traces to a RESULTS.md entry.
