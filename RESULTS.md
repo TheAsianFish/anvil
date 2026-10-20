@@ -337,9 +337,12 @@ Findings:
   bound to clear it held the target in 90.5% and 87.0% of splits, for 7 points less coverage on
   Banking77 (median 80.2% against 87.1%) and 23 on AG News (65.1% against 88.3%). That is why
   `anvil calibrate` uses the lower bound by default. It still falls short of the nominal 95%,
-  because the search keeps the largest coverage among many candidate thresholds whose bounds
-  all clear the target, and the best-looking of many is optimistic: a known cost of choosing
-  after looking, measured here rather than assumed.
+  and the gap is mostly in what the study scores: whether the kappa realised on about 240
+  fresh inputs clears the target, a statement about one noisy sample rather than the
+  population statement a lower confidence bound makes, so a threshold whose true kappa sits
+  just above 0.9 misses on some fresh halves. The percentile bootstrap's known optimism for a
+  statistic bounded at 1 takes the last point or two. The shares also move by a few points
+  with the study seed (`--seed`), so read them as about nine in ten against about one in two.
 - **Temperature scaling makes the confidences honest but buys no coverage.** Both students
   are slightly overconfident (T 1.24 and 1.22); on the unseen halves scaling cut the median ECE
   from 0.070 to 0.054 (Banking77) and 0.051 to 0.047 (AG News). Coverage and hit rate with
@@ -350,7 +353,8 @@ Findings:
 - **The product number.** At the served setting (target 0.9, lower bound) the Banking77
   student answers 82.3% of held-out inputs at kappa 0.923 (lower bound 0.900) and escalates
   the other 17.7%; for
-  0.95 it answers 70.8%. AG News, whose student has the same overall kappa (0.844), keeps less
+  0.95 it answers 70.8%. AG News, whose student has almost the same overall kappa (0.844
+  against 0.842), keeps less
   (75.7% and 41.9%): its errors are spread further up the confidence range (agreement on its
   most confident half is 0.971, against 0.992 for Banking77), so a strict target has to give
   up more inputs to reach it. The same overall kappa can mean very different cascades.
@@ -439,8 +443,8 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 Findings:
 
 - **fp32 export is exact for serving purposes.** The largest logit difference over all
-  held-out inputs is 2.3e-05 (Banking77) and 2.9e-05 (AG News), four times inside the 1e-4
-  gate, with identical argmax everywhere, so kappa is unchanged to three decimals.
+  held-out inputs is 2.3e-05 (Banking77) and 2.9e-05 (AG News), three to four times inside
+  the 1e-4 gate, with identical argmax everywhere, so kappa is unchanged to three decimals.
 - **The MLP down-projection is what int8 cannot take, now measured on a trained head.**
   Quantizing only those 22 MatMuls leaves 2.6% (Banking77) and 26% (AG News) of argmax
   decisions unchanged. Every other group alone keeps
@@ -456,6 +460,11 @@ Findings:
   (PLAN.md, M5). The first version of the gate took the answered inputs from fp32's
   confidence alone (408 and 361), which misses an input fp32 escalates but a served int8
   graph answers itself; counting either graph's answers adds 9 and 4 inputs and no flip.
+  Since this run the gate also scores the first 16 probes served one at a time, as the fp32
+  check already did: dynamic quantization scales activations per batch, so an input's int8
+  logits depend on its batch mates (on the tiny test model the same text moves by 0.03
+  between a batch and a single call), and a served request is often one input. The table's
+  answered counts predate those runs; the re-run is under "To measure".
 - Two things about the quantizer that the first version of this probe got wrong: it also
   quantizes the token embedding `Gather` by default, and it converts each `Gemm` before it
   reads its exclusion list, so the head and the classifier are quantized in every row. Both
@@ -572,6 +581,7 @@ At the bundle's threshold (0.6395, target kappa 0.9, rule `lower`) the student a
 | The `uncertainty`, `margin` and `diverse` curves, synthetic and text | write them in `anvil/select.py` (the tests in `tests/test_select.py` turn from expected failures into passes), then `make eval-select` and `make eval-frontier TEACHER=gold` | about 2.5 h CPU per strategy for the text frontier; seconds for the synthetic study | $0 |
 | Teacher latency and cost per 1,000 inputs next to the student in the bench table, and the cascade's cost at its measured coverage | `make eval-classify` with a key (records the Haiku labels and their cost), then `uv run --group eval python -m eval.bench --teacher-live 50` | key | the eval's ~$0.35, plus about $0.01 for 50 uncached timed Haiku calls |
 | Calibration and the cascade against Claude labels (does the 0.9 threshold hold when the teacher is a model, not gold?) | after the keyed `make eval-classify`, `make eval-calibration eval-export` (`TEACHER=auto` replays the recorded labels; the students are retrained on them, about 1.5 h CPU) | key for the labels | $0 beyond the `make eval-classify` labels |
+| The export table with the int8 gate as it now stands (the first 16 probes also served one at a time; the committed run scored batched probes only) and the bench on that bundle | `make eval-export TEACHER=gold`, then `make bench TEACHER=gold` | about 2 h CPU for the two exports with the layer probe, 20 min for the bench | $0 |
 | A third training seed on both datasets (seeds 0 and 1 are in the table above) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 2`, then `make results` | about 1.5 h CPU (2 ModernBERT-base runs) | $0 |
 
 The toy task is synthetic and only exercises the pipeline; real parity numbers come from the

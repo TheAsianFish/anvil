@@ -374,14 +374,16 @@ Batches halve the cost of large pools and are used when a batch exceeds
   same ModernBERT-base runs as the parity table: retraining them reproduced the committed
   training log step for step), so their numbers are comparable with it; `eval/student.py`
   finds the student in the eval workspace by its recorded settings or trains it the same way.
-  Temperature scaling fits T on the held-out teacher labels; when the student agrees with
-  every one of them the NLL has no minimum and T stays 1 (a toy run sent it to the lower
-  bound, where every input, nonsense included, scored 1.0 and nothing could escalate). The
+  Temperature scaling fits T on the held-out teacher labels; when the fit runs to a bound
+  (the student agrees with every one of them, or its few errors have nearly flat logits) the
+  NLL has no minimum and T stays 1 (a toy run sent it to the lower bound, where every input,
+  nonsense included, scored 1.0 and nothing could escalate). The
   threshold is the largest coverage whose kappa on the answered inputs reaches the target,
   by default on a one-sided 95% bootstrap lower bound rather than the point estimate; the
   in-sample choice is checked out of sample by refitting T and the threshold on random halves
   of the held-out split and scoring the other half. A calibration that finds no threshold
-  makes the server escalate every input. Export writes a bundle (fp32 graph, optional int8
+  makes the server escalate every input, so such a bundle is refused without a teacher unless
+  a threshold is given explicitly. Export writes a bundle (fp32 graph, optional int8
   graph, `tokenizer.json`, metadata with the calibration, the parity results and the task
   spec, so the server can rebuild the teacher) and only moves it into place when fp32 matches
   PyTorch; tokenization in the parity check goes through the serving tokenizer, so a
@@ -392,8 +394,12 @@ Batches halve the cost of large pools and are used when a batch exceeds
   measured on the inputs the student answers at the bundle's threshold under fp32 or int8
   (int8's own confidence decides when it is served; all inputs when there is no threshold),
   still with the 0.01 kappa-drop limit on every input, and the overall agreement is reported
-  next to it. The probe also found what the spike guessed: quantizing only the MLP
-  down-projections takes agreement to 3%, so they stay fp32.
+  next to it. The int8 graph runs the probes as the fp32 check does, batched and the first
+  16 one at a time: dynamic quantization scales activations per batch, so an input's int8
+  logits depend on its batch mates, and a served request is often one input. The committed
+  export table predates the single-input runs (RESULTS.md, To measure). The probe also found
+  what the spike guessed: quantizing only the MLP down-projections takes agreement to 3%, so
+  they stay fp32.
   `anvil serve` imports neither torch nor transformers (a test enforces it), and the serving
   image installs the lock file's serving dependencies without them. Export and serving cover
   classify students; serving the extraction tagger is not in this milestone. `make bench` is

@@ -343,17 +343,22 @@ data about half the time (RESULTS.md).
   maintain for a gain the plain threshold already measures).
 - **Temperature scaling, and when not to.** One scalar T fitted by NLL on
   the held-out teacher labels makes confidence readable as agreement; it
-  does not change any label. When the student agrees with every held-out
-  label the NLL has no minimum, the fit runs to its bound and every input,
+  does not change any label. When the fit runs to a bound (the student
+  agrees with every held-out label, or its few errors have nearly flat
+  logits) the NLL has no minimum, and at the lower bound every input,
   nonsense included, would score 1.0, so T stays 1. Because T reorders
   inputs by confidence, the threshold is chosen and served on the same T.
 - **No threshold, no trust.** When no threshold reaches the target, the
-  server escalates every input; it never quietly answers everything.
+  server escalates every input, and refuses to start without a teacher to
+  send them to; it never quietly answers everything. An explicit
+  `--threshold` is the operator's override.
 - **A bundle is served only if it matches PyTorch.** fp32 must agree to
   1e-4 in logits and exactly in argmax on held-out inputs, measured through
   the serving tokenizer, or nothing is written; int8 must keep argmax
-  agreement on the inputs the cascade answers and the kappa with the teacher
-  within 0.01, or its file is deleted and the server refuses it.
+  agreement on the inputs the cascade answers, batched and one at a time
+  (dynamic quantization scales activations per batch), and the kappa with
+  the teacher on every input within 0.01, or its file is deleted and the
+  server refuses it.
 - **No torch on the serving path.** `anvil serve` uses ONNX Runtime and the
   Rust tokenizer; a test imports it with torch blocked, and the serving
   image is built from the lock file without torch or transformers.
