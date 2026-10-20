@@ -23,6 +23,7 @@ from anvil.calibrate import (
     serving_temperature,
     softmax,
 )
+from anvil.evaluate.bootstrap import kappa_replicates, resample_indices
 from anvil.evaluate.metrics import cohen_kappa
 
 FloatArray = npt.NDArray[np.float64]
@@ -304,6 +305,36 @@ def test_lower_rule_never_exceeds_point_rule() -> None:
                 assert lower.kappa >= target
 
 
+def test_lower_bound_is_the_fifth_percentile_of_the_bootstrap_on_the_accepted_inputs() -> None:
+    confidence, teacher, student = tied_case(11, 400, 3)
+    choice = choose_threshold(confidence, teacher, student, 3, 0.7, n_resamples=300, seed=5)
+    assert choice is not None
+    keep = confidence >= choice.threshold
+    assert int(keep.sum()) == choice.accepted
+    order = np.argsort(-confidence, kind="stable")  # the accepted prefix, as the search sees it
+    t_acc, s_acc = teacher[order][: choice.accepted], student[order][: choice.accepted]
+    idx = resample_indices(choice.accepted, 300, 5)
+    replicates = kappa_replicates(t_acc, s_acc, 3, idx)
+    assert choice.kappa_low == float(np.percentile(replicates, 5))
+    assert choice.kappa_low < choice.kappa < float(np.percentile(replicates, 95))
+
+
+def test_lower_rule_gives_up_coverage_the_point_rule_keeps() -> None:
+    # The full curve's kappa clears the target by a hair: the point rule takes all 200 inputs,
+    # the lower bound of 200 inputs does not reach it, so the lower rule must stop earlier.
+    confidence, teacher, student = dip_case()
+    full = coverage_curve(confidence, teacher, student, 3)[-1].kappa
+    target = full - 1e-9
+    point = choose_threshold(confidence, teacher, student, 3, target, rule="point")
+    lower = choose_threshold(confidence, teacher, student, 3, target, n_resamples=500)
+    assert point is not None
+    assert point.coverage == 1.0
+    assert lower is not None
+    assert lower.coverage < 1.0
+    assert lower.kappa_low is not None
+    assert lower.kappa_low >= target
+
+
 def test_choose_threshold_none_min_accepted_and_determinism() -> None:
     confidence, teacher, student = dip_case()
     assert choose_threshold(confidence, teacher, student, 3, 1.01, rule="point") is None
@@ -368,3 +399,20 @@ def test_perfect_agreement_leaves_the_temperature_at_one() -> None:
     t, identified = serving_temperature(logits, disagree)
     assert identified
     assert t == fit_temperature(logits, disagree)
+
+
+def test_a_fit_that_runs_to_a_bound_is_not_identified_even_with_disagreements() -> None:
+    # 300 confident correct inputs and one wrong input with nearly flat logits: the NLL still
+    # falls as T shrinks, the fit clamps at the lower bound, and at T = 0.05 a near-uniform
+    # (out-of-distribution) prediction would be served as confidence ~1.0.
+    rng = np.random.default_rng(0)
+    right = np.zeros((300, 5))
+    right[np.arange(300), rng.integers(0, 5, 300)] = 6.0
+    wrong = np.array([[0.001, 0.0, -0.05, -0.05, -0.05]])
+    logits = np.concatenate([right, wrong])
+    targets = np.concatenate([right.argmax(axis=1), [1]]).astype(np.int64)
+    assert fit_temperature(logits, targets) == 0.05
+    assert serving_temperature(logits, targets) == (1.0, False)
+    flat = np.array([[0.2, 0.0, 0.0, 0.0, 0.0]])
+    assert softmax(flat, 0.05)[0].max() > 0.5
+    assert softmax(flat, 1.0)[0].max() < 0.25

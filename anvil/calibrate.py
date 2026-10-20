@@ -198,9 +198,11 @@ def ece(probs: ArrayLike2D, targets: npt.ArrayLike, n_bins: int = 15) -> float:
 
 THRESHOLD_TOLERANCE = 1e-6
 """Serving accepts confidence >= threshold - THRESHOLD_TOLERANCE. The threshold is the exact
-float64 confidence of one held-out input as PyTorch scored it; served confidences come from
-ONNX logits (within 1e-4 of PyTorch) through a float32 softmax, so without it the input that
-set the threshold would fall just under it about half the time."""
+float64 confidence of one held-out input; the server compares a float32 confidence, whose
+rounding (about 3e-8) would otherwise put that input just under its own threshold about half
+the time. It does not cover the ONNX-vs-PyTorch logit difference (gate 1e-4, measured 3e-05),
+which can move a confidence by a few 1e-5: an input that close to the threshold may escalate
+when PyTorch would have answered it, which errs toward the teacher."""
 
 
 @dataclass(frozen=True)
@@ -380,15 +382,20 @@ def choose_threshold(
 
 
 def serving_temperature(logits: ArrayLike2D, targets: npt.ArrayLike) -> tuple[float, bool]:
-    """`fit_temperature`, except when the student's argmax agrees with every target: then the
-    NLL keeps falling as T shrinks, the fit runs to its lower bound, and every input, however
-    unlike the training data, would score a confidence of 1.0 and never escalate. There is no
-    disagreement to rescale on, so T stays 1.0. Returns (T, whether T was identified)."""
+    """`fit_temperature`, except when the NLL has no minimum inside `TEMPERATURE_BOUNDS`: then
+    the fit runs to a bound, and at the lower bound every input, however unlike the training
+    data, would score a confidence near 1.0 and never escalate. That happens when the student's
+    argmax agrees with every target (there is no disagreement to rescale on) and also with a
+    few disagreements whose logits are nearly flat. In both cases T stays 1.0. Returns (T,
+    whether T was identified)."""
     z = _logits(logits)
     y = _codes(targets, z.shape[0], z.shape[1], "targets")
     if not (z.argmax(axis=1) != y).any():
         return 1.0, False
-    return fit_temperature(z, y), True
+    t = fit_temperature(z, y)
+    if t in TEMPERATURE_BOUNDS:  # fit_temperature returns a bound exactly when it is clamped
+        return 1.0, False
+    return t, True
 
 
 @dataclass(frozen=True)
@@ -402,8 +409,9 @@ class Calibration:
     temperature: float
     n: int
     temperature_identified: bool
-    """False when the student's argmax agrees with the teacher on every input, so the NLL
-    keeps falling as T shrinks and has no minimum: the temperature is then left at 1.0."""
+    """False when the held-out NLL has no minimum inside the temperature bounds (the student
+    agrees with the teacher on every input, or its few errors have nearly flat logits): the
+    temperature is then left at 1.0."""
     nll_before: float
     nll_after: float
     ece_before: float

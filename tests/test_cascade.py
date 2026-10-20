@@ -167,6 +167,20 @@ def test_calibrate_and_export_refuse_a_changed_prompt(toy: Toy) -> None:
         export_bundle(edited, toy.ws, toy.student, toy.ws.root / "x")
 
 
+def test_calibrate_needs_enough_held_out_labels_for_a_threshold(toy: Toy) -> None:
+    with pytest.raises(StoreError, match="held-out teacher labels"):
+        calibrate_student(toy.spec, toy.ws, toy.student, min_accepted=10_000)
+    # Without a target there is no threshold to choose, so the count does not matter.
+    report = calibrate_student(
+        toy.spec, toy.ws, toy.student, target_kappa=None, min_accepted=10_000
+    )
+    assert report.calibration.threshold is None
+    # Restore the module fixture's calibration for the tests after this one.
+    calibrate_student(
+        toy.spec, toy.ws, toy.student, target_kappa=0.8, rule="point", n_resamples=200
+    )
+
+
 def test_export_refuses_extract_tasks(toy: Toy, tmp_path: Path) -> None:
     extract = TaskSpec.model_validate(
         {"name": "slots", "kind": "extract", "instructions": "Find slots.", "labels": ["dish"]}

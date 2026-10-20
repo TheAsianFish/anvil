@@ -410,6 +410,7 @@ def calibrate_student(
     *,
     target_kappa: float | None = 0.9,
     rule: Rule = "lower",
+    min_accepted: int = 30,
     n_resamples: int = 1000,
     seed: int = 0,
 ) -> CalibrationReport:
@@ -435,6 +436,11 @@ def calibrate_student(
         pairs = store.labelled(teacher_model, prompt_hash, Split.HELDOUT)
     if not pairs:
         raise StoreError("no teacher labels on the held-out split; run `anvil label` first")
+    if target_kappa is not None and len(pairs) < min_accepted:
+        raise StoreError(
+            f"only {len(pairs)} held-out teacher labels, and a threshold needs at least"
+            f" {min_accepted} answered inputs to be chosen; label more held-out inputs first"
+        )
     index = {name: i for i, name in enumerate(student.labels)}
     unknown = sorted({lab for _, lab in pairs if lab not in index})
     if unknown:
@@ -445,7 +451,13 @@ def calibrate_student(
     logits = student.predict_logits([it.text for it, _ in pairs])
     teacher = [index[lab] for _, lab in pairs]
     result = calibrate(
-        logits, teacher, target_kappa=target_kappa, rule=rule, n_resamples=n_resamples, seed=seed
+        logits,
+        teacher,
+        target_kappa=target_kappa,
+        rule=rule,
+        min_accepted=min_accepted,
+        n_resamples=n_resamples,
+        seed=seed,
     )
     written = write_calibration(path, result.as_dict(), teacher_model)
     log.info(
