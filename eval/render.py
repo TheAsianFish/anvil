@@ -347,6 +347,158 @@ def _extract_details(name: str, r: Report, meta: Report) -> list[str]:
     return out
 
 
+def _em(stats: Mapping[str, Any] | None, key: str = "execution_match") -> str:
+    """Execution match with its interval, `0.712 [0.660, 0.763]`."""
+    if not stats or key not in stats:
+        return "n/a"
+    ci = stats[key]
+    return f"{_f(ci.get('estimate'))} [{_f(ci.get('low'))}, {_f(ci.get('high'))}]"
+
+
+def render_generate(runs: list[tuple[str, Report, Report]]) -> str:
+    if not runs:
+        return "No generation runs yet: run `make eval-generate`.\n"
+    lines = [
+        "| Dataset | Teacher | Student | Teacher labels | Held-out | Execution match [95% CI]"
+        " | Exec. match, rows doubled too | Exact SQL | Exec. match, non-empty reference"
+        " | Zero-shot base [95% CI]"
+        " | Student minus zero-shot [95% paired CI] | Teacher ceiling | Merged export"
+        " | Label cost | Wall time |",
+        "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for _, r, meta in runs:
+        ag, t, s = r["agreement"], r["teacher"], r["student"]
+        zero = (r.get("baselines") or {}).get("zero_shot") or {}
+        ceiling = r.get("ceiling") or {}
+        parity = (r.get("export") or {}).get("parity") or {}
+        merged = (
+            f"{parity['same_completions']}/{parity['probes']} identical,"
+            f" max diff {_sci(parity['max_abs_logit_diff'])}"
+            if parity
+            else "n/a"
+        )
+        minutes = meta.get("wall_seconds", r["wall_seconds"]) / 60
+        lines.append(
+            f"| {r['dataset']['name']} | {t['model']} | {_student_name(s['model'])}"
+            f" | {t['pool_labels']} | {ag['n']} | {_em(ag)}"
+            f" | {_em(ag, 'execution_match_doubled')} | {_f(ag['exact_match'])}"
+            f" | {_f(ag.get('execution_match_nonempty'))} | {_em(zero)}"
+            f" | {_diff(zero.get('student_minus_zero_shot'))} | {_em(ceiling)}"
+            f" | {merged} | ${t['label_cost_usd']:.2f} | {minutes:.0f} min |"
+        )
+    lines.append("")
+    for name, r, meta in runs:
+        lines += _generate_details(name, r, meta)
+    return "\n".join(lines)
+
+
+def _errors(stats: Mapping[str, Any]) -> str:
+    errors = stats.get("candidate_errors") or {}
+    return ", ".join(f"{k} {v}" for k, v in sorted(errors.items())) or "none"
+
+
+def _generate_details(name: str, r: Report, meta: Report) -> list[str]:
+    ag, t, s = r["agreement"], r["teacher"], r["student"]
+    train = s.get("train") or {}
+    chat = s.get("chat") or {}
+    settings = s.get("settings") or {}
+    lora = settings.get("lora") or {}
+    d = r["dataset"]
+    out = [
+        f"#### {d['name']}, teacher `{t['model']}`, student `{_student_name(s['model'])}`",
+        "",
+        f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`,"
+        " `train-metrics.jsonl`)",
+        f"- Command: `{meta.get('command', '')}` at `{str(meta.get('git_sha', ''))[:7]}`"
+        f"{' (dirty tree)' if meta.get('git_dirty') else ''}; seed {meta.get('seed')},"
+        f" {meta.get('n_resamples')} bootstrap resamples (by question); {meta.get('cpus')} CPUs"
+        f" ({meta.get('device', 'cpu')}); wall {_f(meta.get('wall_seconds'), 0)} s; spent"
+        f" ${r['spent_usd']:.4f}",
+        f"- Data: {d['repo']}@{str(d['revision'])[:7]} `{d.get('file')}` ({d['license']}),"
+        f" {d['sampled']} questions sampled (seed {d['sample_seed']}, tables of at most"
+        f" {d.get('max_columns')} columns, sha256 {str(d['sample_sha256'])[:12]}); held-out"
+        f" questions sharing at least 80% of their words with a pool question:"
+        f" {d.get('near_duplicate_heldout')}",
+        f"- Training: LoRA r={lora.get('r')}, alpha={lora.get('alpha')} on"
+        f" {', '.join(lora.get('target_modules') or [])}; {train.get('examples')} examples and"
+        f" {train.get('validation_examples')} held back to pick the epoch (greedy exact match),"
+        f" {train.get('epochs')} epochs, {train.get('steps')} steps, best epoch"
+        f" {train.get('best_epoch')}, {_f(train.get('seconds'), 0)} s; chat template:"
+        f" {chat.get('examples')} answers aligned, {sum((chat.get('dropped') or {}).values())}"
+        f" dropped, longest sequence {chat.get('longest')} tokens",
+        f"- Decoding: greedy, {_f(s.get('generate_ms_per_input'), 0)} ms per held-out question"
+        f" (batches of 16, length-sorted)",
+        f"- Execution match on the {ag.get('nonempty_reference')} questions whose reference"
+        f" returns a row: {_f(ag.get('execution_match_nonempty'))}; references returning"
+        f" nothing: {ag.get('reference_empty')} of {ag['n']} (any query that also returns nothing"
+        " matches them)",
+        f"- Coincidental matches: {ag.get('coincidental_matches')} queries match on the table"
+        " but not once every row is doubled (a missing aggregate over one row, a count that"
+        " equals a cell)",
+        f"- Execution vs exact match: {ag.get('executed_match_not_exact')} queries match by"
+        f" result but differ as SQL, {ag.get('exact_but_not_executed_match')} the other way;"
+        f" student execution errors: {_errors(ag)}",
+    ]
+    if t["kind"] == "gold":
+        out.append(
+            "- The teacher here is WikiSQL's own query for each question (no API key in this"
+            " run), so this row measures the harness and how well the student learns from"
+            f" {t['pool_labels']:,} clean labels; it is not a parity-with-Claude number."
+        )
+    zero = (r.get("baselines") or {}).get("zero_shot") or {}
+    if "execution_match" in zero:
+        out.append(
+            f"- Zero-shot base model (no adapter, same prompt): execution match {_em(zero)},"
+            f" exact SQL {_f(zero.get('exact_match'))}, {zero.get('fenced_completions')}"
+            f" answers wrapped in a code fence; errors: {_errors(zero)}"
+        )
+    gold = r.get("gold") or {}
+    if "teacher_vs_gold" in gold:
+        out.append(
+            f"- Against WikiSQL's queries: teacher {_em(gold['teacher_vs_gold'])}, student"
+            f" {_em(gold['student_vs_gold'])}"
+        )
+    sl = r.get("slices") or {}
+    for key, label in (
+        ("aggregate", "aggregate"),
+        ("conditions", "conditions"),
+        ("length", "words"),
+    ):
+        rows = sl.get(key) or []
+        if rows:
+            cells = ", ".join(
+                f"{row[label]}: {_f(row['execution_match'], 2)} (n={row['n']})" for row in rows
+            )
+            title = {"aggregate": "by aggregate", "conditions": "by WHERE conditions"}.get(
+                key, "by input length (words)"
+            )
+            out.append(f"- Execution match {title}: {cells}")
+    judge = r.get("judge") or {}
+    if "vs_execution_match" in judge:
+        j = judge["vs_execution_match"]
+        out.append(
+            f"- Judge `{judge.get('model')}` on {j.get('n')} sampled pairs ({j.get('failed')}"
+            f" failed): equivalent {_pct(j.get('equivalent_rate'))}; both say match"
+            f" {j.get('both_match')}, judge only {j.get('judge_only')}, execution only"
+            f" {j.get('exec_only')}, neither {j.get('neither')}; kappa {_f(j.get('kappa'))};"
+            f" spent ${judge.get('spent_usd', 0.0):.4f}"
+        )
+    elif judge.get("skipped"):
+        out.append(f"- Judge sample: skipped ({judge['skipped']})")
+    export = r.get("export") or {}
+    parity = export.get("parity") or {}
+    if parity:
+        out.append(
+            f"- Merged export: {parity.get('same_completions')}/{parity.get('probes')} held-out"
+            f" completions identical to the adapter's, max |logit diff|"
+            f" {_sci(parity.get('max_abs_logit_diff'))} on {parity.get('logit_probes')} prompts;"
+            f" {_f(export.get('size_mb'), 0)} MB, {export.get('adapter_parameters'):,} adapter"
+            " parameters folded in"
+        )
+    out.append("")
+    return out
+
+
 BLOCK = re.compile(
     r"(<!-- BEGIN generated:(?P<name>[a-z-]+) -->\n)(?P<body>.*?)"
     r"(<!-- END generated:(?P=name) -->)",
@@ -869,6 +1021,7 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "calibration": render_calibration(load_runs(results_dir, prefix="calibration-")),
         "export": render_export(load_runs(results_dir, prefix="export-")),
         "bench": render_bench(load_runs(results_dir, prefix="bench-")),
+        "generate": render_generate(load_runs(results_dir, prefix="generate-")),
     }
 
 

@@ -1,0 +1,56 @@
+# `make eval-generate` on WikiSQL: a question about one Wikipedia table, answered with one
+# SQLite query over it (single SELECT, optional aggregate, AND-ed conditions).
+dataset:
+  name: wikisql
+  repo: Salesforce/wikisql
+  revision: 48cfb60afd0d5f9d2231ca90f76edf9f975181bc   # refs/convert/parquet
+  filename: default/train/0000.parquet
+  license: "WikiSQL (Zhong et al., 2017, Salesforce); BSD-3-Clause in the GitHub repo, the Hub card lists it as unknown"
+sample:
+  size: 1340          # distinct questions; the store's hash split puts ~25% in held-out
+  pool_labels: 1000
+  heldout_labels: 300
+  seed: 0
+  max_columns: 12     # leaves out the 2% of tables wider than this (long prompts)
+ceiling:
+  n: 100              # held-out questions labelled a second time under a paraphrased prompt
+  instructions: |
+    Translate the question into a single SQLite SELECT statement on table t. Column names go
+    in double quotes, text values in single quotes. Reply with the statement only.
+judge:
+  n: 100
+  model: claude-haiku-5-5
+  seed: 0
+baseline:
+  zero_shot: true
+export:
+  probes: 64
+spec:
+  name: wikisql
+  kind: generate
+  instructions: |
+    You write SQLite queries over one table, named t, to answer a question about it. Quote
+    column names with double quotes and text values with single quotes. Answer with only the
+    query.
+  outputs:
+    - name: sql
+      description: one SQLite SELECT query over table t that answers the question
+  teacher:
+    provider: claude
+    model: claude-haiku-5-5
+    effort: low
+  student:
+    model: Qwen/Qwen2.5-0.5B-Instruct
+    max_length: 384
+    max_new_tokens: 96
+    epochs: 2
+    batch_size: 4       # x grad_accum 2 = 8 per step; a batch of 8 x 384 tokens peaks near
+    grad_accum: 2       # 10 GB on CPU (fp32 logits over a 151k vocabulary)
+    learning_rate: 2.0e-4
+    warmup_ratio: 0.05
+    validation_fraction: 0.1
+    patience: 1
+    seed: 0
+  splits:
+    heldout_fraction: 0.25
+    seed: 0

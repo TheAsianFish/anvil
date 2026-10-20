@@ -569,6 +569,26 @@ The CPU price is an assumption (`--vcpu-hour-usd`), not a measurement; the CPU s
 At the bundle's threshold (0.6395, target kappa 0.9, rule `lower`) the student answers 82.3% of held-out inputs, so the cascade calls the teacher for 17.7% of traffic.
 <!-- END generated:bench -->
 
+### Generation parity: WikiSQL text-to-SQL (M6)
+
+- Command: `make eval-generate TEACHER=gold` (`python -m eval.generate wikisql --teacher gold`,
+  then `python -m eval.render`).
+- Method: 1,340 distinct questions drawn (seed 0) from WikiSQL's train split at a pinned
+  parquet commit, tables of at most 12 columns; the store's hash split holds out about a
+  quarter, of which 300 are scored. Each input is the table's column names and types and the
+  question; the answer is one SQLite query over a table named `t`. The student is
+  Qwen2.5-0.5B-Instruct with a rank-16 LoRA adapter on every linear layer, trained on 1,000
+  teacher queries in its own chat template (prompt tokens masked), 10% held back to pick the
+  epoch by greedy exact match, and decoded greedily. Both queries run in a sandboxed SQLite
+  copy of the question's table (text compared case-insensitively, as WikiSQL's evaluator
+  does); intervals resample questions. Execution match is also reported on the table with
+  every row doubled, which separates queries that only agree because the table has one
+  matching row.
+
+<!-- BEGIN generated:generate -->
+No generation runs yet: run `make eval-generate`.
+<!-- END generated:generate -->
+
 ## To measure
 
 | What | Command | Needs | Estimated cost |
@@ -582,6 +602,9 @@ At the bundle's threshold (0.6395, target kappa 0.9, rule `lower`) the student a
 | Teacher latency and cost per 1,000 inputs next to the student in the bench table, and the cascade's cost at its measured coverage | `make eval-classify` with a key (records the Haiku labels and their cost), then `uv run --group eval python -m eval.bench --teacher-live 50` | key | the eval's ~$0.35, plus about $0.01 for 50 uncached timed Haiku calls |
 | Calibration and the cascade against Claude labels (does the 0.9 threshold hold when the teacher is a model, not gold?) | after the keyed `make eval-classify`, `make eval-calibration eval-export` (`TEACHER=auto` replays the recorded labels; the students are retrained on them, about 1.5 h CPU) | key for the labels | $0 beyond the `make eval-classify` labels |
 | The export table with the int8 gate as it now stands (the first 16 probes also served one at a time; the committed run scored batched probes only) and the bench on that bundle | `make eval-export TEACHER=gold`, then `make bench TEACHER=gold` | about 2 h CPU for the two exports with the layer probe, 20 min for the bench | $0 |
+| Generation parity with Claude on WikiSQL: execution match of the Qwen2.5-0.5B LoRA student against `claude-haiku-5-5`'s queries, the paraphrase ceiling (100 questions) and teacher vs WikiSQL's own queries. Labels go to `eval/labels/wikisql/` and replay afterwards | `make eval-generate` with `ANTHROPIC_API_KEY` set (`TEACHER=auto` calls Claude once) | key; about 2 h CPU, or the Colab notebook on a T4 | about $0.10 with Haiku 5.5 effort `low` (1,400 requests at ~250 input and ~60 output tokens); under $0.25 if thinking triples the output |
+| The 100-item judge sample: `claude-haiku-5-5` judges whether the student's query answers the question as the teacher's does, compared with execution match item by item (how often a small table makes execution match wrong) | any `make eval-generate` run with `ANTHROPIC_API_KEY` set; the verdicts are written to `eval/labels/wikisql/judge-*.jsonl` and replay for free | key | about $0.01 (100 requests at ~500 input and ~80 output tokens) |
+| The generation run on a GPU (fp16 autocast on a T4): wall time and whether mixed precision changes the measured parity | `notebooks/anvil_gpu.ipynb` on Colab, then commit the downloaded `eval/results/generate-*` | a Colab T4 | $0 on the free tier |
 | A third training seed on both datasets (seeds 0 and 1 are in the table above) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 2`, then `make results` | about 1.5 h CPU (2 ModernBERT-base runs) | $0 |
 
 The toy task is synthetic and only exercises the pipeline; real parity numbers come from the
