@@ -297,7 +297,7 @@ REAL_ROWS: list[dict[str, Any]] = [  # Any: the nested parquet layout
     },
     {
         "phase": 1,
-        "question": "Which number was Patrick O'Bryant?",
+        "question": "Which number was Shaquille O'Neal?",
         "table": {
             "header": [
                 "Player",
@@ -309,7 +309,7 @@ REAL_ROWS: list[dict[str, Any]] = [  # Any: the nested parquet layout
             ],
             "types": ["text", "real", "text", "text", "text", "text"],
             "rows": [
-                ["Patrick O'Bryant", "13", "United States", "Center", "2009-10", "Bradley"],
+                ["Shaquille O'Neal", "13", "United States", "Center", "2009-10", "Bradley"],
                 [
                     "Jermaine O'Neal",
                     "6",
@@ -322,13 +322,13 @@ REAL_ROWS: list[dict[str, Any]] = [  # Any: the nested parquet layout
             "id": "1-10015132-14",
         },
         "sql": {
-            "human_readable": "SELECT No. FROM table WHERE Player = Patrick O'Bryant",
+            "human_readable": "SELECT No. FROM table WHERE Player = Shaquille O'Neal",
             "sel": 1,
             "agg": 0,
             "conds": {
                 "column_index": [0],
                 "operator_index": [0],
-                "condition": ["Patrick O'Bryant"],
+                "condition": ["Shaquille O'Neal"],
             },
         },
     },
@@ -447,7 +447,7 @@ def test_real_rows_load_render_and_execute() -> None:
     assert [e.sql for e in examples] == [
         'SELECT "Notes" FROM t WHERE "Current slogan" = \'SOUTH AUSTRALIA\'',
         'SELECT COUNT("Fleet Series (Quantity)") FROM t WHERE "Fuel Propulsion" = \'CNG\'',
-        "SELECT \"No.\" FROM t WHERE \"Player\" = 'Patrick O''Bryant'",
+        "SELECT \"No.\" FROM t WHERE \"Player\" = 'Shaquille O''Neal'",
         'SELECT "Member" FROM t WHERE "Chapters" = 12',
         'SELECT "Typhus" FROM t WHERE "Smallpox" = 4',
         'SELECT "Player" FROM t WHERE "College" = \'Direct to NBA\' AND "School" ='
