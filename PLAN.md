@@ -437,11 +437,25 @@ Batches halve the cost of large pools and are used when a batch exceeds
   model zero-shot on the same prompt. With no key the teacher is WikiSQL's own queries
   (`TEACHER=gold`). `anvil loop` and `anvil calibrate` stay classify-only, and serving the
   generator is not in this milestone. Scoring found that 22 of 300 WikiSQL references aggregate over
-  no matching rows and return one `NULL` row, which any other aggregate over nothing matches.
-  They now count as empty references. Since training and greedy decoding are deterministic,
-  `eval.generate --rescore` scores a run's stored queries again instead of retraining for two
-  hours. A recorded judge verdict is keyed by the question and a hash of the exact pair judged,
-  since the candidate is the student's query and changes with every retrain.
+  no matching rows and return one `NULL` row, which any other aggregate over nothing matches,
+  and 8 more are a `COUNT` over no matching rows, which returns 0 and matches any `COUNT` with
+  a wrong filter. A reference now counts as empty when it returns the same result on a copy of
+  its table with no rows, a definition that needs no list of aggregates. Since training and
+  greedy decoding are deterministic, `eval.generate --rescore` scores a run's stored queries
+  again instead of retraining for two hours; the report keeps the raw completions and the
+  zero-shot per-item results so a later scorer change can be replayed from the committed file.
+  A recorded judge verdict is keyed by the question and a hash of the exact pair judged, since
+  the candidate is the student's query and changes with every retrain; the rubric states that
+  text compares case-insensitively, as the sandbox does. The review of this milestone also
+  bounded the sandbox's result size (the row and length caps were independent, so ten
+  thousand rows of large blobs could exhaust memory, and the quadratic built-ins run inside
+  one VM instruction where the step limit cannot interrupt them: the length cap is 10 KB and
+  results have a byte budget), made an answer longer than `max_new_tokens` a counted drop
+  (it trained fine and could never be generated in full), stripped bare targets (a leading
+  newline merges with the template's own into one Qwen token, so the prompt was no longer a
+  prefix), and added the base model's own end tokens to the stop set (Qwen2.5-Instruct's
+  tokenizer names only `<|im_end|>` while its generation config also stops on
+  `<|endoftext|>`; the stored WikiSQL completions show neither leaked, so no number changed).
 
 ## Milestones
 

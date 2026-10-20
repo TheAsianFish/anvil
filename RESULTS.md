@@ -594,19 +594,19 @@ At the bundle's threshold (0.6395, target kappa 0.9, rule `lower`) the student a
 
 - Raw output: `eval/results/generate-wikisql-gold/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
 - Command: `python -m eval.generate wikisql --teacher gold` at `795cc7d`; seed 0, 1000 bootstrap resamples (by question); 4 CPUs (cpu); wall 6201 s; spent $0.0000
-- Rescored: `python -m eval.generate wikisql --teacher gold --rescore --out /tmp/rescore/run` at `210aa91` (the stored queries scored again by the current scorer; training and decoding not repeated)
-- Data: Salesforce/wikisql@48cfb60 `default/train/0000.parquet` (WikiSQL (Zhong et al., 2017, Salesforce); BSD-3-Clause in the GitHub repo, the Hub card lists it as unknown), 1340 questions sampled (seed 0, tables of at most 12 columns, sha256 8220f6e980c2); held-out questions sharing at least 80% of their words with a pool question: 7
+- Rescored: `python -m eval.generate wikisql --teacher gold --rescore --out eval/results/generate-wikisql-gold` at `bce6485` (the stored queries scored again by the current scorer; training and decoding not repeated)
+- Data: Salesforce/wikisql@48cfb60 `default/train/0000.parquet` (WikiSQL (Zhong et al., 2017, Salesforce); BSD-3-Clause in the GitHub repo, the Hub card lists it as unknown), 1340 questions sampled (seed 0, tables of at most 12 columns, sha256 8220f6e980c2); held-out inputs (column names and question) sharing at least 80% of their words with a pool input: 7
 - Training: LoRA r=16, alpha=32 on q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj; 892 examples and 108 held back to pick the epoch (greedy exact match), 2 epochs, 224 steps, best epoch 2, 5031 s; chat template: 1000 answers aligned, 0 dropped, longest sequence 288 tokens
 - Decoding: greedy, 1318 ms per held-out question (batches of 16, length-sorted)
-- Execution match on the 278 questions whose reference returns a row: 0.763; references returning nothing: 22 of 300 (any query that also returns nothing matches them)
+- Execution match on the 270 questions whose reference finds rows: 0.763; references that find nothing (no rows, an aggregate over no matching rows: NULL, or 0 from COUNT): 30 of 300 (any query that also finds nothing matches them, and doubling the rows cannot tell them apart)
 - Coincidental matches: 7 queries match on the table but not once every row is doubled (a missing aggregate over one row, a count that equals a cell)
-- Execution vs exact match: 83 queries match by result but differ as SQL, 0 the other way; student execution errors: OperationalError 4
+- Execution vs exact match: 83 queries match by result but differ as SQL, 0 the other way; with string literals compared case-insensitively (as the sandbox compares text) exact SQL is 0.630 and 42 differ; student execution errors: OperationalError 4
 - The teacher here is WikiSQL's own query for each question (no API key in this run), so this row measures the harness and how well the student learns from 1,000 clean labels; it is not a parity-with-Claude number.
 - Zero-shot base model (no adapter, same prompt): execution match 0.210 [0.167, 0.253], exact SQL 0.003, 0 answers wrapped in a code fence; errors: OperationalError 176
 - Execution match by aggregate: none: 0.79 (n=209), aggregate: 0.71 (n=91)
 - Execution match by WHERE conditions: 0: 1.00 (n=3), 1: 0.78 (n=202), 2: 0.74 (n=76), 3+: 0.68 (n=19)
 - Execution match by input length (words): <= 26: 0.79 (n=92), 27-30: 0.72 (n=64), 31-35: 0.80 (n=79), > 35: 0.74 (n=65)
-- Judge sample: skipped (no recorded verdicts at eval/labels/wikisql/judge-claude-haiku-5-5-f4e50118838e70d8.jsonl and no ANTHROPIC_API_KEY)
+- Judge sample: skipped (no recorded verdicts at eval/labels/wikisql/judge-claude-haiku-5-5-9e7b905fc21cd29e.jsonl and no ANTHROPIC_API_KEY)
 - Merged export: 64/64 held-out completions identical to the adapter's, max |logit diff| 8.8e-05 on 8 prompts; 1988 MB, 8,798,208 adapter parameters folded in
 <!-- END generated:generate -->
 
@@ -616,15 +616,28 @@ What the numbers say (all from the table above):
   match (+0.557, paired interval [0.497, 0.617]). Most of the zero-shot loss is queries that
   do not run (176 of 300 raise an error), not wrong answers.
 - Exact SQL (0.490) understates the student: 83 queries return the same rows as the
-  reference but are written differently, and none goes the other way.
-- 22 of the 300 references (7%) are an aggregate over no matching rows, so they return one
-  row holding `NULL`. One example is WikiSQL's own `SELECT MIN("Races") FROM t WHERE "Podiums" < 2
-  AND "FLaps" > 0 AND "Season" > 2008`, where no row qualifies. On those, `MIN` matches `AVG`. The first scoring
-  counted only zero-row results as empty and reported all 300 references as non-empty. The
-  fixed scorer leaves the 22 out, giving 0.763 on the other 278. The stored queries were
-  rescored (`--rescore`) instead of being trained again.
+  reference but are written differently, and none goes the other way. Most of that is the
+  case of one string literal (WikiSQL writes `'sunbeam'` in one query and `'North Island'`
+  in another, and the sandbox compares text case-insensitively): with literals compared
+  that way, exact SQL is 0.630 and 42 queries are real rewrites (reordered conditions, a
+  different quoting of the same value).
+- 30 of the 300 references (10%) find nothing in their table: 22 are an aggregate over no
+  matching rows, which returns one row holding `NULL` (WikiSQL's own `SELECT MIN("Races")
+  FROM t WHERE "Podiums" < 2 AND "FLaps" > 0 AND "Season" > 2008`, where no row qualifies,
+  so `MIN` matches `AVG`), and 8 are a `COUNT` over no matching rows, which returns 0 and
+  matches any `COUNT` with a wrong filter. Doubling the rows cannot expose either. The first
+  scoring counted only zero-row results as empty and reported all 300 references as
+  non-empty; the scorer now runs each reference on a copy of its table with no rows and
+  calls it empty when the result is the same. That leaves 270 references with evidence,
+  on which the student scores 0.763. The stored queries were rescored (`--rescore`) instead
+  of being trained again.
 - Doubling every row breaks 7 matches (0.767 to 0.743): the reference and the student agree
   only because the table has one matching row.
+- A known limit of the gold rendering: WikiSQL keeps comma-formatted numbers (`'55,045'`)
+  as text, so a gold `>` or `<` against such a cell compares strings, not numbers, and the
+  student's numeric form (`> 55,045`, a syntax error) is counted wrong. Both sides run the
+  same engine, so the parity number is self-consistent, but on those questions the
+  reference is not the question's answer.
 
 ## To measure
 

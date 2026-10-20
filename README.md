@@ -492,16 +492,17 @@ scored by execution match in a sandboxed SQLite copy of each table. The
 teacher is WikiSQL's own queries (no key yet, so not a Claude parity
 number):
 
-| Execution match [95% CI] | Rows doubled too | Exact SQL | Non-empty references (278) | Zero-shot base [95% CI] | Student minus zero-shot [95% paired CI] |
+| Execution match [95% CI] | Rows doubled too | Exact SQL | References that find rows (270) | Zero-shot base [95% CI] | Student minus zero-shot [95% paired CI] |
 |---|---|---|---|---|---|
 | 0.767 [0.717, 0.813] | 0.743 | 0.490 | 0.763 | 0.210 [0.167, 0.253] | +0.557 [0.497, 0.617] |
 
 Fine-tuning mostly teaches the base model to write SQL that runs (176 of its
 300 zero-shot queries raise an error). Exact match misses 83 queries that
-return the reference's rows. 22 of the 300 WikiSQL references are aggregates
-over no matching rows, which any other aggregate over nothing matches; the
-non-empty column leaves them out. The merged model answers 64 of 64 probes
-exactly as the adapter did. Claude parity and the 100-item judge sample are
+return the reference's rows, 41 of them differing only in the case of a
+string literal. 30 of the 300 WikiSQL references find nothing in their table
+(an aggregate over no matching rows, `NULL` or a `COUNT` of 0), which any
+other query that finds nothing matches; the fourth column leaves them out.
+The merged model answers 64 of 64 probes exactly as the adapter did. Claude parity and the 100-item judge sample are
 under "To measure" (about $0.11 with Haiku 5.5).
 
 ## Roadmap

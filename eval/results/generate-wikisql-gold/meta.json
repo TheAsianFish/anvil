@@ -24,9 +24,9 @@
   "spent_usd": 0.0,
   "finished_at": "2026-10-20T13:11:42Z",
   "rescored": {
-    "command": "python -m eval.generate wikisql --teacher gold --rescore --out /tmp/rescore/run",
-    "git_sha": "210aa911fa132664dac33b2b3f187476a3542d5a",
+    "command": "python -m eval.generate wikisql --teacher gold --rescore --out eval/results/generate-wikisql-gold",
+    "git_sha": "bce64854fa8ad407aab6cebe1cbdb8bc5566c79b",
     "git_dirty": false,
-    "finished_at": "2026-10-20T14:25:29Z"
+    "finished_at": "2026-10-20T15:25:15Z"
   }
 }
