@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 import json
 import math
 from pathlib import Path
@@ -16,6 +17,7 @@ from anvil.evaluate.judge import (
     RecordedVerdict,
     Verdict,
     VerdictFileJudge,
+    item_hash,
     judge_sample,
     judge_vs_metric,
     read_verdict_file,
@@ -205,14 +207,23 @@ def test_verdict_file_round_trip(transport: FakeTransport, tmp_path: Path) -> No
     transport.program(render(item(1)), answer("different", "Other column."))
     transport.program(render(item(2)), {**message("", model=HAIKU), "stop_reason": "refusal"})
     transport.errors[render(item(3))] = TeacherError("connection dropped")
-    verdicts = ClaudeJudge(transport).judge([item(i) for i in (4, 1, 2, 3)])
+    items = [item(i) for i in (4, 1, 2, 3)]
+    verdicts = ClaudeJudge(transport).judge(items)
     path = tmp_path / "verdicts" / "judge.jsonl"
     # The transport failure never reached the judge, so it is not recorded.
-    assert write_verdict_file(path, verdicts, HAIKU, rubric_hash()) == 3
+    assert write_verdict_file(path, items, verdicts, HAIKU, rubric_hash()) == 3
     rows = read_verdict_file(path)
     assert [r.id for r in rows] == ["q1", "q2", "q4"]  # sorted by id
     assert rows[0] == RecordedVerdict(
-        "q1", False, "Other column.", HAIKU, rubric_hash(), 1000, 50, rows[0].cost_usd
+        "q1",
+        item_hash(item(1)),
+        False,
+        "Other column.",
+        HAIKU,
+        rubric_hash(),
+        1000,
+        50,
+        rows[0].cost_usd,
     )
     assert rows[0].cost_usd == pytest.approx(COST)
     assert rows[1].equivalent is None
@@ -235,21 +246,25 @@ def test_valid_verdict_supersedes_failure(tmp_path: Path) -> None:
     path = tmp_path / "v.jsonl"
     failed = Verdict("q1", None, "refusal (cyber)", 10, 0, 0.001)
     good = Verdict("q1", True, "Same.", 10, 5, 0.002)
-    write_verdict_file(path, [good, failed], HAIKU, rubric_hash())
+    write_verdict_file(path, [item(1), item(1)], [good, failed], HAIKU, rubric_hash())
     (row,) = read_verdict_file(path)
     assert row.equivalent is True
 
 
 def test_changed_rubric_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "v.jsonl"
-    write_verdict_file(path, [Verdict("q1", True, "Same.", 10, 5, 0.1)], HAIKU, "0" * 16)
+    write_verdict_file(
+        path, [item(1)], [Verdict("q1", True, "Same.", 10, 5, 0.1)], HAIKU, "0" * 16
+    )
     with pytest.raises(ConfigError, match="re-judge"):
         VerdictFileJudge.from_file(path, HAIKU)
 
 
 def test_other_model_is_refused(tmp_path: Path) -> None:
     path = tmp_path / "v.jsonl"
-    write_verdict_file(path, [Verdict("q1", True, "Same.", 10, 5, 0.1)], HAIKU, rubric_hash())
+    write_verdict_file(
+        path, [item(1)], [Verdict("q1", True, "Same.", 10, 5, 0.1)], HAIKU, rubric_hash()
+    )
     with pytest.raises(ConfigError, match="model changed"):
         VerdictFileJudge.from_file(path, "claude-opus-5-5")
 
@@ -265,8 +280,12 @@ def test_bad_rows_and_missing_file_are_config_errors(tmp_path: Path) -> None:
 
 def test_recorded_then_live_only_pays_for_missing(transport: FakeTransport) -> None:
     rows = [
-        RecordedVerdict("q1", False, "Recorded.", HAIKU, rubric_hash(), 10, 5, 0.5),
-        RecordedVerdict("q3", None, "refusal (cyber)", HAIKU, rubric_hash(), 10, 0, 0.5),
+        RecordedVerdict(
+            "q1", item_hash(item(1)), False, "Recorded.", HAIKU, rubric_hash(), 10, 5, 0.5
+        ),
+        RecordedVerdict(
+            "q3", item_hash(item(3)), None, "refusal (cyber)", HAIKU, rubric_hash(), 10, 0, 0.5
+        ),
     ]
     judge = RecordedThenLiveJudge(VerdictFileJudge(rows, HAIKU), ClaudeJudge(transport))
     assert judge.model_id == HAIKU
@@ -281,7 +300,7 @@ def test_recorded_then_live_only_pays_for_missing(transport: FakeTransport) -> N
 
 
 def test_recorded_then_live_skips_live_when_complete() -> None:
-    rows = [RecordedVerdict("q1", True, "Same.", HAIKU, rubric_hash())]
+    rows = [RecordedVerdict("q1", item_hash(item(1)), True, "Same.", HAIKU, rubric_hash())]
 
     class Exploding(FakeTransport):
         def __call__(self, params: JSONDict) -> JSONDict:
@@ -344,3 +363,52 @@ def test_judge_sample_is_seeded_and_ordered() -> None:
     assert judge_sample(ids, 0, seed=7) == []
     with pytest.raises(ValueError, match="non-negative"):
         judge_sample(ids, -1, seed=7)
+
+
+def test_a_verdict_replays_only_for_the_pair_it_judged(transport: FakeTransport) -> None:
+    # A retrained student answers question 1 differently: the old verdict is about another
+    # query, so it must not be replayed for the new one.
+    retrained = dataclasses.replace(item(1), candidate="SELECT COUNT(*) FROM t")
+    rows = [RecordedVerdict("q1", item_hash(item(1)), True, "Same.", HAIKU, rubric_hash())]
+    (replayed,) = VerdictFileJudge(rows, HAIKU).judge([retrained])
+    assert replayed.reason == NOT_RECORDED
+    transport.program(render(retrained), answer("different", "Counts rows."))
+    judge = RecordedThenLiveJudge(VerdictFileJudge(rows, HAIKU), ClaudeJudge(transport))
+    (fresh,) = judge.judge([retrained])
+    assert (fresh.equivalent, fresh.cached) == (False, False)
+    assert len(transport.calls) == 1
+
+
+def test_writing_merges_into_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "v.jsonl"
+    other = dataclasses.replace(item(1), candidate="SELECT COUNT(*) FROM t")
+    write_verdict_file(
+        path, [item(1)], [Verdict("q1", True, "Same.", 10, 5, 0.1)], HAIKU, "0" * 16
+    )
+    write_verdict_file(
+        path, [item(1)], [Verdict("q1", True, "Same.", 10, 5, 0.1)], HAIKU, rubric_hash()
+    )
+    assert (
+        write_verdict_file(
+            path,
+            [other, item(2)],
+            [
+                Verdict("q1", False, "Counts.", 10, 5, 0.1),
+                Verdict("q2", True, "Same.", 10, 5, 0.1),
+            ],
+            HAIKU,
+            rubric_hash(),
+        )
+        == 3
+    )  # the stale-rubric row is dropped, both answers to q1 are kept
+    rows = VerdictFileJudge.from_file(path, HAIKU).judge([item(1), other, item(2)])
+    assert [v.equivalent for v in rows] == [True, False, True]
+
+
+def test_writing_needs_one_verdict_per_item(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="1 items but 0 verdicts"):
+        write_verdict_file(tmp_path / "v.jsonl", [item(1)], [], HAIKU, rubric_hash())
+    with pytest.raises(ValueError, match="not for item"):
+        write_verdict_file(
+            tmp_path / "v.jsonl", [item(2)], [Verdict("q1", True, "x")], HAIKU, rubric_hash()
+        )

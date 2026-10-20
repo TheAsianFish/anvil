@@ -115,6 +115,13 @@ def render(item: JudgeItem) -> str:
     )
 
 
+def item_hash(item: JudgeItem) -> str:
+    """What one verdict is about: the rendered question, reference and candidate. The id names
+    the question, but the candidate is the student's answer, which changes with every
+    retrain, so a recorded verdict replays only for the exact pair it judged."""
+    return hashlib.sha256(render(item).encode("utf-8")).hexdigest()[:16]
+
+
 def rubric_hash() -> str:
     """What makes two verdicts comparable: the rubric, the schema and the message layout.
 
@@ -286,9 +293,11 @@ class ClaudeJudge:
 
 @dataclass(frozen=True)
 class RecordedVerdict:
-    """One row of a verdict file; `equivalent` is None for a recorded judge failure."""
+    """One row of a verdict file; `equivalent` is None for a recorded judge failure. `item` is
+    the `item_hash` of the pair judged."""
 
     id: str
+    item: str
     equivalent: bool | None
     reason: str
     model: str
@@ -298,7 +307,7 @@ class RecordedVerdict:
     cost_usd: float = 0.0
 
     def __post_init__(self) -> None:
-        for name in ("id", "reason", "model", "rubric_hash"):
+        for name in ("id", "item", "reason", "model", "rubric_hash"):
             if not isinstance(getattr(self, name), str):
                 raise ValueError(f"{name} must be a string")
         if self.equivalent is not None and not isinstance(self.equivalent, bool):
@@ -306,23 +315,41 @@ class RecordedVerdict:
 
 
 def write_verdict_file(
-    path: Path, verdicts: Iterable[Verdict], model: str, rubric_hash: str
+    path: Path,
+    items: Sequence[JudgeItem],
+    verdicts: Sequence[Verdict],
+    model: str,
+    rubric_hash: str,
 ) -> int:
-    """Write verdicts as JSONL sorted by id, atomically. Returns the row count.
+    """Merge this run's verdicts (one per item, in order) into the file as JSONL sorted by id
+    and item, atomically. Returns the row count.
 
-    A recorded failure (refusal, truncation, invalid output) is kept so a replay sees what the
-    live run saw. A verdict that never reached the judge (`NOT_RECORDED`, or a transport
-    failure, which has no tokens) is not a judgment and is left out, so the next live run asks
-    again. A valid verdict for an id supersedes a failure for it.
+    Rows are keyed by (id, `item_hash`), so verdicts on another student's answers to the same
+    questions are kept beside these, not overwritten; rows made under another model or rubric
+    are dropped, since they can no longer be replayed. A recorded failure (refusal,
+    truncation, invalid output) is kept so a replay sees what the live run saw. A verdict that
+    never reached the judge (`NOT_RECORDED`, or a transport failure, which has no tokens) is
+    not a judgment and is left out, so the next live run asks again. A valid verdict for a
+    pair supersedes a failure for it.
     """
-    rows: dict[str, RecordedVerdict] = {}
-    for v in verdicts:
+    if len(items) != len(verdicts):
+        raise ValueError(f"{len(items)} items but {len(verdicts)} verdicts")
+    rows: dict[tuple[str, str], RecordedVerdict] = {}
+    if path.exists():
+        for old in read_verdict_file(path):
+            if old.model == model and old.rubric_hash == rubric_hash:
+                rows[(old.id, old.item)] = old
+    for it, v in zip(items, verdicts, strict=True):
+        if v.id != it.id:
+            raise ValueError(f"verdict {v.id!r} is not for item {it.id!r}")
         if v.reason == NOT_RECORDED or (v.failed and v.input_tokens == 0):
             continue
-        if v.failed and v.id in rows and rows[v.id].equivalent is not None:
+        key = (v.id, item_hash(it))
+        if v.failed and key in rows and rows[key].equivalent is not None:
             continue
-        rows[v.id] = RecordedVerdict(
+        rows[key] = RecordedVerdict(
             v.id,
+            key[1],
             v.equivalent,
             v.reason,
             model,
@@ -371,14 +398,15 @@ class VerdictFileJudge:
     """Answers from recorded verdicts made by `model_id` under the current rubric.
 
     Verdicts come back `cached=True` with their original tokens and cost, so a replay spends
-    nothing while the report still knows what judging cost. An id with no row is a failed
-    verdict with reason `NOT_RECORDED`, never a guess.
+    nothing while the report still knows what judging cost. An item with no row for its exact
+    pair (a new question, or a retrained student's new answer) is a failed verdict with reason
+    `NOT_RECORDED`, never a guess.
     """
 
     def __init__(self, rows: Sequence[RecordedVerdict], model_id: str = DEFAULT_MODEL) -> None:
         self._model = model_id
         expected = rubric_hash()
-        self._rows: dict[str, RecordedVerdict] = {}
+        self._rows: dict[tuple[str, str], RecordedVerdict] = {}
         for row in rows:
             if row.model != model_id or row.rubric_hash != expected:
                 raise ConfigError(
@@ -386,7 +414,7 @@ class VerdictFileJudge:
                     f" expected ({model_id}, {expected}); the judge rubric or model changed"
                     " since recording, so re-judge with the live judge"
                 )
-            self._rows[row.id] = row
+            self._rows[(row.id, row.item)] = row
 
     @classmethod
     def from_file(cls, path: Path, model_id: str = DEFAULT_MODEL) -> VerdictFileJudge:
@@ -402,7 +430,7 @@ class VerdictFileJudge:
     def judge(self, items: Sequence[JudgeItem]) -> list[Verdict]:
         out: list[Verdict] = []
         for item in items:
-            row = self._rows.get(item.id)
+            row = self._rows.get((item.id, item_hash(item)))
             if row is None:
                 out.append(Verdict(item.id, None, NOT_RECORDED))
                 continue
@@ -421,7 +449,7 @@ class VerdictFileJudge:
 
 
 class RecordedThenLiveJudge:
-    """Answers from recorded verdicts first and sends only the ids without a row to a live
+    """Answers from recorded verdicts first and sends only the pairs without a row to a live
     judge of the same model. A recorded failure is returned as recorded, not asked again;
     delete its row to pay for a retry (mirrors `RecordedThenLiveTeacher`)."""
 

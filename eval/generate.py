@@ -388,6 +388,7 @@ def _judge(
     if isinstance(judge, ClaudeJudge | RecordedThenLiveJudge):
         write_verdict_file(
             judge_file(config.dataset.name, config.judge.model),
+            items,
             verdicts,
             config.judge.model,
             rubric_hash(),

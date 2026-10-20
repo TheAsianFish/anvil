@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from anvil.errors import ConfigError
-from anvil.evaluate.judge import Verdict, judge_sample, rubric_hash, write_verdict_file
+from anvil.evaluate.judge import JudgeItem, Verdict, judge_sample, rubric_hash, write_verdict_file
 from anvil.evaluate.sql import Table
 from anvil.settings import Settings
 from anvil.teacher.base import Item
@@ -300,8 +300,11 @@ def test_judge_replays_recorded_verdicts_for_free(
         Verdict("wikisql-2", False, "different filter", 100, 10, 0.001),
         Verdict("wikisql-3", False, "no filter", 100, 10, 0.001),
     ]
-    write_verdict_file(path, verdicts, config.judge.model, rubric_hash())
     heldout, refs, cands = _judge_inputs()
+    items = [
+        JudgeItem(it.id, it.text, r, c) for (it, _), r, c in zip(heldout, refs, cands, strict=True)
+    ]
+    write_verdict_file(path, items, verdicts, config.judge.model, rubric_hash())
     _, matches = score_pair([TABLE] * 3, refs, cands, 50, 0)
     assert [m.match for m in matches] == [True, True, False]
 
