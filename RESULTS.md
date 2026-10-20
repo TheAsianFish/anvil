@@ -449,10 +449,13 @@ Findings:
   down-projections in fp32 costs 59 MB (211 MB against 152 MB).
 - **int8 flips only what the cascade escalates.** The shipped int8 graph (211 MB, against
   601 MB for fp32) agrees with fp32 on 96.4% of Banking77 inputs and 99.2% of AG News inputs,
-  and on 100% of the inputs the student answers at the served threshold (408 and 361). Kappa
+  and on 100% of the inputs either graph answers at the served threshold (417 and 365). Kappa
   with the teacher moves by -0.002 and -0.006, both within noise. The M1 rule (98% agreement
   on every input) would have refused the Banking77 graph; the gate now counts agreement on
-  the answered inputs, since a flip on an escalated input never reaches a caller (PLAN.md, M5).
+  the answered inputs, since a flip on an input both graphs escalate never reaches a caller
+  (PLAN.md, M5). The first version of the gate took the answered inputs from fp32's
+  confidence alone (408 and 361), which misses an input fp32 escalates but a served int8
+  graph answers itself; counting either graph's answers adds 9 and 4 inputs and no flip.
 - Two things about the quantizer that the first version of this probe got wrong: it also
   quantizes the token embedding `Gather` by default, and it converts each `Gemm` before it
   reads its exclusion list, so the head and the classifier are quantized in every row. Both
@@ -463,47 +466,47 @@ Findings:
 | Dataset | Student | Variant | Compared with | Probes | Max abs logit diff | Mean abs logit diff | Argmax agreement | Agreement on answered inputs | Kappa vs teacher (drop) | Size | Gate |
 |---|---|---|---|---|---|---|---|---|---|---|---|
 | ag_news | ModernBERT-base | fp32 | pytorch | 477 | 2.9e-05 | 1.2e-06 | 1.000 | n/a | 0.844 (+0.000) | 601 MB | passed |
-| ag_news | ModernBERT-base | int8 | onnx-fp32 | 477 | 1.2e+00 | 1.6e-01 | 0.992 | 1.000 (n=361) | 0.849 (-0.006) | 211 MB | passed |
+| ag_news | ModernBERT-base | int8 | onnx-fp32 | 477 | 1.2e+00 | 1.6e-01 | 0.992 | 1.000 (n=365) | 0.849 (-0.006) | 211 MB | passed |
 | banking77 | ModernBERT-base | fp32 | pytorch | 496 | 2.3e-05 | 3.2e-06 | 1.000 | n/a | 0.842 (+0.000) | 601 MB | passed |
-| banking77 | ModernBERT-base | int8 | onnx-fp32 | 496 | 2.4e+00 | 3.7e-01 | 0.964 | 1.000 (n=408) | 0.844 (-0.002) | 211 MB | passed |
+| banking77 | ModernBERT-base | int8 | onnx-fp32 | 496 | 2.4e+00 | 3.7e-01 | 0.964 | 1.000 (n=417) | 0.844 (-0.002) | 211 MB | passed |
 
 #### ag_news: export
 
 - Raw output: `eval/results/export-ag_news-gold/` (`report.json`, `meta.json`)
-- Command: `python -m eval.export ag_news --teacher gold` at `d0cfa4c`; student run `20261019-135236-n2000`; export and both parity checks 184 s; wall 754 s; spent $0.00
-- Gates: fp32 max |logit diff| <= 1e-04 and agreement == 1.0; int8 agreement with fp32 onnx on the probes the student answers at threshold 0.8336 >= 0.98 and kappa drop vs teacher <= 0.01 (22 MLP down-projections kept in fp32)
-- int8 layer probe (nodes per group: embeddings 1, attention Wqkv 22, attention Wo 22, MLP Wi 22, MLP Wo 22, head and classifier 2); each row quantizes only the named group unless it says otherwise, plus the head and classifier Gemms, which the quantizer converts before it reads its exclusion list, and is compared with the fp32 graph on the same 477 held-out inputs (fp32 kappa vs teacher 0.844); answered inputs are those at or above the bundle's threshold:
+- Command: `python -m eval.export --teacher gold` at `e65c998` (uncommitted changes); student run `20261020-012041-n2000`; export and both parity checks 183 s; wall 2850 s; spent $0.00
+- Gates: fp32 max |logit diff| <= 1e-04 and agreement == 1.0; int8 agreement with fp32 onnx on the probes fp32 or int8 answers at threshold 0.8336 >= 0.98 and kappa drop vs teacher <= 0.01 (22 MLP down-projections kept in fp32)
+- int8 layer probe (nodes per group: embeddings 1, attention Wqkv 22, attention Wo 22, MLP Wi 22, MLP Wo 22, head and classifier 2); each row quantizes only the named group unless it says otherwise, plus the head and classifier Gemms, which the quantizer converts before it reads its exclusion list, and is compared with the fp32 graph on the same 477 held-out inputs (fp32 kappa vs teacher 0.844); answered inputs are those the fp32 or the int8 graph scores at or above the bundle's threshold:
 
-| int8 variant | Quantized nodes | Size | Mean abs logit diff | Max abs logit diff | Argmax agreement | Agreement on the 361 answered inputs | Kappa drop |
+| int8 variant | Quantized nodes | Size | Mean abs logit diff | Max abs logit diff | Argmax agreement | Agreement on answered inputs | Kappa drop |
 |---|---|---|---|---|---|---|---|
-| everything | 91 | 152 MB | 2.163 | 10.329 | 0.235 | 0.152 | +0.804 |
-| default: all but MLP Wo | 69 | 211 MB | 0.158 | 1.200 | 0.992 | 1.000 | -0.006 |
-| all but MLP Wo and embeddings | 68 | 327 MB | 0.153 | 0.817 | 0.992 | 1.000 | -0.006 |
-| only embeddings | 1 | 483 MB | 0.070 | 0.676 | 0.992 | 1.000 | -0.006 |
-| only attention Wqkv | 22 | 483 MB | 0.130 | 0.723 | 0.998 | 1.000 | -0.003 |
-| only attention Wo | 22 | 560 MB | 0.058 | 0.475 | 0.994 | 1.000 | +0.003 |
-| only MLP Wi | 22 | 483 MB | 0.074 | 0.728 | 0.992 | 1.000 | -0.011 |
-| only MLP Wo | 22 | 541 MB | 2.155 | 10.482 | 0.262 | 0.191 | +0.765 |
-| only head and classifier | 2 | 599 MB | 0.054 | 0.401 | 0.998 | 1.000 | -0.003 |
+| everything | 91 | 152 MB | 2.163 | 10.329 | 0.235 | 0.152 (n=361) | +0.804 |
+| default: all but MLP Wo | 69 | 211 MB | 0.158 | 1.200 | 0.992 | 1.000 (n=365) | -0.006 |
+| all but MLP Wo and embeddings | 68 | 327 MB | 0.153 | 0.817 | 0.992 | 1.000 (n=364) | -0.006 |
+| only embeddings | 1 | 483 MB | 0.070 | 0.676 | 0.992 | 1.000 (n=364) | -0.006 |
+| only attention Wqkv | 22 | 483 MB | 0.130 | 0.723 | 0.998 | 1.000 (n=362) | -0.003 |
+| only attention Wo | 22 | 560 MB | 0.058 | 0.475 | 0.994 | 1.000 (n=362) | +0.003 |
+| only MLP Wi | 22 | 483 MB | 0.074 | 0.728 | 0.992 | 1.000 (n=363) | -0.011 |
+| only MLP Wo | 22 | 541 MB | 2.155 | 10.482 | 0.262 | 0.191 (n=361) | +0.765 |
+| only head and classifier | 2 | 599 MB | 0.054 | 0.401 | 0.998 | 1.000 (n=362) | -0.003 |
 
 #### banking77: export
 
 - Raw output: `eval/results/export-banking77-gold/` (`report.json`, `meta.json`)
-- Command: `python -m eval.export banking77 --teacher gold` at `d0cfa4c`; student run `20261019-124923-n2000`; export and both parity checks 106 s; wall 401 s; spent $0.00
-- Gates: fp32 max |logit diff| <= 1e-04 and agreement == 1.0; int8 agreement with fp32 onnx on the probes the student answers at threshold 0.6395 >= 0.98 and kappa drop vs teacher <= 0.01 (22 MLP down-projections kept in fp32)
-- int8 layer probe (nodes per group: embeddings 1, attention Wqkv 22, attention Wo 22, MLP Wi 22, MLP Wo 22, head and classifier 2); each row quantizes only the named group unless it says otherwise, plus the head and classifier Gemms, which the quantizer converts before it reads its exclusion list, and is compared with the fp32 graph on the same 496 held-out inputs (fp32 kappa vs teacher 0.842); answered inputs are those at or above the bundle's threshold:
+- Command: `python -m eval.export --teacher gold` at `e65c998` (uncommitted changes); student run `20261020-001737-n2000`; export and both parity checks 106 s; wall 3782 s; spent $0.00
+- Gates: fp32 max |logit diff| <= 1e-04 and agreement == 1.0; int8 agreement with fp32 onnx on the probes fp32 or int8 answers at threshold 0.6395 >= 0.98 and kappa drop vs teacher <= 0.01 (22 MLP down-projections kept in fp32)
+- int8 layer probe (nodes per group: embeddings 1, attention Wqkv 22, attention Wo 22, MLP Wi 22, MLP Wo 22, head and classifier 2); each row quantizes only the named group unless it says otherwise, plus the head and classifier Gemms, which the quantizer converts before it reads its exclusion list, and is compared with the fp32 graph on the same 496 held-out inputs (fp32 kappa vs teacher 0.842); answered inputs are those the fp32 or the int8 graph scores at or above the bundle's threshold:
 
-| int8 variant | Quantized nodes | Size | Mean abs logit diff | Max abs logit diff | Argmax agreement | Agreement on the 408 answered inputs | Kappa drop |
+| int8 variant | Quantized nodes | Size | Mean abs logit diff | Max abs logit diff | Argmax agreement | Agreement on answered inputs | Kappa drop |
 |---|---|---|---|---|---|---|---|
-| everything | 91 | 152 MB | 1.900 | 18.575 | 0.020 | 0.025 | +0.838 |
-| default: all but MLP Wo | 69 | 211 MB | 0.366 | 2.393 | 0.964 | 1.000 | -0.002 |
-| all but MLP Wo and embeddings | 68 | 327 MB | 0.343 | 1.950 | 0.964 | 1.000 | -0.002 |
-| only embeddings | 1 | 483 MB | 0.154 | 1.157 | 0.986 | 1.000 | +0.002 |
-| only attention Wqkv | 22 | 483 MB | 0.278 | 1.548 | 0.964 | 1.000 | -0.004 |
-| only attention Wo | 22 | 560 MB | 0.119 | 0.633 | 0.986 | 1.000 | +0.002 |
-| only MLP Wi | 22 | 483 MB | 0.200 | 1.541 | 0.974 | 0.998 | +0.004 |
-| only MLP Wo | 22 | 541 MB | 1.896 | 18.449 | 0.026 | 0.029 | +0.832 |
-| only head and classifier | 2 | 600 MB | 0.081 | 0.450 | 0.988 | 1.000 | +0.000 |
+| everything | 91 | 152 MB | 1.900 | 18.575 | 0.020 | 0.025 (n=408) | +0.838 |
+| default: all but MLP Wo | 69 | 211 MB | 0.366 | 2.393 | 0.964 | 1.000 (n=417) | -0.002 |
+| all but MLP Wo and embeddings | 68 | 327 MB | 0.343 | 1.950 | 0.964 | 1.000 (n=416) | -0.002 |
+| only embeddings | 1 | 483 MB | 0.154 | 1.157 | 0.986 | 1.000 (n=412) | +0.002 |
+| only attention Wqkv | 22 | 483 MB | 0.278 | 1.548 | 0.964 | 1.000 (n=418) | -0.004 |
+| only attention Wo | 22 | 560 MB | 0.119 | 0.633 | 0.986 | 1.000 (n=411) | +0.002 |
+| only MLP Wi | 22 | 483 MB | 0.200 | 1.541 | 0.974 | 0.998 (n=415) | +0.004 |
+| only MLP Wo | 22 | 541 MB | 1.896 | 18.449 | 0.026 | 0.029 (n=408) | +0.832 |
+| only head and classifier | 2 | 600 MB | 0.081 | 0.450 | 0.988 | 1.000 (n=408) | +0.000 |
 <!-- END generated:export -->
 
 ### Serving speed and cost: Banking77 (M5)

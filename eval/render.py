@@ -745,19 +745,19 @@ def render_export(runs: list[tuple[str, Report, Report]]) -> str:
                 " named group unless it says otherwise, plus the head and classifier Gemms,"
                 " which the quantizer converts before it reads its exclusion list, and is"
                 f" compared with the fp32 graph on the same {r['probes']} held-out inputs (fp32"
-                f" kappa vs teacher {_f(probe['fp32_kappa'])}); answered inputs are those at or"
-                " above the bundle's threshold:",
+                f" kappa vs teacher {_f(probe['fp32_kappa'])}); answered inputs are those the fp32"
+                " or the int8 graph scores at or above the bundle's threshold:",
                 "",
                 "| int8 variant | Quantized nodes | Size | Mean abs logit diff"
-                f" | Max abs logit diff | Argmax agreement | Agreement on the {probe['answered']}"
-                " answered inputs | Kappa drop |",
+                " | Max abs logit diff | Argmax agreement | Agreement on answered inputs"
+                " | Kappa drop |",
                 "|---|---|---|---|---|---|---|---|",
             ]
             for v in probe["variants"]:
                 out.append(
                     f"| {v['variant']} | {v['quantized_nodes']} | {_f(v['size_mb'], 0)} MB"
                     f" | {_f(v['mean_abs_diff'])} | {_f(v['max_abs_diff'])}"
-                    f" | {_f(v['agreement'])} | {_f(v.get('agreement_answered'))}"
+                    f" | {_f(v['agreement'])} | {_answered({'answered': probe['answered'], **v})}"
                     f" | {v['kappa_drop']:+.3f} |"
                 )
         out.append("")

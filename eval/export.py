@@ -107,6 +107,7 @@ def quantization_probe(
     from anvil.calibrate import THRESHOLD_TOLERANCE
     from anvil.evaluate.metrics import cohen_kappa
     from anvil.export import (
+        answered_by_either,
         embedding_nodes,
         mlp_down_projection_nodes,
         strip_initializer_value_info,
@@ -119,11 +120,12 @@ def quantization_probe(
     fp32 = OnnxStudent.load(bundle, "fp32")
     ref = fp32.logits(texts)
     labels = fp32.labels
-    # The inputs the cascade answers at the bundle's threshold: an int8 flip on an input that
-    # escalates anyway never reaches a caller.
+    # The inputs the cascade answers at the bundle's threshold under fp32 (the head row's
+    # count) or under each int8 variant: a flip on an input both escalate never reaches a caller.
+    cut = None if fp32.threshold is None else fp32.threshold - THRESHOLD_TOLERANCE
     answered = (
-        fp32.predict_proba(texts).max(axis=1) >= fp32.threshold - THRESHOLD_TOLERANCE
-        if fp32.threshold is not None
+        fp32.predict_proba(texts).max(axis=1) >= cut
+        if cut is not None
         else np.ones(len(texts), dtype=bool)
     )
     ref_kappa = cohen_kappa([labels[k] for k in ref.argmax(axis=1)], teacher)
@@ -163,6 +165,11 @@ def quantization_probe(
             got = OnnxStudent(bundle, path, meta, "int8").logits(texts)
             diff = np.abs(got.astype(np.float64) - ref.astype(np.float64))
             same = got.argmax(axis=1) == ref.argmax(axis=1)
+            either = (
+                answered_by_either(ref, got, fp32.temperature, cut)
+                if cut is not None
+                else answered
+            )
             kappa = cohen_kappa([labels[k] for k in got.argmax(axis=1)], teacher)
             rows.append(
                 {
@@ -173,9 +180,8 @@ def quantization_probe(
                     "max_abs_diff": float(diff.max()),
                     "mean_abs_diff": float(diff.mean()),
                     "agreement": float(np.mean(same)),
-                    "agreement_answered": float(np.mean(same[answered]))
-                    if answered.any()
-                    else None,
+                    "answered": int(either.sum()),
+                    "agreement_answered": float(np.mean(same[either])) if either.any() else None,
                     "kappa": kappa,
                     "kappa_drop": ref_kappa - kappa,
                     "seconds": round(time.perf_counter() - started, 1),

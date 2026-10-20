@@ -18,6 +18,7 @@ from anvil.export import (
     ExportReport,
     _fp32_gate,
     _int8_gate,
+    answered_by_either,
     export_student,
     mlp_down_projection_nodes,
     strip_initializer_value_info,
@@ -208,6 +209,18 @@ def test_gates() -> None:
     assert not _int8_gate(0.99, 0.011)[0]
     assert not _int8_gate(0.97, -0.05)[0]
     assert "kappa drop" in _int8_gate(1.0, 0.0)[1]
+
+
+def test_answered_counts_inputs_either_graph_would_answer() -> None:
+    # Row 0: both confident. Row 1: only fp32 confident (int8 would escalate it). Row 2: only
+    # int8 confident, on a flipped argmax: served int8 answers it, so the gate must see it.
+    # Row 3: both escalate, so a flip there never reaches a caller.
+    fp32 = np.array([[4.0, 0.0], [4.0, 0.0], [0.2, 0.0], [0.1, 0.0]], dtype=np.float32)
+    int8 = np.array([[4.0, 0.0], [0.2, 0.0], [0.0, 4.0], [0.0, 0.1]], dtype=np.float32)
+    got = answered_by_either(fp32, int8, temperature=1.0, cut=0.9)
+    assert got.tolist() == [True, True, True, False]
+    # A higher temperature flattens both and moves the cut: nothing reaches 0.9 at T = 10.
+    assert not answered_by_either(fp32, int8, temperature=10.0, cut=0.9).any()
 
 
 def test_failed_fp32_parity_raises_and_writes_nothing(

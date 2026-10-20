@@ -70,7 +70,7 @@ class Parity:
     gate: str
     size_mb: float
     seconds: float
-    answered: int | None = None  # int8: probes the fp32 student answers at the bundle threshold
+    answered: int | None = None  # int8: probes fp32 or int8 answers at the bundle threshold
     agreement_answered: float | None = None  # int8: argmax agreement on those probes
 
 
@@ -134,6 +134,16 @@ def embedding_nodes(model: onnx.ModelProto) -> list[str]:
     return [n.name for n in model.graph.node if n.op_type == "Gather" and n.input[0] in inits]
 
 
+def answered_by_either(
+    fp32_logits: FloatArray, int8_logits: FloatArray, temperature: float, cut: float
+) -> npt.NDArray[np.bool_]:
+    """Inputs whose calibrated confidence reaches `cut` under the fp32 or the int8 graph."""
+    fp32_conf = softmax(fp32_logits, temperature).max(axis=1)
+    int8_conf = softmax(int8_logits, temperature).max(axis=1)
+    answered: npt.NDArray[np.bool_] = (fp32_conf >= cut) | (int8_conf >= cut)
+    return answered
+
+
 def _fp32_gate(max_abs_diff: float, agreement: float) -> tuple[bool, str]:
     rule = f"max |logit diff| <= {FP32_MAX_ABS_DIFF:.0e} and agreement == 1.0"
     return max_abs_diff <= FP32_MAX_ABS_DIFF and agreement == 1.0, rule
@@ -142,8 +152,9 @@ def _fp32_gate(max_abs_diff: float, agreement: float) -> tuple[bool, str]:
 def _int8_gate(
     agreement: float, kappa_drop: float | None, scope: str = "all probes"
 ) -> tuple[bool, str]:
-    """`agreement` is measured on the probes the cascade answers (all of them without a
-    threshold): an int8 flip on an input that escalates to the teacher never reaches a caller.
+    """`agreement` is measured on the probes the cascade answers under fp32 or int8 (all of
+    them without a threshold): an int8 flip on an input that both graphs escalate to the
+    teacher never reaches a caller.
     On the Banking77 student every int8 flip was on an escalated input (RESULTS.md)."""
     rule = f"agreement with fp32 onnx on {scope} >= {INT8_MIN_AGREEMENT}"
     passed = agreement >= INT8_MIN_AGREEMENT
@@ -411,9 +422,11 @@ def _export_int8(
     threshold = meta.get("threshold")
     if isinstance(threshold, int | float):
         temperature = float(str(meta.get("temperature", 1.0)))
-        conf = softmax(fp32_logits[: len(texts)], temperature).max(axis=1)
-        answered = conf >= threshold - THRESHOLD_TOLERANCE
-        scope = f"the probes the student answers at threshold {threshold:.4f}"
+        cut = threshold - THRESHOLD_TOLERANCE
+        # A flip reaches a caller when either graph would answer the input itself: the
+        # threshold was calibrated on fp32, but int8's own confidence decides when it serves.
+        answered = answered_by_either(fp32_logits[: len(texts)], got, temperature, cut)
+        scope = f"the probes fp32 or int8 answers at threshold {threshold:.4f}"
     n = len(texts)
     same = got[:n].argmax(axis=1) == fp32_logits[:n].argmax(axis=1)
     # With no answered probe there is nothing a caller could see differ.

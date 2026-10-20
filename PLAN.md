@@ -389,8 +389,8 @@ Batches halve the cost of large pools and are used when a batch exceeds
   the spike's rule (argmax agreement with fp32 of at least 0.98 on every held-out input)
   rejected the Banking77 int8 graph at 0.964, yet its kappa with the teacher moved by 0.002
   and every one of its flips was on an input the cascade escalates. Agreement is now
-  measured on the inputs the student answers at the bundle's threshold (all inputs when there
-  is none), still with the 0.01 kappa-drop limit, and the overall agreement is reported next
+  measured on the inputs the student answers at the bundle's threshold under fp32 or int8
+  (int8's own confidence decides when it is served; all inputs when there is no threshold), still with the 0.01 kappa-drop limit, and the overall agreement is reported next
   to it. The probe also found what the spike guessed: quantizing only the MLP
   down-projections takes agreement to 3%, so they stay fp32.
   `anvil serve` imports neither torch nor transformers (a test enforces it), and the serving

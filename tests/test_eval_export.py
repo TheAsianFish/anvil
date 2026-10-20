@@ -102,8 +102,9 @@ def test_render_export() -> None:
     assert "| toy | tiny | fp32 | pytorch | 10 | 2.0e-06 | 3.0e-07 | 1.000 | n/a |" in text
     assert "| int8 |" in text
     assert "failed |" in text
-    assert "| only MLP Wo | 2 | 10 MB | 0.100 | 0.500 | 0.970 | 1.000 | +0.020 |" in text
-    assert "Agreement on the 7 answered inputs" in text
+    # Reports without a per-variant count fall back to the fp32 count in the probe's head.
+    assert "| only MLP Wo | 2 | 10 MB | 0.100 | 0.500 | 0.970 | 1.000 (n=7) | +0.020 |" in text
+    assert "| Agreement on answered inputs |" in text
 
 
 def test_quantization_probe_scores_every_group(bundle: Exported) -> None:
@@ -125,6 +126,8 @@ def test_quantization_probe_scores_every_group(bundle: Exported) -> None:
     assert rows[1]["fp32_nodes"] == groups["MLP Wo"]
     for r in rows:
         assert 0.0 <= cast(float, r["agreement"]) <= 1.0
+        # Every variant counts at least the inputs fp32 answers at the bundle's threshold.
+        assert cast(int, head["answered"]) <= cast(int, r["answered"]) <= len(PROBES)
         assert cast(int, r["quantized_nodes"]) + cast(int, r["fp32_nodes"]) == total
 
 

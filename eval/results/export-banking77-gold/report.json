@@ -5,8 +5,8 @@
     "teacher_kind": "gold",
     "teacher_model": "gold",
     "student_model": "answerdotai/ModernBERT-base",
-    "student_run": "20261019-124923-n2000",
-    "trained_here": false
+    "student_run": "20261020-001737-n2000",
+    "trained_here": true
   },
   "spent_usd": 0.0,
   "probes": 496,
@@ -23,8 +23,8 @@
     "kappa_drop": 0.0,
     "passed": true,
     "gate": "max |logit diff| <= 1e-04 and agreement == 1.0",
-    "size_mb": 601.45,
-    "seconds": 84.15,
+    "size_mb": 601.49,
+    "seconds": 84.13,
     "answered": null,
     "agreement_answered": null
   },
@@ -39,10 +39,10 @@
     "reference_kappa": 0.842341,
     "kappa_drop": -0.00204,
     "passed": true,
-    "gate": "agreement with fp32 onnx on the probes the student answers at threshold 0.6395 >= 0.98 and kappa drop vs teacher <= 0.01",
-    "size_mb": 210.79,
-    "seconds": 21.42,
-    "answered": 408,
+    "gate": "agreement with fp32 onnx on the probes fp32 or int8 answers at threshold 0.6395 >= 0.98 and kappa drop vs teacher <= 0.01",
+    "size_mb": 210.83,
+    "seconds": 21.67,
+    "answered": 417,
     "agreement_answered": 1.0
   },
   "int8_fp32_nodes": 22,
@@ -71,10 +71,11 @@
         "max_abs_diff": 18.575100660324097,
         "mean_abs_diff": 1.8997430316413402,
         "agreement": 0.020161290322580645,
+        "answered": 408,
         "agreement_answered": 0.024509803921568627,
         "kappa": 0.004274719793560303,
         "kappa_drop": 0.83806671140213,
-        "seconds": 19.4
+        "seconds": 19.2
       },
       {
         "variant": "default: all but MLP Wo",
@@ -84,23 +85,25 @@
         "max_abs_diff": 2.3934412002563477,
         "mean_abs_diff": 0.3658518958171453,
         "agreement": 0.9637096774193549,
+        "answered": 417,
         "agreement_answered": 1.0,
         "kappa": 0.8443818786792936,
         "kappa_drop": -0.002040447483603325,
-        "seconds": 21.1
+        "seconds": 21.2
       },
       {
         "variant": "all but MLP Wo and embeddings",
         "quantized_nodes": 68,
         "fp32_nodes": 23,
-        "size_mb": 326.8,
+        "size_mb": 326.9,
         "max_abs_diff": 1.9498183727264404,
         "mean_abs_diff": 0.3433231950858433,
         "agreement": 0.9637096774193549,
+        "answered": 416,
         "agreement_answered": 1.0,
         "kappa": 0.8443934415402143,
         "kappa_drop": -0.002052010344524069,
-        "seconds": 21.4
+        "seconds": 21.1
       },
       {
         "variant": "only embeddings",
@@ -110,23 +113,25 @@
         "max_abs_diff": 1.1574552059173584,
         "mean_abs_diff": 0.15367247474985524,
         "agreement": 0.9858870967741935,
+        "answered": 412,
         "agreement_answered": 1.0,
         "kappa": 0.8402925987541436,
         "kappa_drop": 0.002048832441546633,
-        "seconds": 30.8
+        "seconds": 30.3
       },
       {
         "variant": "only attention Wqkv",
         "quantized_nodes": 22,
         "fp32_nodes": 69,
-        "size_mb": 482.6,
+        "size_mb": 482.7,
         "max_abs_diff": 1.5480538606643677,
         "mean_abs_diff": 0.2780072621209844,
         "agreement": 0.9637096774193549,
+        "answered": 418,
         "agreement_answered": 1.0,
         "kappa": 0.8464339232417303,
         "kappa_drop": -0.004092492046040008,
-        "seconds": 26.6
+        "seconds": 26.3
       },
       {
         "variant": "only attention Wo",
@@ -136,36 +141,39 @@
         "max_abs_diff": 0.6328352689743042,
         "mean_abs_diff": 0.11908829660994141,
         "agreement": 0.9858870967741935,
+        "answered": 411,
         "agreement_answered": 1.0,
         "kappa": 0.8402886429405912,
         "kappa_drop": 0.002052788255099025,
-        "seconds": 29.5
+        "seconds": 29.0
       },
       {
         "variant": "only MLP Wi",
         "quantized_nodes": 22,
         "fp32_nodes": 69,
-        "size_mb": 482.6,
+        "size_mb": 482.7,
         "max_abs_diff": 1.540761113166809,
         "mean_abs_diff": 0.20046434674187014,
         "agreement": 0.9737903225806451,
-        "agreement_answered": 0.9975490196078431,
+        "answered": 415,
+        "agreement_answered": 0.9975903614457832,
         "kappa": 0.8382470711590697,
         "kappa_drop": 0.004094360036620559,
-        "seconds": 26.7
+        "seconds": 26.3
       },
       {
         "variant": "only MLP Wo",
         "quantized_nodes": 22,
         "fp32_nodes": 69,
-        "size_mb": 541.0,
+        "size_mb": 541.1,
         "max_abs_diff": 18.4488365650177,
         "mean_abs_diff": 1.8959662959138341,
         "agreement": 0.02620967741935484,
+        "answered": 408,
         "agreement_answered": 0.029411764705882353,
         "kappa": 0.010433026237144212,
         "kappa_drop": 0.831908404958546,
-        "seconds": 28.8
+        "seconds": 28.4
       },
       {
         "variant": "only head and classifier",
@@ -175,10 +183,11 @@
         "max_abs_diff": 0.449552059173584,
         "mean_abs_diff": 0.08122944313989748,
         "agreement": 0.9879032258064516,
+        "answered": 408,
         "agreement_answered": 1.0,
         "kappa": 0.8423368753044526,
         "kappa_drop": 4.55589123771194e-06,
-        "seconds": 31.1
+        "seconds": 30.3
       }
     ]
   }
