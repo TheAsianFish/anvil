@@ -6,13 +6,16 @@
 # PyTorch) and served: an input under the threshold escalates to the fake teacher.
 # Then the same three steps for extraction: the fake teacher marks slots in restaurant
 # queries with a fifth of its offsets off by one, alignment repairs them, and a tiny tagger
-# is scored by entity F1 and token kappa.
+# is scored by entity F1 and token kappa. Last, generation: a fake teacher writes SQL for
+# questions about one table, a LoRA adapter on a tiny random-init Qwen2 decoder learns from it,
+# and the adapter is merged into the base weights, checked against the adapter's answers.
 set -euo pipefail
 
 home="${1:-.anvil/demo}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 toy="$here/examples/toy"
 slots="$here/examples/toy-extract"
+sql="$here/examples/toy-generate"
 
 case "$home" in
   */.anvil/*|*/.anvil) ;;
@@ -55,4 +58,13 @@ echo "== anvil train (tiny random-init ModernBERT tagger; aligns every answer fi
 uv run anvil train --spec "$slots/anvil.yaml" --teacher fake
 echo "== anvil eval (entity F1 and token kappa against the teacher)"
 uv run anvil eval --spec "$slots/anvil.yaml"
+echo "== anvil label (generation, fake teacher writes one SQL query per question)"
+uv run anvil label --spec "$sql/anvil.yaml" --inputs "$sql/inputs.jsonl" --n 120 --teacher fake
+echo "== anvil train (LoRA on a tiny random-init Qwen2; chat template, prompt tokens masked)"
+uv run anvil train --spec "$sql/anvil.yaml" --teacher fake
+echo "== anvil eval (greedy answers vs the teacher's; a random-init 2-layer decoder learns the"
+echo "   shape of the queries, not yet to copy values: real parity comes from Qwen2.5-0.5B)"
+uv run anvil eval --spec "$sql/anvil.yaml"
+echo "== anvil export (adapter merged into the base weights, same answers or nothing is written)"
+uv run anvil export --spec "$sql/anvil.yaml"
 echo "== demo finished in $(( $(date +%s) - start ))s"

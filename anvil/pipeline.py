@@ -12,14 +12,18 @@ from typing import TYPE_CHECKING
 
 from anvil.align import AlignmentReport
 from anvil.calibrate import Calibration, Rule, calibrate
+from anvil.chat import ChatReport
 from anvil.errors import AlignmentError, ConfigError, StoreError, StudentError
 from anvil.evaluate.extraction import ExtractionAgreement
+from anvil.evaluate.generation import GenerationAgreement
 from anvil.evaluate.metrics import Agreement, agreement
 from anvil.extraction import fit_tagger, score_tagger
+from anvil.generation import fit_generator, score_generator
 from anvil.log import get_logger
 from anvil.spec import TaskSpec
 from anvil.store import Split, Store, read_inputs
 from anvil.students.encoder import EncoderClassifier
+from anvil.students.generator import LoraGenerator
 from anvil.students.tagger import EncoderTagger
 from anvil.teacher.base import BatchAbortedError, Failure, Item, LabelBatch, Teacher
 from anvil.train.classifier import train_classifier
@@ -27,6 +31,7 @@ from anvil.train.loop import LAST, TrainResult, remove_checkpoint
 
 if TYPE_CHECKING:
     from anvil.export import ExportReport
+    from anvil.merge import MergeReport
 
 log = get_logger(__name__)
 
@@ -137,6 +142,8 @@ class TrainReport:
     result: TrainResult
     alignment: AlignmentReport | None = None
     """Extraction only: what aligning the teacher's answers repaired and dropped."""
+    chat: ChatReport | None = None
+    """Generation only: what aligning the answers to the chat template dropped."""
 
 
 def train(
@@ -176,9 +183,24 @@ def train(
             run_id = f"{base}-{k}"
         out = ws.students / run_id
         out.mkdir(parents=True)
-    student: EncoderClassifier | EncoderTagger
+    student: EncoderClassifier | EncoderTagger | LoraGenerator
     alignment: AlignmentReport | None = None
-    if spec.kind == "extract":
+    chat: ChatReport | None = None
+    if spec.kind == "generate":
+        try:
+            student, result, chat = fit_generator(
+                spec,
+                teacher_model,
+                pairs,
+                out / "metrics.jsonl",
+                checkpoint_dir=out / "checkpoint",
+                resume=resume is not None,
+            )
+        except AlignmentError:
+            if resume is None:
+                shutil.rmtree(out, ignore_errors=True)  # nothing ran: leave no empty run
+            raise
+    elif spec.kind == "extract":
         try:
             student, result, alignment = fit_tagger(
                 spec,
@@ -206,7 +228,7 @@ def train(
     student.save(out)
     (ws.students / "LATEST").write_text(run_id + "\n", encoding="utf-8")
     remove_checkpoint(out / "checkpoint")  # only now: a failed save must stay resumable
-    return TrainReport(run_id, out, teacher_model, result, alignment)
+    return TrainReport(run_id, out, teacher_model, result, alignment, chat)
 
 
 def fit_student(
@@ -259,7 +281,7 @@ def fit_student(
 class EvalReport:
     student: str
     teacher_model: str
-    agreement: Agreement | ExtractionAgreement
+    agreement: Agreement | ExtractionAgreement | GenerationAgreement
     report_path: Path
     heldout_alignment: AlignmentReport | None = None
     """Extraction only: how the held-out teacher answers aligned to their inputs."""
@@ -279,9 +301,13 @@ def evaluate(
     headline interval follows the same settings as every other interval in its report.
     """
     path = student_dir or ws.latest_student()
-    student: EncoderClassifier | EncoderTagger = (
-        EncoderTagger.load(path) if spec.kind == "extract" else EncoderClassifier.load(path)
-    )
+    student: EncoderClassifier | EncoderTagger | LoraGenerator
+    if spec.kind == "generate":
+        student = LoraGenerator.load(path)
+    elif spec.kind == "extract":
+        student = EncoderTagger.load(path)
+    else:
+        student = EncoderClassifier.load(path)
     try:
         task = str(student.meta["task"])
         teacher_model = str(student.meta["teacher_model"])
@@ -310,10 +336,20 @@ def evaluate(
         pairs = store.labelled(teacher_model, prompt_hash, Split.HELDOUT)
     if not pairs:
         raise StoreError("no teacher labels on the held-out split; run `anvil label` first")
-    result: Agreement | ExtractionAgreement
+    result: Agreement | ExtractionAgreement | GenerationAgreement
     extra: dict[str, object] = {}
     heldout_alignment: AlignmentReport | None = None
-    if isinstance(student, EncoderTagger):
+    if isinstance(student, LoraGenerator):
+        generated = score_generator(spec, student, pairs, n_resamples=n_resamples, seed=seed)
+        result = generated.agreement
+        extra = {
+            "predictions": {
+                "input_id": [it.id for it, _ in pairs],
+                "completion": generated.completions,
+            }
+        }
+        train_examples = student.meta.get("train_examples", 0)
+    elif isinstance(student, EncoderTagger):
         scored = score_tagger(spec, student, pairs, n_resamples=n_resamples, seed=seed)
         result = scored.agreement
         heldout_alignment = scored.alignment
@@ -338,8 +374,14 @@ def evaluate(
         **extra,
     }
     report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    headline = result.token_kappa if isinstance(result, ExtractionAgreement) else result.kappa
-    log.info("evaluated", extra={"student": path.name, "n": result.n, "kappa": headline})
+    headline = (
+        result.token_kappa
+        if isinstance(result, ExtractionAgreement)
+        else result.exact_match.estimate
+        if isinstance(result, GenerationAgreement)
+        else result.kappa
+    )
+    log.info("evaluated", extra={"student": path.name, "n": result.n, "headline": headline})
     return EvalReport(path.name, teacher_model, result, report_path, heldout_alignment)
 
 
@@ -490,7 +532,10 @@ def export_bundle(
     from anvil.export import export_student  # needs the `export` extra (onnx)
 
     if spec.kind != "classify":
-        raise ConfigError(f"export supports classify tasks; {spec.name!r} is {spec.kind}")
+        raise ConfigError(
+            f"ONNX export supports classify tasks; {spec.name!r} is {spec.kind}"
+            + (" (use export_merged for a generator)" if spec.kind == "generate" else "")
+        )
     path = student_dir or ws.latest_student()
     student = EncoderClassifier.load(path)
     teacher_model = str(student.meta.get("teacher_model", ""))
@@ -519,5 +564,38 @@ def export_bundle(
         int8=int8,
         teacher_labels=[lab for _, lab in pairs],
         calibration=calibration,
+        spec=spec.model_dump(mode="json"),
+    )
+
+
+def export_merged(
+    spec: TaskSpec,
+    ws: Workspace,
+    student_dir: Path | None = None,
+    out: Path | None = None,
+    *,
+    probes: int = 64,
+) -> MergeReport:
+    """Merge a generator's adapter into its base model (`<task>/exports/<student>-merged/`
+    by default), gated on identical answers to up to `probes` held-out inputs."""
+    from anvil.merge import export_generator
+
+    if spec.kind != "generate":
+        raise ConfigError(f"a merged export is for generate tasks; {spec.name!r} is {spec.kind}")
+    path = student_dir or ws.latest_student()
+    meta = LoraGenerator.load_meta(path)
+    if meta.get("prompt_hash") != spec.prompt_hash:
+        raise StoreError(
+            f"student {path.name} was trained for prompt {meta.get('prompt_hash')}, the spec is"
+            f" now {spec.prompt_hash}; relabel and retrain"
+        )
+    with ws.open_store(spec) as store:
+        pairs = store.labelled(str(meta.get("teacher_model", "")), spec.prompt_hash, Split.HELDOUT)
+    if not pairs:
+        raise StoreError("no held-out inputs to check the merge on; run `anvil label` first")
+    return export_generator(
+        path,
+        out or ws.root / "exports" / f"{path.name}-merged",
+        [it.text for it, _ in pairs[:probes]],
         spec=spec.model_dump(mode="json"),
     )
