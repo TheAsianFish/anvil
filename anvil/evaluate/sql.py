@@ -58,7 +58,8 @@ _MAX_LENGTH = 1_000_000
 
 _ORDER_BY = re.compile(r"\border\s+by\b", re.IGNORECASE)
 _WHITESPACE = re.compile(r"\s+")
-_FENCE = re.compile(r"```(?:[A-Za-z0-9_+-]*[ \t]*\n)?(.*?)(?:```|\Z)", re.DOTALL)
+# A fence's language tag ends at a newline, or, on a one-line fence, `sql` and a space.
+_FENCE = re.compile(r"```(?:[A-Za-z0-9_+-]*[ \t]*\n|(?i:sql)[ \t]+)?(.*?)(?:```|\Z)", re.DOTALL)
 
 
 @dataclass(frozen=True)
