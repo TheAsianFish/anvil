@@ -123,6 +123,28 @@ Training-seed spread (only the student seed changes: weight init, data order, va
 | banking77 | gold | ModernBERT-base | 2 | 0: 0.842, 1: 0.842 | 0.842 | 0.000 | 0.067 |
 <!-- END generated:classify-seeds -->
 
+### The first fallible teacher: a local model on AG News and Banking77 (M8)
+
+The same harness, sample, split and ModernBERT-base student as the table above, with the
+teacher swapped for `qwen2.5:3b` served by Ollama on the same CPU (`make eval-classify
+TEACHER=ollama`). Unlike gold, this teacher can be wrong, so each row puts the student's
+agreement with it next to the teacher's own agreement with gold and with itself.
+
+<!-- BEGIN generated:classify-teacher -->
+No run with a model as the teacher yet: `make eval-classify TEACHER=ollama`.
+<!-- END generated:classify-teacher -->
+
+### Noise control: what kind of noise is the local teacher's? (M8)
+
+`make eval-noise`: the frontier's MiniLM-L6 student trained on the same 2,000 pool inputs
+four ways per seed (gold; the teacher's labels; gold with as many labels wrong as the teacher
+got wrong, moved uniformly; gold with the teacher's own confusion matrix dealt to random
+inputs of each class), each scored against gold on the same held-out inputs.
+
+<!-- BEGIN generated:noise -->
+No noise-control run yet: `make eval-noise`.
+<!-- END generated:noise -->
+
 ### Label-count frontier: AG News and Banking77 (M3)
 
 - Command: `make eval-frontier TEACHER=gold` (`python -m eval.frontier --teacher gold`, then
@@ -393,7 +415,7 @@ Findings:
 | ag_news | gold | ModernBERT-base | 477 | 0.844 | 1.22 | 0.035 -> 0.031 | 0.051 -> 0.047 | 75.7% | 41.9% |
 | banking77 | gold | ModernBERT-base | 496 | 0.842 | 1.24 | 0.062 -> 0.043 | 0.070 -> 0.054 | 82.3% | 70.8% |
 
-#### ag_news: does the threshold hold on inputs it was not chosen on?
+#### ag_news, teacher `gold`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-ag_news-gold/` (`report.json`, `meta.json`, `logits.npz`)
 - Command: `python -m eval.calibration --teacher gold` at `b127db2`; student run `20261020-012041-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 122 s; spent $0.00
@@ -424,7 +446,7 @@ Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the casc
 
 The teacher here is the dataset's gold labels (no API key in this run): this measures the student's confidence against clean labels, not against Claude.
 
-#### banking77: does the threshold hold on inputs it was not chosen on?
+#### banking77, teacher `gold`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-banking77-gold/` (`report.json`, `meta.json`, `logits.npz`)
 - Command: `python -m eval.calibration --teacher gold` at `b127db2`; student run `20261020-001737-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 58 s; spent $0.00

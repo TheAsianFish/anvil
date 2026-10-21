@@ -49,10 +49,11 @@ from anvil.calibrate import (
     softmax,
 )
 from anvil.errors import AnvilError, ConfigError
-from anvil.evaluate.bootstrap import kappa_replicates
+from anvil.evaluate.bootstrap import kappa_replicates, resample_indices
 from anvil.pipeline import write_calibration
 from anvil.settings import Settings
-from eval.classify import TeacherKind, git_provenance
+from anvil.teacher.labelfile import read_label_file
+from eval.classify import TeacherKind, file_safe, git_provenance, label_file
 from eval.render import SMOKE_SUFFIX
 from eval.student import TrainedStudent, trained_student
 
@@ -191,10 +192,71 @@ def split_study(
     }
 
 
-def analyse(
-    z: FloatArray, y: IntArray, n_splits: int, n_resamples: int, seed: int
+MIN_CEILING_ITEMS = 20
+"""Ceiling items a coverage level needs before its self-agreement is reported."""
+
+
+def _kappa_ci(
+    a: IntArray, b: IntArray, n_labels: int, n_resamples: int, seed: int
+) -> dict[str, float]:
+    idx = resample_indices(a.size, n_resamples, seed)
+    reps = kappa_replicates(a, b, n_labels, idx)
+    low, high = np.percentile(reps, [2.5, 97.5])
+    return {"kappa": _kappa(a, b, n_labels), "low": float(low), "high": float(high)}
+
+
+def ceiling_on_accepted(
+    z: FloatArray,
+    y: IntArray,
+    repeat: IntArray,
+    temperature: float,
+    thresholds: dict[str, float | None],
+    n_resamples: int,
+    seed: int,
 ) -> dict[str, object]:
-    """Every number of the report from held-out logits and teacher label codes."""
+    """The teacher's self-agreement (the parity ceiling) on the inputs a threshold accepts.
+
+    `repeat` holds the teacher's label for each held-out input under the paraphrased prompt
+    (-1 where it was not asked twice). The ceiling is measured on every input, the cascade
+    serves only the confident ones, and the teacher may well be more consistent on those: a
+    target the whole-split ceiling rules out can still be reachable there. For each coverage
+    level of the curve and each served threshold, the ceiling items above it give the
+    teacher's self-agreement and the student's agreement with the teacher on the same items.
+    """
+    k = z.shape[1]
+    student = z.argmax(axis=1).astype(np.int64)
+    conf = softmax(z, temperature).max(axis=1)
+    asked = repeat >= 0
+    ordered = np.sort(conf)[::-1]
+
+    def row(accepted: npt.NDArray[np.bool_]) -> dict[str, object]:
+        both = accepted & asked
+        out: dict[str, object] = {"coverage": float(accepted.mean()), "n": int(both.sum())}
+        if both.sum() >= MIN_CEILING_ITEMS:
+            out["ceiling"] = _kappa_ci(y[both], repeat[both], k, n_resamples, seed)
+            out["student_vs_teacher"] = _kappa_ci(y[both], student[both], k, n_resamples, seed)
+        return out
+
+    by_level = []
+    for level in COVERAGE_GRID:
+        m = max(1, round(level * conf.size))
+        by_level.append({"level": level, **row(conf >= ordered[m - 1])})
+    served: dict[str, object] = {}
+    for target, threshold in thresholds.items():
+        served[target] = row(conf >= threshold) if threshold is not None else None
+    return {"asked": int(asked.sum()), "by_level": by_level, "served": served}
+
+
+def analyse(
+    z: FloatArray,
+    y: IntArray,
+    n_splits: int,
+    n_resamples: int,
+    seed: int,
+    repeat: IntArray | None = None,
+) -> dict[str, object]:
+    """Every number of the report from held-out logits and teacher label codes (and, when
+    the teacher labelled some inputs twice, the second labels as `repeat`)."""
     full = {
         str(t): calibrate(
             z,
@@ -209,6 +271,15 @@ def analyse(
         for t in TARGETS
     }
     temperature = calibrate(z, y, target_kappa=None).temperature
+    extra: dict[str, object] = {}
+    if repeat is not None and (repeat >= 0).any():
+        thresholds: dict[str, float | None] = {}
+        for t, cal in full.items():
+            value = cal.get("threshold")
+            thresholds[t] = float(value) if isinstance(value, int | float) else None
+        extra["ceiling"] = ceiling_on_accepted(
+            z, y, repeat, temperature, thresholds, n_resamples, seed
+        )
     return {
         "n": int(z.shape[0]),
         "labels": int(z.shape[1]),
@@ -220,6 +291,7 @@ def analyse(
         },
         "curve": curve_at(z, y, temperature),
         "split_study": split_study(z, y, n_splits, n_resamples, seed),
+        **extra,
     }
 
 
@@ -234,6 +306,25 @@ class Scored:
     input_ids: list[str]
     labels: list[str]
     seconds: float
+    repeat: IntArray | None = None
+    """The teacher's paraphrase-prompt label code per held-out input (-1 if not asked)."""
+
+
+def paraphrase_codes(ts: TrainedStudent, index: dict[str, int]) -> IntArray | None:
+    """The teacher's labels under the paraphrased prompt for the held-out inputs, as codes:
+    from the committed label file when there is one, else from the workspace store. None for
+    the gold teacher, which is never asked twice."""
+    if ts.kind == "gold":
+        return None
+    para = ts.config.paraphrase_spec()
+    path = label_file(ts.config.dataset.name, para.teacher.model, para.prompt_hash)
+    if path.exists():
+        second = {r.input_id: r.label for r in read_label_file(path) if r.label is not None}
+    else:
+        with ts.workspace.open_store(para) as store:
+            second = store.labels(ts.teacher_model, para.prompt_hash)
+    codes = [index.get(second.get(it.id, ""), -1) for it, _ in ts.heldout]
+    return np.array(codes, dtype=np.int64) if any(c >= 0 for c in codes) else None
 
 
 def held_out_logits(name: str, teacher: TeacherKind, settings: Settings) -> Scored:
@@ -252,13 +343,16 @@ def held_out_logits(name: str, teacher: TeacherKind, settings: Settings) -> Scor
         input_ids=[it.id for it, _ in ts.heldout],
         labels=student.labels,
         seconds=time.perf_counter() - started,
+        repeat=paraphrase_codes(ts, index),
     )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.calibration", description=__doc__)
     parser.add_argument("datasets", nargs="*", default=list(DATASETS))
-    parser.add_argument("--teacher", choices=["auto", "claude", "replay", "gold"], default="auto")
+    parser.add_argument(
+        "--teacher", choices=["auto", "claude", "ollama", "replay", "gold"], default="auto"
+    )
     parser.add_argument("--splits", type=int, default=DEFAULT_SPLITS)
     parser.add_argument("--resamples", type=int, default=DEFAULT_RESAMPLES)
     parser.add_argument("--seed", type=int, default=0)
@@ -284,6 +378,7 @@ def main(argv: list[str] | None = None) -> int:
                 saved = np.load(args.logits)
                 z = saved["logits"].astype(np.float64)
                 y = saved["teacher"].astype(np.int64)
+                repeat = saved["repeat"].astype(np.int64) if "repeat" in saved else None
                 teacher_model = str(saved["teacher_model"])
                 previous = args.logits.parent / "report.json"
                 if not previous.exists():
@@ -299,6 +394,7 @@ def main(argv: list[str] | None = None) -> int:
                 ts = scored.trained
                 z = scored.logits.astype(np.float64)
                 y = scored.teacher
+                repeat = scored.repeat
                 teacher_model = ts.teacher_model
                 source = {
                     "dataset": name,
@@ -310,24 +406,26 @@ def main(argv: list[str] | None = None) -> int:
                     "trained_here": ts.trained_here,
                     "scoring_seconds": round(scored.seconds, 1),
                 }
-            analysis = analyse(z, y, args.splits, args.resamples, args.seed)
+            analysis = analyse(z, y, args.splits, args.resamples, args.seed, repeat)
             report = {"source": source, **analysis}
             full = analysis["full"]
             assert isinstance(full, dict)
             served: dict[str, object] = full[str(SERVED_TARGET)]
             out = RESULTS_DIR / (
-                f"calibration-{name}-{teacher_model}" + (SMOKE_SUFFIX if smoke else "")
+                f"calibration-{name}-{file_safe(teacher_model)}" + (SMOKE_SUFFIX if smoke else "")
             )
             out.mkdir(parents=True, exist_ok=True)
             if scored is not None:
-                np.savez_compressed(
-                    out / "logits.npz",
-                    logits=scored.logits,
-                    teacher=y,
-                    input_ids=np.array(scored.input_ids),
-                    labels=np.array(scored.labels),
-                    teacher_model=np.array(teacher_model),
-                )
+                arrays = {
+                    "logits": scored.logits,
+                    "teacher": y,
+                    "input_ids": np.array(scored.input_ids),
+                    "labels": np.array(scored.labels),
+                    "teacher_model": np.array(teacher_model),
+                }
+                if scored.repeat is not None:
+                    arrays["repeat"] = scored.repeat
+                np.savez_compressed(out / "logits.npz", **arrays)
                 if not smoke:  # a smoke run must not change what export puts in the bundle
                     write_calibration(scored.trained.path, served, teacher_model)
             wall = time.perf_counter() - started

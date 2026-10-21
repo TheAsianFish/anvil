@@ -34,10 +34,12 @@ import argparse
 import json
 import os
 import platform
+import re
 import shutil
 import subprocess
 import sys
 import time
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import asdict
 from pathlib import Path
@@ -49,10 +51,10 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from anvil import __version__, log
 from anvil.errors import AnvilError, ConfigError
 from anvil.evaluate.bootstrap import bootstrap_ci, bootstrap_difference_ci
-from anvil.evaluate.metrics import Agreement, accuracy, self_agreement
+from anvil.evaluate.metrics import Agreement, accuracy, self_agreement, top_confusions
 from anvil.pipeline import Workspace, evaluate, label, train
 from anvil.settings import Settings
-from anvil.spec import TaskSpec
+from anvil.spec import TaskSpec, TeacherSpec
 from anvil.store import Split
 from anvil.students.encoder import EncoderClassifier
 from anvil.teacher import Teacher, build_teacher
@@ -80,7 +82,9 @@ ROOT = Path(__file__).resolve().parent.parent
 CONFIG_DIR = ROOT / "eval" / "classify"
 LABELS_DIR = ROOT / "eval" / "labels"
 RESULTS_DIR = ROOT / "eval" / "results"
-TeacherKind = Literal["auto", "claude", "replay", "gold"]
+TeacherKind = Literal["auto", "claude", "ollama", "replay", "gold"]
+LIVE_KINDS = ("claude", "ollama")
+"""Teacher kinds that label with a model and record what they label under `eval/labels/`."""
 DEFAULT_RESAMPLES = 1000
 
 logger = log.get_logger("anvil.eval.classify")
@@ -113,11 +117,31 @@ class CeilingCfg(_Strict):
     instructions: str
 
 
+class OllamaCfg(_Strict):
+    """The local teacher `--teacher ollama` uses in place of the spec's Claude model; the
+    prompt (and so the prompt hash) is the spec's own, so the two teachers' labels compare."""
+
+    model: str = "qwen2.5:3b"
+    digest: str | None = None
+
+
 class EvalConfig(_Strict):
     dataset: DatasetCfg
     sample: SampleCfg
     ceiling: CeilingCfg
     spec: TaskSpec
+    ollama: OllamaCfg = OllamaCfg()
+
+    def with_local_teacher(self) -> EvalConfig:
+        """The same eval with the Ollama model as the teacher."""
+        teacher = TeacherSpec(
+            provider="ollama",
+            model=self.ollama.model,
+            effort=self.spec.teacher.effort,
+            max_tokens=self.spec.teacher.max_tokens,
+            digest=self.ollama.digest,
+        )
+        return self.model_copy(update={"spec": self.spec.model_copy(update={"teacher": teacher})})
 
     def paraphrase_spec(self) -> TaskSpec:
         """The same task under the paraphrased instructions (a different prompt hash)."""
@@ -161,8 +185,13 @@ def load_config(path: Path) -> EvalConfig:
     return config
 
 
+def file_safe(model: str) -> str:
+    """A model id as a file-name part: a local tag's `:` (`qwen2.5:3b`) is not portable."""
+    return re.sub(r"[^A-Za-z0-9._-]", "-", model)
+
+
 def label_file(dataset: str, model: str, prompt_hash: str) -> Path:
-    return LABELS_DIR / dataset / f"{model}-{prompt_hash}.jsonl"
+    return LABELS_DIR / dataset / f"{file_safe(model)}-{prompt_hash}.jsonl"
 
 
 def _shown(path: Path) -> str:
@@ -201,10 +230,16 @@ def record_labels(
                     r.input_tokens,
                     r.output_tokens,
                     r.cost_usd,
+                    compute_seconds=r.compute_seconds,
                 )
             else:
                 failure = Failure(
-                    r.input_id, r.reason or "", r.input_tokens, r.output_tokens, r.cost_usd
+                    r.input_id,
+                    r.reason or "",
+                    r.input_tokens,
+                    r.output_tokens,
+                    r.cost_usd,
+                    compute_seconds=r.compute_seconds,
                 )
                 merged_failures[r.input_id] = (failure, r.teacher_model, r.prompt_hash)
     for lb in labels:
@@ -245,8 +280,8 @@ def make_teacher(
         if not path.exists():
             raise ConfigError(f"no recorded labels at {_shown(path)}; label with --teacher claude")
         return LabelFileTeacher.from_file(path, spec.teacher.model, spec.prompt_hash)
-    if kind == "claude":
-        live = build_teacher(spec, settings, provider="claude")
+    if kind in LIVE_KINDS:
+        live = build_teacher(spec, settings, provider="ollama" if kind == "ollama" else "claude")
         path = label_file(config.dataset.name, spec.teacher.model, spec.prompt_hash)
         if path.exists():  # pay only for inputs the committed file does not cover
             recorded = LabelFileTeacher.from_file(path, spec.teacher.model, spec.prompt_hash)
@@ -313,6 +348,112 @@ def _pair_stats(a: list[str], b: list[str], n_resamples: int, seed: int) -> dict
     return {"n": len(a), "kappa": ci.estimate, "kappa_ci": asdict(ci), "accuracy": accuracy(a, b)}
 
 
+def teacher_errors(
+    gold: Sequence[str],
+    teacher: Sequence[str],
+    student: Sequence[str],
+    n_resamples: int,
+    seed: int,
+    k: int = 10,
+) -> dict[str, object]:
+    """What the student does with a fallible teacher's mistakes, on the held-out split.
+
+    - `student_minus_teacher_vs_gold`: the paired bootstrap interval of kappa(gold, student)
+      minus kappa(gold, teacher). Both are scored on the same items, so this, not two
+      overlapping intervals, says whether the student agrees with gold more than its teacher.
+    - `on_teacher_errors`: of the items the teacher got wrong, how many the student labels as
+      the teacher did (`copied`), as gold does (`corrected`) or as neither (`other`); and on
+      the items the teacher got right, how many the student gets wrong (`broken`).
+    - `confusions`: the teacher's top (gold -> teacher) confusions with how often the student
+      makes the same (gold -> student) one, then the student's own top confusions.
+    """
+    kappa_diff = bootstrap_difference_ci(
+        gold, student, teacher, "kappa", n_resamples=n_resamples, seed=seed
+    )
+    acc_diff = bootstrap_difference_ci(
+        gold, student, teacher, "accuracy", n_resamples=n_resamples, seed=seed
+    )
+    copied = corrected = other = broken = right = 0
+    for g, t, st in zip(gold, teacher, student, strict=True):
+        if t == g:
+            right += 1
+            broken += st != g
+        elif st == t:
+            copied += 1
+        elif st == g:
+            corrected += 1
+        else:
+            other += 1
+    student_cells = Counter((g, st) for g, st in zip(gold, student, strict=True) if g != st)
+    teacher_top = top_confusions(gold, teacher, k)
+    return {
+        "student_minus_teacher_vs_gold_kappa": asdict(kappa_diff),
+        "student_minus_teacher_vs_gold_accuracy": asdict(acc_diff),
+        "on_teacher_errors": {
+            "n": copied + corrected + other,
+            "copied": copied,
+            "corrected": corrected,
+            "other": other,
+        },
+        "on_teacher_correct": {"n": right, "broken": broken},
+        "confusions": {
+            "teacher": [
+                {
+                    "gold": c.teacher,
+                    "label": c.student,
+                    "teacher": c.count,
+                    "student": student_cells.get((c.teacher, c.student), 0),
+                }
+                for c in teacher_top
+            ],
+            "student": [
+                {"gold": c.teacher, "label": c.student, "student": c.count}
+                for c in top_confusions(gold, student, k)
+            ],
+        },
+    }
+
+
+def on_ceiling_items(
+    first: dict[str, str],
+    repeat: dict[str, str],
+    student: dict[str, str],
+    n_resamples: int,
+    seed: int,
+) -> dict[str, object]:
+    """Student-vs-teacher on the items the ceiling was measured on, so the two kappas share
+    their items, and split by whether the teacher gave the same label under both prompts
+    (`stable`) or not: disagreement with a consistent teacher is the student's error,
+    disagreement where the teacher is inconsistent is mostly the teacher's."""
+    ids = sorted(first.keys() & repeat.keys() & student.keys())
+    a = [first[i] for i in ids]
+    b = [student[i] for i in ids]
+    stable = [i for i in ids if first[i] == repeat[i]]
+    unstable = [i for i in ids if first[i] != repeat[i]]
+
+    def agree(sub: list[str]) -> dict[str, object]:
+        hits = sum(first[i] == student[i] for i in sub)
+        return {"n": len(sub), "agree": hits, "rate": hits / len(sub) if sub else None}
+
+    return {
+        "student_vs_teacher": _pair_stats(a, b, n_resamples, seed),
+        "stable": agree(stable),
+        "unstable": agree(unstable),
+    }
+
+
+def compute_seconds(rows: Sequence[Label | Failure]) -> dict[str, object]:
+    """A local teacher's server seconds over the labels it produced (none for Claude)."""
+    seconds = sorted(r.compute_seconds for r in rows if r.compute_seconds is not None)
+    if not seconds:
+        return {}
+    return {
+        "total": round(sum(seconds), 1),
+        "median_per_label": round(seconds[len(seconds) // 2], 3),
+        "labels": len(seconds),
+    }
+
+
 def _git(*args: str) -> str:
     try:
         out = subprocess.run(
@@ -349,10 +490,13 @@ def run(
     n_resamples: int = 1000,
     command: str = "",
     provenance: dict[str, object] | None = None,
+    label_only: bool = False,
 ) -> dict[str, object]:
     """One full eval; writes `report.json`, `meta.json` and `train-metrics.jsonl` to
     `out_dir` and returns the report. `provenance` (from `git_provenance`) is taken now when
-    not given."""
+    not given. With `label_only` it stops once the labels (and the paraphrase labels) are
+    recorded and returns their counts: a slow local teacher can label on one machine and the
+    student train later, or elsewhere, from the committed files."""
     started = time.perf_counter()
     prov = provenance if provenance is not None else git_provenance()
     kind = resolve_teacher_kind(kind, config)
@@ -382,7 +526,7 @@ def run(
     with ws.open_store(spec) as store:
         heldout = store.labelled(teacher.model_id, spec.prompt_hash, Split.HELDOUT)
         pool = store.labelled(teacher.model_id, spec.prompt_hash, Split.POOL)
-        if kind == "claude":
+        if kind in LIVE_KINDS:
             record_labels(
                 label_file(config.dataset.name, spec.teacher.model, spec.prompt_hash),
                 store.label_records(spec.teacher.model, spec.prompt_hash),
@@ -392,6 +536,8 @@ def run(
 
     ceiling: dict[str, object]
     para = config.paraphrase_spec()
+    first: dict[str, str] = {}
+    repeat: dict[str, str] = {}
     if kind == "gold":
         ceiling = {"skipped": "gold labels are fixed, so the teacher agrees with itself"}
     elif config.ceiling.n == 0:
@@ -411,7 +557,7 @@ def run(
                 store.append_labels(batch.labels)
                 store.append_failures(batch.failures, second.model_id, para.prompt_hash)
             repeated = store.labels(second.model_id, para.prompt_hash)
-            if kind == "claude":
+            if kind in LIVE_KINDS:
                 record_labels(
                     label_file(config.dataset.name, para.teacher.model, para.prompt_hash),
                     store.label_records(para.teacher.model, para.prompt_hash),
@@ -427,6 +573,19 @@ def run(
             )
         c = self_agreement(first, repeat, n_resamples=n_resamples, seed=seed)
         ceiling = {"paraphrase_prompt_hash": para.prompt_hash, **asdict(c)}
+
+    if label_only:
+        return {
+            "dataset": {"name": config.dataset.name},
+            "teacher": {
+                "model": teacher.model_id,
+                "pool_labels": len(pool),
+                "heldout_labels": len(heldout),
+                "failures": failures,
+            },
+            "ceiling": ceiling,
+            "label_only": True,
+        }
 
     trained = train(spec, ws, teacher.model_id)
     evaluated = evaluate(spec, ws, trained.path, n_resamples=n_resamples, seed=seed)
@@ -453,12 +612,28 @@ def run(
     }
     if kind != "gold":
         gold["teacher_vs_gold"] = _pair_stats(gold_labels, teacher_labels, n_resamples, seed)
+        gold["errors"] = teacher_errors(gold_labels, teacher_labels, predicted, n_resamples, seed)
+    if repeat:
+        by_id = {it.id: p for (it, _), p in zip(heldout, predicted, strict=True)}
+        ceiling["on_same_items"] = on_ceiling_items(first, repeat, by_id, n_resamples, seed)
 
     with ws.open_store(spec) as store:
         stats = store.stats(teacher.model_id, spec.prompt_hash)
-        stored_failures = {
-            f.input_id for f in store.failure_records(teacher.model_id, spec.prompt_hash)
-        }
+        failure_rows = store.failure_records(teacher.model_id, spec.prompt_hash)
+        stored_failures = {f.input_id for f in failure_rows}
+        seconds = compute_seconds(
+            [*store.label_records(teacher.model_id, spec.prompt_hash), *failure_rows]
+        )
+    if repeat:
+        with ws.open_store(para) as store:
+            para_seconds = compute_seconds(
+                [
+                    *store.label_records(teacher.model_id, para.prompt_hash),
+                    *store.failure_records(teacher.model_id, para.prompt_hash),
+                ]
+            )
+        if para_seconds:
+            seconds["paraphrase_total"] = para_seconds["total"]
     # A replayed refusal is not stored (it would be counted once per run), but it was billed
     # when recorded and the live run's label cost includes it, so it is added back here.
     replayed_failure_cost = sum(
@@ -483,11 +658,19 @@ def run(
             "kind": kind,
             "model": teacher.model_id,
             "prompt_hash": spec.prompt_hash,
-            "effort": spec.teacher.effort if kind != "gold" else None,
+            "provider": spec.teacher.provider if kind != "gold" else None,
+            "digest": spec.teacher.digest if kind != "gold" else None,
+            # A local model has no effort setting; only a Claude teacher's matters.
+            "effort": (
+                spec.teacher.effort
+                if kind != "gold" and spec.teacher.provider == "claude"
+                else None
+            ),
             "pool_labels": len(pool),
             "heldout_labels": len(heldout),
             "failures": failures,
             "label_cost_usd": stats.cost_usd + replayed_failure_cost,
+            "compute_seconds": seconds,
         },
         "student": {
             "model": spec.student.model,
@@ -531,6 +714,7 @@ def run(
         "seed": seed,
         "n_resamples": n_resamples,
         "teacher_model": teacher.model_id,
+        "teacher_digest": spec.teacher.digest if kind != "gold" else None,
         "student_model": spec.student.model,
         "wall_seconds": round(wall, 1),
         "spent_usd": spent,
@@ -567,13 +751,20 @@ def results_dir(
     """`classify-<dataset>-<teacher>`, plus `-seed<N>` for a training-seed repeat (rendered
     in the seed-spread table) or `-smoke` for a run with overridden settings (never rendered)."""
     suffix = SMOKE_SUFFIX if smoke else (f"{SEED_SUFFIX}{seed}" if seed is not None else "")
-    return RESULTS_DIR / f"classify-{dataset}-{teacher_model}{suffix}"
+    return RESULTS_DIR / f"classify-{dataset}-{file_safe(teacher_model)}{suffix}"
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.classify", description=__doc__)
     parser.add_argument("datasets", nargs="+", help="config names under eval/classify/")
-    parser.add_argument("--teacher", choices=["auto", "claude", "replay", "gold"], default="auto")
+    parser.add_argument(
+        "--teacher", choices=["auto", "claude", "ollama", "replay", "gold"], default="auto"
+    )
+    parser.add_argument(
+        "--label-only",
+        action="store_true",
+        help="label and record the labels under eval/labels/, then stop (no training)",
+    )
     parser.add_argument("--student", help="override student.model (e.g. tiny for a smoke run)")
     parser.add_argument("--epochs", type=int, help="override student.epochs")
     parser.add_argument("--size", type=int, help="override sample.size (smoke runs)")
@@ -611,6 +802,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         for name in args.datasets:
             config = load_config(CONFIG_DIR / f"{name}.yaml")
+            if args.teacher == "ollama":
+                config = config.with_local_teacher()
             config = _override(config, args.student, args.epochs, args.size)
             seed = args.seed if args.seed != config.spec.student.seed else None
             if seed is not None:
@@ -624,7 +817,15 @@ def main(argv: list[str] | None = None) -> int:
             model = GOLD if kind == "gold" else config.spec.teacher.model
             out = args.out or results_dir(name, model, smoke=smoke, seed=seed)
             report = run(
-                config, data, kind, out, settings, args.resamples, command, provenance=provenance
+                config,
+                data,
+                kind,
+                out,
+                settings,
+                args.resamples,
+                command,
+                provenance=provenance,
+                label_only=args.label_only,
             )
             print(summary_line(report, out))  # noqa: T201 - the final summary
     except AnvilError as exc:
@@ -666,9 +867,17 @@ def _override(
 
 def summary_line(report: dict[str, object], out: Path) -> str:
     """The one line `main` prints per dataset (the CLI's final summary)."""
-    ag = report["agreement"]
     teacher = report["teacher"]
     dataset = report["dataset"]
+    assert isinstance(teacher, dict)
+    assert isinstance(dataset, dict)
+    if report.get("label_only"):
+        return (
+            f"{dataset['name']}: {teacher['model']} labelled {teacher['heldout_labels']}"
+            f" held-out + {teacher['pool_labels']} pool inputs ({teacher['failures']} failed);"
+            " recorded under eval/labels/"
+        )
+    ag = report["agreement"]
     assert isinstance(ag, dict)
     assert isinstance(teacher, dict)
     assert isinstance(dataset, dict)

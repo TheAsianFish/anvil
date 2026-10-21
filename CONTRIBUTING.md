@@ -27,9 +27,10 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make record` | re-record the Claude fixtures under `tests/recordings/` (a few cents with Haiku) |
 | `make demo` | the offline vertical slice on the toy task (under two minutes) |
 | `make wheel-check` | build the wheel, install it into a fresh venv from PyPI (CPU torch), run `anvil --help` and the demo against it; the release gate |
-| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md. All three take `TEACHER=auto\|claude\|replay\|gold` (`auto` replays committed labels, else calls Claude when a key is set). `eval-generate` fine-tunes Qwen2.5-0.5B with LoRA on CPU (about 2 h) or on a Colab GPU (`notebooks/anvil_gpu.ipynb`); after a scoring change, `python -m eval.generate wikisql --teacher <t> --rescore` scores the stored queries again without retraining |
+| `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md. All three take `TEACHER=auto\|claude\|replay\|gold` (`auto` replays committed labels, else calls Claude when a key is set); `eval-classify` also takes `TEACHER=ollama` (M8: the local model pinned in `eval/classify/*.yaml`, replayed from `eval/labels/` when recorded, else labelled through `ollama serve`; `python -m eval.classify <dataset> --teacher ollama --label-only` records the labels without training). `eval-generate` fine-tunes Qwen2.5-0.5B with LoRA on CPU (about 2 h) or on a Colab GPU (`notebooks/anvil_gpu.ipynb`); after a scoring change, `python -m eval.generate wikisql --teacher <t> --rescore` scores the stored queries again without retraining |
 | `make results` | re-render the RESULTS.md tables from `eval/results/` (a test fails when they are stale) |
-| `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies |
+| `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies; `eval-calibration TEACHER=ollama` calibrates the M8 student and reports the teacher's ceiling on the inputs the cascade accepts |
+| `make eval-noise` | the M8 control: the frontier's MiniLM student on gold, on the local teacher's labels, and on gold corrupted at the teacher's error rate (uniform and the teacher's own confusions), 3 seeds; replays `eval/labels/`, about 2 h of CPU |
 | `make bench` | latency, throughput and cost table (M5) |
 | `make docker` | build the CLI image and the torch-free serving image (`--target serve`) |
 | `anvil push <export> --repo ns/name [--dry-run]` | write the model card (`README.md`) into an export and upload it to the Hugging Face Hub; needs `HF_TOKEN` unless `--dry-run` |
@@ -55,7 +56,8 @@ Environment variables (all optional, read in `anvil/settings.py`):
 every live teacher response there as a replayable recording),
 `ANVIL_LOG_LEVEL` (default `INFO`; logs are JSON lines on stderr),
 `ANVIL_SERVE_THREADS` (ONNX Runtime intra-op threads for `anvil serve`,
-default: ONNX Runtime's own choice), `HF_TOKEN` (write token for `anvil push`;
+default: ONNX Runtime's own choice), `ANVIL_OLLAMA_URL` (the Ollama server a
+`provider: ollama` teacher uses, default `http://127.0.0.1:11434`), `HF_TOKEN` (write token for `anvil push`;
 never logged).
 
 ## Layout

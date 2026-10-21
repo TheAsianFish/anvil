@@ -325,7 +325,9 @@ def test_main_sends_override_runs_to_a_smoke_directory(
     calls: list[tuple[Path, object]] = []
     seen: list[EvalConfig] = []
 
-    def fake_run(*args: object, provenance: object = None) -> dict[str, object]:
+    def fake_run(
+        *args: object, provenance: object = None, label_only: bool = False
+    ) -> dict[str, object]:
         out = args[3]
         assert isinstance(out, Path)
         assert isinstance(args[0], EvalConfig)

@@ -114,6 +114,8 @@ def find_student(
 def trained_student(name: str, teacher: TeacherKind, settings: Settings) -> TrainedStudent:
     """The `eval.classify` student for dataset `name`, trained now if the workspace lacks it."""
     config = load_config(CONFIG_DIR / f"{name}.yaml")
+    if teacher == "ollama":
+        config = config.with_local_teacher()
     data = sample(
         name, *load_rows(config.dataset.ref()), n=config.sample.size, seed=config.sample.seed
     )
