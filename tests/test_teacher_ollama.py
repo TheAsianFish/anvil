@@ -22,7 +22,7 @@ from anvil.teacher import build_teacher
 from anvil.teacher.base import BatchAbortedError, Failure, Item
 from anvil.teacher.cache import DiskCache
 from anvil.teacher.claude import ClaudeTeacher, output_schema, system_prompt
-from anvil.teacher.ollama import NUM_CTX, SEED, HttpOllamaTransport, OllamaTeacher
+from anvil.teacher.ollama import NUM_CTX, RETRIES, SEED, HttpOllamaTransport, OllamaTeacher
 from tests.conftest import FakeTransport, JSONDict
 
 # Captured at import, before the autouse fixture blocks sockets: the loopback tests restore it.
@@ -312,7 +312,8 @@ class _Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         body = self.rfile.read(length) if length else b""
         state.requests.append((self.command, self.path, body))
-        status, payload = state.routes[(self.command, self.path)]
+        route = state.routes[(self.command, self.path)]
+        status, payload = route.pop(0) if isinstance(route, list) else route
         data = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
@@ -326,7 +327,8 @@ class _Handler(BaseHTTPRequestHandler):
 
 class _State:
     def __init__(self) -> None:
-        self.routes: dict[tuple[str, str], tuple[int, object]] = {}
+        # One reply for every request, or a list of replies served in order.
+        self.routes: dict[tuple[str, str], tuple[int, object] | list[tuple[int, object]]] = {}
         self.requests: list[tuple[str, str, bytes]] = []
 
 
@@ -367,8 +369,25 @@ def test_http_500_is_a_per_input_teacher_error(http: tuple[_State, str]) -> None
     state, url = http
     state.routes[("POST", "/api/chat")] = (500, {"error": "out of memory"})
     with pytest.raises(TeacherError, match="500") as info:
-        HttpOllamaTransport(url)({"model": MODEL})
+        HttpOllamaTransport(url, backoff_s=0)({"model": MODEL})
     assert not isinstance(info.value, ConfigError)
+    assert len(state.requests) == 1 + RETRIES
+
+
+def test_http_transient_error_is_retried(http: tuple[_State, str]) -> None:
+    # A busy CPU server failing once must not turn into a recorded failure for the input.
+    state, url = http
+    state.routes[("POST", "/api/chat")] = [(503, {"error": "busy"}), (200, chat_response())]
+    assert HttpOllamaTransport(url, backoff_s=0)({"model": MODEL}) == chat_response()
+    assert len(state.requests) == 2
+
+
+def test_http_client_error_is_not_retried(http: tuple[_State, str]) -> None:
+    state, url = http
+    state.routes[("POST", "/api/chat")] = (400, {"error": "invalid format"})
+    with pytest.raises(ConfigError, match="rejected"):
+        HttpOllamaTransport(url, backoff_s=0)({"model": MODEL})
+    assert len(state.requests) == 1
 
 
 def test_http_non_json_response_is_a_teacher_error(http: tuple[_State, str]) -> None:

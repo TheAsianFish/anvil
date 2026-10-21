@@ -17,8 +17,10 @@ close label, so one worker is what makes a re-run give the same labels.
 
 from __future__ import annotations
 
+import http.client
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 from typing import Protocol
@@ -37,6 +39,11 @@ so it is set well above the longest label prompt (Banking77's 77 labels are abou
 tokens), and a prompt that reaches it is a failure rather than a label of a cut prompt."""
 
 SEED = 0
+
+RETRIES = 2
+"""Extra attempts after a transient failure (a 5xx, a timeout, a dropped connection). A
+failure that survives them is recorded against the input and replayed as a failure, so one
+slow request on a busy CPU must not cost the input for good."""
 
 
 class OllamaTransport(Protocol):
@@ -58,16 +65,31 @@ def _no_server(url: str, exc: object) -> ConfigError:
     )
 
 
+class _TransientError(Exception):
+    """A failure worth retrying; becomes a `TeacherError` once the retries are spent."""
+
+
 class HttpOllamaTransport:
     """Talks to Ollama's HTTP API with the standard library (no SDK needed)."""
 
-    def __init__(self, url: str, timeout_s: float = 600.0) -> None:
+    def __init__(self, url: str, timeout_s: float = 600.0, backoff_s: float = 1.0) -> None:
         if not url.startswith(("http://", "https://")):
             raise ConfigError(f"ANVIL_OLLAMA_URL={url!r} must start with http:// or https://")
         self._url = url.rstrip("/")
         self._timeout = timeout_s
+        self._backoff_s = backoff_s
 
     def _request(self, method: str, path: str, body: JSONDict | None = None) -> JSONDict:
+        for attempt in range(RETRIES + 1):
+            try:
+                return self._request_once(method, path, body)
+            except _TransientError as exc:
+                if attempt == RETRIES:
+                    raise TeacherError(str(exc)) from exc
+                time.sleep(self._backoff_s * 2**attempt)
+        raise AssertionError("unreachable")
+
+    def _request_once(self, method: str, path: str, body: JSONDict | None) -> JSONDict:
         data = json.dumps(body).encode("utf-8") if body is not None else None
         req = urllib.request.Request(
             f"{self._url}{path}",
@@ -88,13 +110,17 @@ class HttpOllamaTransport:
                 ) from exc
             if exc.code == 400:
                 raise ConfigError(f"Ollama rejected the request: {detail}") from exc
+            if exc.code >= 500:
+                raise _TransientError(f"Ollama error {exc.code}: {detail}") from exc
             raise TeacherError(f"Ollama error {exc.code}: {detail}") from exc
         except urllib.error.URLError as exc:
             if isinstance(exc.reason, ConnectionRefusedError):
                 raise _no_server(self._url, exc.reason) from exc
-            raise TeacherError(f"could not reach Ollama at {self._url}: {exc.reason}") from exc
+            raise _TransientError(f"could not reach Ollama at {self._url}: {exc.reason}") from exc
         except TimeoutError as exc:
-            raise TeacherError(f"Ollama did not answer within {self._timeout:.0f} s") from exc
+            raise _TransientError(f"Ollama did not answer within {self._timeout:.0f} s") from exc
+        except (http.client.HTTPException, ConnectionError) as exc:
+            raise _TransientError(f"the connection to Ollama broke: {exc!r}") from exc
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:
