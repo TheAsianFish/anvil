@@ -125,7 +125,7 @@ wheels = [
 
 [[package]]
 name = "anvil-distil"
-version = "0.1.0.dev0"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
