@@ -7,6 +7,7 @@ import logging
 import re
 import subprocess
 import sys
+import tomllib
 from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -558,9 +559,49 @@ def test_serve_and_cli_import_without_torch() -> None:
         "import sys\n"
         "sys.modules['torch'] = None\n"
         "sys.modules['transformers'] = None\n"
+        "sys.modules['peft'] = None\n"
+        "sys.modules['accelerate'] = None\n"
         "import anvil.serve, anvil.cli\n"
     )
     r = subprocess.run(
         [sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, check=False
     )
     assert r.returncode == 0, r.stderr
+
+
+def _serve_image_filter() -> set[str]:
+    text = (ROOT / "Dockerfile").read_text()
+    m = re.search(r"grep -viE '\^\(([a-z0-9|_-]+)\)=='", text)
+    assert m, "the serve stage's requirements filter was not found in the Dockerfile"
+    return set(m.group(1).split("|"))
+
+
+def test_serve_image_filter_matches_lock() -> None:
+    # The serve image installs the exported lock minus the filter, with --no-deps. A kept package
+    # that needs a dropped one would fail at import (and without --no-deps would pull the CUDA
+    # torch from PyPI); a kept package that only dropped ones pull in is dead weight.
+    lock = tomllib.loads((ROOT / "uv.lock").read_text())
+    deps = {
+        pkg["name"]: {d["name"] for d in pkg.get("dependencies", [])} for pkg in lock["package"]
+    }
+    project = next(pkg for pkg in lock["package"] if pkg["name"] == "anvil-distil")
+    roots = deps["anvil-distil"] | {d["name"] for d in project["optional-dependencies"]["serve"]}
+
+    def reachable(skip: set[str]) -> set[str]:
+        seen: set[str] = set()
+        todo = [name for name in roots if name not in skip]
+        while todo:
+            name = todo.pop()
+            if name not in seen:
+                seen.add(name)
+                todo.extend(deps[name] - skip)
+        return seen
+
+    dropped = _serve_image_filter()
+    closure = reachable(set())
+    assert {"torch", "transformers", "peft"} <= dropped
+    assert dropped <= closure, f"filter names packages not in the lock: {dropped - closure}"
+    kept = closure - dropped
+    leaks = {name: sorted(deps[name] & dropped) for name in kept if deps[name] & dropped}
+    assert not leaks, f"kept packages depend on dropped ones: {leaks}"
+    assert kept == reachable(dropped), f"only dropped packages need: {kept - reachable(dropped)}"
