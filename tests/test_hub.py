@@ -327,6 +327,10 @@ def test_explicit_report_wins_and_must_match(bundle: Path, home: Path, tmp_path:
     path.write_text(json.dumps({**REPORT, "teacher_model": "other"}), encoding="utf-8")
     with pytest.raises(ConfigError, match="pass this student's report"):
         load_card_inputs(bundle, home, path)
+    # Same teacher and prompt, but another run of the task: its numbers are not this student's.
+    path.write_text(json.dumps({**REPORT, "student": "20261020-000000-n100"}), encoding="utf-8")
+    with pytest.raises(ConfigError, match="pass this student's report"):
+        load_card_inputs(bundle, home, path)
     with pytest.raises(ConfigError, match="does not exist"):
         load_card_inputs(bundle, home, tmp_path / "missing.json")
 

@@ -570,7 +570,10 @@ def _workspaces(artifact: Path, home: Path, task: str | None) -> list[Workspace]
 
 
 def _matches(report: Mapping[str, object], facts: _Facts) -> bool:
-    return (report.get("teacher_model"), report.get("prompt_hash")) == (
+    """The report measures this student: same teacher and prompt, and the same run when both
+    name one (a report for a sibling run of the same task would put its numbers on this card)."""
+    same_run = facts.run is None or report.get("student") in (None, facts.run)
+    return same_run and (report.get("teacher_model"), report.get("prompt_hash")) == (
         facts.teacher,
         facts.prompt_hash,
     )
@@ -625,9 +628,10 @@ def load_card_inputs(artifact: Path, home: Path, report: Path | None = None) -> 
         found: dict[str, object] | None = _read_json(report)
         if found is not None and not _matches(found, facts):
             raise ConfigError(
-                f"{report} measures teacher {found.get('teacher_model')!r} and prompt"
-                f" {found.get('prompt_hash')!r}, but {artifact} was trained on"
-                f" {facts.teacher!r} and {facts.prompt_hash!r}; pass this student's report"
+                f"{report} measures student {found.get('student')!r} with teacher"
+                f" {found.get('teacher_model')!r} and prompt {found.get('prompt_hash')!r}, but"
+                f" {artifact} is student {facts.run!r} trained on {facts.teacher!r} and"
+                f" {facts.prompt_hash!r}; pass this student's report"
             )
     else:
         found = _find_report(artifact, workspaces, facts)
