@@ -29,16 +29,15 @@ with a LoRA adapter, trained on its own chat template and scored by
 execution match: the student's query and the teacher's run against the
 question's table in a sandboxed SQLite and must return the same rows.
 
-Status: **M6 of 7** (Claude teacher, label store, a full PyTorch training
-loop with exact resume, kappa with bootstrap intervals and error slices, the
-active-learning loop with resumable rounds, span extraction with verified
-character offsets and a token tagger, calibration and the escalating cascade,
-ONNX export with parity gates, the server and its image, the LoRA generation
-student with execution-match scoring and a merged export, and the
-`make eval-classify`, `make eval-extract`, `make eval-generate`, `make eval-frontier`,
-`make eval-select`, `make eval-calibration`, `make eval-export` and
-`make bench` harnesses).
-See [PLAN.md](PLAN.md) for the milestones.
+Status: **0.1.0, release-ready** (all seven milestones in [PLAN.md](PLAN.md)).
+The package builds a wheel that installs into a clean venv and runs the demo
+(`make wheel-check`); the release workflow publishes to PyPI and GHCR when a
+GitHub release is published, and `anvil push` uploads a student to the
+Hugging Face Hub with a model card written from its measured numbers
+([RELEASE.md](RELEASE.md)). Every number below was measured with the
+dataset's gold labels standing in for the teacher: no Claude label has been
+bought yet, and the runs that need one are listed with their cost under
+"To measure" in [RESULTS.md](RESULTS.md).
 
 ## Demo
 
@@ -108,6 +107,16 @@ docs/screenshots/demo.gif and link it here. -->
 
 ## Quickstart
 
+As a package (Python 3.12; once published, see [RELEASE.md](RELEASE.md)):
+
+```bash
+pip install "anvil-distil[export,serve]"   # on a CPU-only Linux box, install torch from
+                                           # https://download.pytorch.org/whl/cpu first
+anvil --help
+```
+
+From a checkout, with the demo, the tests and the evals:
+
 ```bash
 git clone https://github.com/TheAsianFish/anvil && cd anvil
 uv sync --all-extras            # Python 3.12, CPU torch from the PyTorch index
@@ -152,6 +161,10 @@ uv run anvil train --teacher fake     # student.model: Qwen/Qwen2.5-0.5B-Instruc
 uv run anvil eval                     # exact match per field (execution match is in make eval-generate)
 uv run anvil export                   # the adapter merged into the base, gated on identical outputs
 make eval-generate TEACHER=gold       # WikiSQL, 1,000 labels, Qwen2.5-0.5B on CPU (~2 h) or Colab
+
+# Publish a student with its model card (parity, calibration, export gates, label cost)
+uv run anvil push .anvil/ticket-triage/exports/<run> --repo <you>/ticket-triage --dry-run
+HF_TOKEN=... uv run anvil push .anvil/ticket-triage/exports/<run> --repo <you>/ticket-triage
 ```
 
 A task is a YAML file:
@@ -253,7 +266,9 @@ flowchart LR
 | `anvil/chat.py`, `anvil/students/generator.py`, `anvil/train/generator.py` | The generation student: each answer placed in the model's own chat template with the prompt tokens masked, checked (the generation prompt is a token prefix, the answer ends at end-of-turn and decodes back to the teacher's text); `LoraGenerator` (PEFT LoRA on every linear layer, greedy decoding with every setting explicit; `tiny` is a random-init two-layer Qwen2 over bytes); early stopping on validation exact match |
 | `anvil/evaluate/sql.py`, `anvil/evaluate/judge.py`, `anvil/merge.py` | Execution match in an in-memory SQLite copy of the question's table (authorizer, step limit, case-insensitive text); a Claude judge on a seeded sample, compared item by item with execution match; the adapter merged into the base weights, kept only if it answers the probes exactly as the adapter did |
 | `eval/generate.py`, `eval/wikisql.py` | `make eval-generate` on WikiSQL: zero-shot baseline, rows-doubled check, slices, judge sample, merged export; `--rescore` scores stored queries again without retraining |
-| `anvil/pipeline.py`, `anvil/cli.py` | `label`, `train`, `eval`, `loop`, `calibrate`, `export`, `serve` as a library API and a Typer CLI |
+| `anvil/hub.py` | `anvil push`: a Hugging Face model card rendered from the export's own files (the `anvil eval` report, calibration, parity gates, label cost; "not measured" when a report is missing), then the export uploaded to a private repo by default |
+| `anvil/pipeline.py`, `anvil/cli.py` | `label`, `train`, `eval`, `loop`, `calibrate`, `export`, `serve`, `push` as a library API and a Typer CLI |
+| `scripts/wheel_check.sh`, `.github/workflows/release.yml` | The release gate (the built wheel in a fresh venv runs `anvil --help` and the demo) and the release workflow: PyPI by trusted publishing and both images to GHCR, only when a GitHub release is published |
 
 **The hard part** (the core of the project, built over M2 and M3) is the
 cost-versus-quality frontier: how few teacher labels reach a target kappa
@@ -318,8 +333,8 @@ references that return nothing.
 - **Exact resume.** A checkpoint holds the model, optimizer, scheduler,
   gradient scaler, both RNGs, the epoch's data order and position, and the
   early-stopping state, fingerprinted with the config and the training data;
-  an interrupted run resumed from it ends with bit-identical weights (tested
-  at five crash points on CPU; on CUDA that holds only with deterministic
+  an interrupted run resumed from it ends with bit-identical weights
+  (`tests/test_train_loop.py` crashes it at five points on CPU; on CUDA that holds only with deterministic
   kernels).
 - **No key, no fake parity.** Without a key, `make eval-classify
   TEACHER=gold` uses the dataset's own labels as the teacher under the model
@@ -363,8 +378,8 @@ references that return nothing.
   cache or a recording counts what it cost to make, so a replay stops at the
   same round as the live run it reproduces.
 - **Fixed-length training on the frontier.** At 100 labels a 10% validation
-  slice is ten inputs for up to 77 classes; in a pilot (output not kept),
-  early stopping on it quit at epoch 4 and kept an untrained epoch 1. Frontier
+  slice is ten inputs for up to 77 classes, too few to choose an epoch on (a
+  pilot, whose output was not kept, showed early stopping misfiring). Frontier
   rounds train for at least 600 optimizer steps instead (`min_steps`).
 - **A deterministic tiny student.** `tiny` uses a word-level vocabulary built
   by hand: the `tokenizers` WordPiece trainer breaks frequency ties in
@@ -419,6 +434,15 @@ references that return nothing.
   needs a KV-cache graph and a decoding loop; folding the adapter into the
   base weights gives a plain transformers model that any server loads, gated
   on identical completions.
+- **A model card is written from files, never typed.** `anvil push` reads
+  the numbers from the eval report and the export metadata next to the
+  student and refuses a report measured against another teacher or prompt;
+  when the teacher is the offline fake or the dataset's gold labels, the card
+  says so. Pushes are private unless `--public`.
+- **The release gate installs from PyPI, not the lock file.** `make
+  wheel-check` resolves the wheel's dependency ranges in a fresh venv the way
+  a user's `pip install` does, so a range that only works at the locked
+  versions fails before a release does.
 - **ONNX export goes through `torch.onnx`.** `optimum-onnx` 0.1 requires
   `transformers<4.58` and cannot be installed next to transformers 5; the M1
   spike in [docs/notes/onnx-export-spike.md](docs/notes/onnx-export-spike.md)
@@ -444,7 +468,8 @@ AG News with another student seed moved kappa from 0.844 to 0.896, about 70%
 of one run's interval width; on Banking77 two seeds tie at 0.842 but disagree
 on 15% of items. That is why the frontier milestone runs three seeds per
 point. On Banking77 the least confident tenth of predictions (50 items) agrees
-40% of the time against 98-100% for the top six tenths, which is what the
+30-40% of the time (40% on seed 0, 30% on seed 1) against 98-100% for the top
+six tenths, which is what the
 active-selection and cascade milestones build on. Parity with Claude and the
 teacher's self-agreement ceiling are listed under "To measure" with their
 commands and cost (about $0.35 with Haiku 5.5).
@@ -475,13 +500,18 @@ students, gold labels as the teacher, CPU:
 | ONNX fp32 vs PyTorch, max abs logit diff over held-out | 2.3e-05 | 2.9e-05 |
 | int8 (211 MB vs 601 MB): agreement with fp32 on all / on answered inputs; kappa change | 0.964 / 1.000; -0.002 | 0.992 / 1.000; -0.006 |
 
+The int8 row predates the one-at-a-time probes the gate now adds; its re-run
+is under "To measure".
+
 Choosing the threshold where the kappa estimate reaches the target holds that
 target on new inputs about half the time; requiring the bootstrap lower bound
-to reach it holds it in roughly nine of ten splits, for 7 (Banking77) to 23
-(AG News) points of coverage. Temperature scaling makes the confidences
-readable as agreement rates but leaves coverage unchanged. On Banking77 the
+to reach it holds it in roughly nine of ten splits, at a cost of 7 (Banking77: median
+coverage 80.2% against 87.1%) to 23 (AG News: 65.1% against 88.3%) points of
+coverage. Temperature scaling makes the confidences readable as agreement
+rates but buys no coverage (Banking77 at kappa 0.9: 87.1% calibrated, 87.9%
+uncalibrated, within noise). On Banking77 the
 served student answers in 27.6 ms p50 over HTTP in fp32 and 18.1 ms in int8
-(PyTorch in process: 55.3 ms), at 4 threads on one CPU; on a CPU, batch 32
+(PyTorch in process: 55.3 ms), at 4 threads on a 4-vCPU AMD EPYC 7763; on a CPU, batch 32
 costs more per input than batch 1 because of padding. The int8 layer probe
 pins its accuracy loss on the MLP down-projections, which stay fp32. Teacher
 latency and dollars per 1,000 inputs need a key and are under "To measure".
@@ -496,10 +526,10 @@ number):
 |---|---|---|---|---|---|
 | 0.767 [0.717, 0.813] | 0.743 | 0.490 | 0.763 | 0.210 [0.167, 0.253] | +0.557 [0.497, 0.617] |
 
-Fine-tuning mostly teaches the base model to write SQL that runs (176 of its
-300 zero-shot queries raise an error). Exact match misses 83 queries that
-return the reference's rows, 41 of them differing only in the case of a
-string literal. 30 of the 300 WikiSQL references find nothing in their table
+Most of the base model's misses are queries that do not run (176 of its 300
+zero-shot queries raise an error), not wrong answers. Exact match misses 83
+queries that return the reference's rows; 42 of them are real rewrites and
+the rest differ only in the case of a string literal. 30 of the 300 WikiSQL references find nothing in their table
 (an aggregate over no matching rows, `NULL` or a `COUNT` of 0), which any
 other query that finds nothing matches; the fourth column leaves them out.
 The merged model answers 64 of 64 probes exactly as the adapter did. Claude parity and the 100-item judge sample are
@@ -513,7 +543,21 @@ under "To measure" (about $0.11 with Haiku 5.5).
 - [x] M4: span extraction with character-offset alignment, a BIO tagger, entity F1 and token kappa, MIT Restaurant harness (Claude parity to measure)
 - [x] M5: calibration and the cascade threshold, ONNX export with parity gates, FastAPI server with teacher escalation and a torch-free image, benchmarks (teacher latency and cost to measure)
 - [x] M6: Qwen2.5-0.5B LoRA generation student, chat-template alignment, execution-match eval on WikiSQL, merged export, Colab notebook (Claude parity and the judge sample to measure)
-- [ ] M7: release (PyPI, GHCR, Hugging Face model cards)
+- [x] M7: release readiness: `anvil push` with a rendered model card, PyPI and GHCR release workflow, clean-venv wheel check, RELEASE.md, spend ledger in RESULTS.md
+
+Next, in order of what each would teach:
+
+- **Claude parity.** Buy the labels (about $0.65 with Haiku 5.5 for classification and
+  extraction, $0.11 for WikiSQL and the judge sample) and replace every gold-teacher
+  number with the parity number the project is about, including the teacher's
+  self-agreement ceiling.
+- **Selection that beats random.** `uncertainty`, `margin` and `diverse` in
+  `anvil/select.py`, measured on the frontier against the random curve (24 tests in
+  `tests/test_select.py`, expected failures today, wait for them).
+- **The extraction and generation students in the cascade.** `loop`, `calibrate` and
+  `serve` are classify-only today.
+- **A GPU frontier** on the Colab notebook, and a published Banking77 student distilled from
+  Claude labels.
 
 ## License
 

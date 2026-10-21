@@ -244,15 +244,20 @@ Batches halve the cost of large pools and are used when a batch exceeds
   publishing workflow guarded by `if: github.event_name == 'release'` and the
   presence of the publishing environment). Importable as `anvil`, CLI `anvil`.
 - **Models.** Trained students publish to the Hugging Face Hub under the
-  maintainer's namespace with a model card rendered from RESULTS.md. The
-  push workflow needs the `HF_TOKEN` secret and runs only on manual dispatch.
+  maintainer's namespace with `anvil push`, which writes a model card rendered
+  from the student's own eval report, calibration, export gates and label
+  cost. It runs on the machine that trained the student and reads `HF_TOKEN`
+  from the environment (changed in M7: a dispatch workflow would have to
+  retrain the student, since trained students are not in the repository).
 - **Image.** A CPU Dockerfile for `anvil serve` (ONNX Runtime, no torch in
   the runtime stage) published to GHCR on release.
 - **Demo.** A Colab notebook (`notebooks/anvil_gpu.ipynb`) that reproduces
   the GPU frontier run; a README GIF of `anvil loop` on Banking77.
 - **Secrets the maintainer adds.** `ANTHROPIC_API_KEY` (evals and live tests
-  in CI; optional), `HF_TOKEN` (hub push; optional), PyPI trusted publisher
-  (release). Nothing else.
+  in CI; optional), `HF_TOKEN` (in the shell that runs `anvil push`, not a
+  repository secret; optional), PyPI trusted publisher bound to the `pypi`
+  environment (release). GHCR uses the workflow's `GITHUB_TOKEN`. Nothing
+  else. The exact steps are in RELEASE.md.
 
 ## Risks
 
@@ -457,6 +462,26 @@ Batches halve the cost of large pools and are used when a batch exceeds
   tokenizer names only `<|im_end|>` while its generation config also stops on
   `<|endoftext|>`; the stored WikiSQL completions show neither leaked, so no number changed).
 
+- **M7 (2026-10-21).** `anvil push` takes an export (an ONNX bundle or a merged generator),
+  writes a model card into it as `README.md` and uploads the directory to a Hub model repo,
+  private unless `--public`. Every number in the card is read from files next to the student:
+  the `anvil eval` report, found two directories above the export (`<workspace>/exports/<run>`,
+  which also covers the eval harness's workspaces) or under `ANVIL_HOME/<task>`, and only if it
+  measured the same teacher and prompt; the calibration and parity gates in the export metadata;
+  the label cost from the store. The store does not record which labels a student trained on,
+  so the cost is every label for that teacher and prompt, and the card says so. Bundles now
+  record their student run (`run`) so the report can be found. The Hub push is a local command
+  rather than a dispatch workflow (Release section). The release workflow runs on a published
+  GitHub release (a manual run builds and checks only): a tag-version check, `uv build`, the
+  clean-venv wheel check, then PyPI by trusted publishing and both images to GHCR, each guarded
+  by `if: github.event_name == 'release'` and the repository name. The wheel check resolves
+  dependencies from PyPI with CPU torch, not from `uv.lock`, so it tests the published ranges;
+  `huggingface-hub` became a declared dependency (it was only transitive through
+  `transformers`). Training packages stay core dependencies: `anvil-distil` without torch could
+  only serve, and the serving image already installs that subset from the lock file. RESULTS.md
+  gained a generated spend ledger (every committed run, its command, commit, wall time and
+  dollars). No new measurement needed a key; Claude parity stays under "To measure".
+
 ## Milestones
 
 - [x] M1: Scaffold, CI and a thin vertical slice — package layout, `uv` lockfile, ruff + mypy strict + pytest + GitHub Actions (lint, type, test on 3.12), Dockerfile, Makefile, MIT licence; `anvil.yaml` spec; `Teacher` protocol with `ClaudeTeacher` (structured outputs, disk cache, cost accounting, recorded fixtures, live test skipped without a key) and `FakeTeacher`; store with hash splits; `anvil label | train | eval` end to end on a toy classify task with a tiny random-init encoder; ModernBERT ONNX export spike recorded in `docs/notes/`. Done when `make check` is green in CI and `make demo` runs the slice offline in under two minutes.
@@ -465,4 +490,4 @@ Batches halve the cost of large pools and are used when a batch exceeds
 - [x] M4: Extraction — teacher schema with character-offset spans, `align.py` (verification, token snapping, unaligned-rate report), `EncoderTagger`, entity-level F1 and token kappa vs teacher, `make eval-extract` on MIT Restaurant. Done when alignment has tests for off-by-one, overlapping and unicode cases and the extraction eval writes its table.
 - [x] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
 - [x] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.
-- [ ] M7: Release readiness — `anvil push` with the rendered model card, PyPI and GHCR workflows with `if:` guards, RELEASE.md with the secrets to add, README (architecture, results table, demo, roadmap), final RESULTS.md with every measured number and its cost, CONTRIBUTING.md refreshed. Done when a clean-venv wheel install runs `anvil --help` and the demo, and every README number traces to a RESULTS.md entry.
+- [x] M7: Release readiness — `anvil push` with the rendered model card, PyPI and GHCR workflows with `if:` guards, RELEASE.md with the secrets to add, README (architecture, results table, demo, roadmap), final RESULTS.md with every measured number and its cost, CONTRIBUTING.md refreshed. Done when a clean-venv wheel install runs `anvil --help` and the demo, and every README number traces to a RESULTS.md entry.

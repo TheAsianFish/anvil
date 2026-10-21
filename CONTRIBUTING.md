@@ -26,11 +26,13 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make test-live` | tests that call Claude; skipped without `ANTHROPIC_API_KEY` |
 | `make record` | re-record the Claude fixtures under `tests/recordings/` (a few cents with Haiku) |
 | `make demo` | the offline vertical slice on the toy task (under two minutes) |
+| `make wheel-check` | build the wheel, install it into a fresh venv from PyPI (CPU torch), run `anvil --help` and the demo against it; the release gate |
 | `make eval-classify` / `eval-extract` / `eval-generate` | parity evals (M2, M4, M6); write `eval/results/` and refresh RESULTS.md. All three take `TEACHER=auto\|claude\|replay\|gold` (`auto` replays committed labels, else calls Claude when a key is set). `eval-generate` fine-tunes Qwen2.5-0.5B with LoRA on CPU (about 2 h) or on a Colab GPU (`notebooks/anvil_gpu.ipynb`); after a scoring change, `python -m eval.generate wikisql --teacher <t> --rescore` scores the stored queries again without retraining |
 | `make results` | re-render the RESULTS.md tables from `eval/results/` (a test fails when they are stale) |
 | `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies |
 | `make bench` | latency, throughput and cost table (M5) |
 | `make docker` | build the CLI image and the torch-free serving image (`--target serve`) |
+| `anvil push <export> --repo ns/name [--dry-run]` | write the model card (`README.md`) into an export and upload it to the Hugging Face Hub; needs `HF_TOKEN` unless `--dry-run` |
 | `make spike-onnx` | the M1 ModernBERT ONNX export spike (downloads ModernBERT-base) |
 
 Every eval and bench writes raw output under `eval/results/<name>/` with the
@@ -42,9 +44,10 @@ the renderer, names its source file. Eval dependencies (`datasets`) are in the
 `eval` dependency group, which `make eval-*` installs on demand; CI does not.
 `make eval-extract` reads its dataset's raw files with `huggingface_hub` and
 needs no extra group; `make eval-generate` reads WikiSQL's parquet with pyarrow (the `eval`
-group). Judge verdicts a live run pays for are committed under `eval/labels/` too.
-Labels a live eval pays for are committed under `eval/labels/` so every later
-run replays them offline and for free.
+group). Labels and judge verdicts a live eval pays for are committed under
+`eval/labels/` so every later run replays them offline and for free. The
+`## Spend` ledger at the top of RESULTS.md lists every committed run with its
+command, commit, wall time and dollars.
 
 Environment variables (all optional, read in `anvil/settings.py`):
 `ANVIL_HOME` (state directory, default `.anvil`), `ANVIL_TEACHER_WORKERS`
@@ -52,7 +55,8 @@ Environment variables (all optional, read in `anvil/settings.py`):
 every live teacher response there as a replayable recording),
 `ANVIL_LOG_LEVEL` (default `INFO`; logs are JSON lines on stderr),
 `ANVIL_SERVE_THREADS` (ONNX Runtime intra-op threads for `anvil serve`,
-default: ONNX Runtime's own choice).
+default: ONNX Runtime's own choice), `HF_TOKEN` (write token for `anvil push`;
+never logged).
 
 ## Layout
 
@@ -61,11 +65,12 @@ anvil/            package: spec, teacher/, store, students/, train/, evaluate/,
                   spans + align + extraction (M4), select + loop (M3), calibrate +
                   export + runtime + serve (M5), outputs + chat + generation + merge,
                   students/generator.py, train/generator.py, evaluate/sql.py,
-                  generation.py, judge.py (M6), pipeline, cli (M7 adds hub)
+                  generation.py, judge.py (M6), hub (model card + push, M7),
+                  pipeline, cli
 examples/toy/     the toy ticket-triage task used by the demo and the tests
 examples/toy-extract/  the toy restaurant-slot extraction task (demo and tests)
 examples/toy-generate/ the toy text-to-SQL generation task (demo and tests)
-scripts/          demo.sh
+scripts/          demo.sh, wheel_check.sh (clean-venv install of the built wheel)
 tests/            unit + integration; tests/recordings/ holds real Claude
                   responses replayed offline (empty until `make record`)
 eval/             classify.py, extract.py and generate.py (the parity harnesses; wikisql.py
@@ -75,7 +80,7 @@ eval/             classify.py, extract.py and generate.py (the parity harnesses;
                   classify/*.yaml, extract/*.yaml and generate/*.yaml (dataset, sample, ceiling
                   prompt, task spec), labels/ (recorded teacher labels),
                   results/, spikes/
-docs/             notes/ (spikes); M7 adds screenshots
+docs/             notes/ (spikes)
 notebooks/        anvil_gpu.ipynb, the Colab GPU run (M6)
 ```
 
@@ -112,6 +117,9 @@ notebooks/        anvil_gpu.ipynb, the Colab GPU run (M6)
   and what was left out and why.
 - Tick a milestone in PLAN.md only when its definition of done is met and
   `make check` is green in CI.
+- Releases follow [RELEASE.md](RELEASE.md): a published GitHub release runs
+  `.github/workflows/release.yml` (wheel check, PyPI by trusted publishing,
+  both images to GHCR). Nothing publishes from a push or a pull request.
 
 ## Quality gates
 
