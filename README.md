@@ -545,7 +545,18 @@ under "To measure" (about $0.11 with Haiku 5.5).
 - [x] M6: Qwen2.5-0.5B LoRA generation student, chat-template alignment, execution-match eval on WikiSQL, merged export, Colab notebook (Claude parity and the judge sample to measure)
 - [x] M7: release readiness: `anvil push` with a rendered model card, PyPI and GHCR release workflow, clean-venv wheel check, RELEASE.md, spend ledger in RESULTS.md
 
-Next, in order of what each would teach:
+Next, in order of what each would teach (M8-M10 are planned in PLAN.md, evolution round 1):
+
+- [ ] M8: the first fallible teacher: `OllamaTeacher` (a local open model, `qwen2.5:3b` in the
+  harness) so the parity table gets a teacher that can be wrong, with the paraphrase ceiling,
+  teacher-vs-gold and student-vs-gold rows, and a matched synthetic-noise control
+- [ ] M9: the cascade off-distribution: the served bundle on Banking77's test split, CLINC150's
+  out-of-scope utterances and AG News sentences; max-softmax against max-logit, energy and
+  embedding distance as the escalation signal
+- [ ] M10: does the interval cover? A coverage simulation of the percentile and BCa bootstrap
+  bounds at the kappa, sample size and label count where the threshold rule applies them
+
+Still open, each needing a key or the owner's own code:
 
 - **Claude parity.** Buy the labels (about $0.65 with Haiku 5.5 for classification and
   extraction, $0.11 for WikiSQL and the judge sample) and replace every gold-teacher
