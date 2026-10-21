@@ -7,6 +7,34 @@ environment yet, so the M2 classification runs use each dataset's gold labels as
 (model id `gold`). They measure the training loop, the student and the statistics on real data;
 they are not parity-with-Claude numbers, which are listed under "To measure".
 
+## Spend
+
+What each committed run cost in teacher dollars and wall time, from the `meta.json` of every
+directory under `eval/results/`.
+
+<!-- BEGIN generated:ledger -->
+| Run | Eval | Teacher | Command | Commit | Wall time | Teacher $ |
+|---|---|---|---|---|---|---|
+| `bench-banking77-gold` | bench | gold | `python -m eval.bench --teacher gold` | `d0cfa4c` | 19m 27s | $0.00 |
+| `calibration-ag_news-gold` | eval-calibration | gold | `python -m eval.calibration --teacher gold` | `b127db2` | 2m 02s | $0.00 |
+| `calibration-banking77-gold` | eval-calibration | gold | `python -m eval.calibration --teacher gold` | `b127db2` | 0m 58s | $0.00 |
+| `classify-ag_news-gold` | eval-classify | gold | `python -m eval.classify ag_news banking77 --teacher gold` | `74cca5e` | 36m 10s | $0.00 |
+| `classify-ag_news-gold-seed1` | eval-classify | gold | `python -m eval.classify ag_news --teacher gold --seed 1` | `1c900f7` | 47m 59s | $0.00 |
+| `classify-banking77-gold` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold` | `d4f4016` | 56m 31s | $0.00 |
+| `classify-banking77-gold-seed1` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold --seed 1` | `7c205b0` | 45m 20s | $0.00 |
+| `export-ag_news-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 47m 30s | $0.00 |
+| `export-banking77-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 1h 03m 02s | $0.00 |
+| `extract-mit_restaurant-gold` | eval-extract | gold | `python -m eval.extract mit_restaurant --teacher gold` | `7dace8b` (uncommitted changes) | 15m 01s | $0.00 |
+| `frontier-ag_news-gold` | eval-frontier | gold | `python -m eval.frontier --teacher gold` | `f929d74` | 1h 27m 18s | $0.00 |
+| `frontier-banking77-gold` | eval-frontier | gold | `python -m eval.frontier banking77 --teacher gold` | `278462c` | 27m 58s | $0.00 |
+| `generate-wikisql-gold` | eval-generate | gold | `python -m eval.generate wikisql --teacher gold` | `795cc7d` | 1h 43m 21s | $0.00 |
+| `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
+| `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
+| **Total (15 runs)** | | | | | 9h 18m 10s | $0.00 |
+
+Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
+<!-- END generated:ledger -->
+
 ## Measured
 
 ### Classification parity: AG News and Banking77 (M2)

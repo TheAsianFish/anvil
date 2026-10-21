@@ -1028,8 +1028,88 @@ def render_bench(runs: list[tuple[str, Report, Report]]) -> str:
     return "\n".join(out)
 
 
+LEDGER_EVALS = (
+    ("classify-", "eval-classify"),
+    ("extract-", "eval-extract"),
+    ("generate-", "eval-generate"),
+    ("frontier-", "eval-frontier"),
+    ("select-", "eval-select"),
+    ("calibration-", "eval-calibration"),
+    ("export-", "eval-export"),
+    ("bench-", "bench"),
+    ("spike-onnx", "spike-onnx"),
+)
+"""Directory-name prefixes and the `make` target that writes them."""
+
+
+def _first(*values: object) -> object:
+    return next((v for v in values if v is not None), None)
+
+
+def _duration(seconds: float) -> str:
+    hours, rest = divmod(round(seconds), 3600)
+    minutes, secs = divmod(rest, 60)
+    return f"{hours}h {minutes:02d}m {secs:02d}s" if hours else f"{minutes}m {secs:02d}s"
+
+
+def render_ledger(results_dir: Path) -> str:
+    """One row per run directory under `results_dir` with its command, commit, wall time and
+    teacher spend, read from `meta.json` (the M1 spike names its fields `wall_time_s` and
+    `dollars_spent`). A field a run did not record is `n/a`, never a guess."""
+    lines = [
+        "| Run | Eval | Teacher | Command | Commit | Wall time | Teacher $ |",
+        "|---|---|---|---|---|---|---|",
+    ]
+    wall_total = usd_total = 0.0
+    rows = 0
+    for meta_path in sorted(results_dir.glob("*/meta.json")):
+        name = meta_path.parent.name
+        if name.endswith(SMOKE_SUFFIX):
+            continue
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        report_path = meta_path.parent / "report.json"
+        report = (
+            json.loads(report_path.read_text(encoding="utf-8")) if report_path.exists() else {}
+        )
+        teacher = _first(
+            meta.get("teacher_model"),
+            (report.get("teacher") or {}).get("model"),
+            (report.get("source") or {}).get("teacher_model"),
+        )
+        wall = _first(meta.get("wall_seconds"), meta.get("wall_time_s"))
+        usd = _first(meta.get("spent_usd"), meta.get("dollars_spent"), report.get("spent_usd"))
+        eval_name = next((e for prefix, e in LEDGER_EVALS if name.startswith(prefix)), "n/a")
+        command = meta.get("command")
+        lines.append(
+            f"| `{name}` | {eval_name} | {teacher if teacher else 'n/a'}"
+            f" | {f'`{command}`' if command else 'n/a'} | {_commit(meta)}"
+            f" | {_duration(wall) if isinstance(wall, int | float) else 'n/a'}"
+            f" | {f'${usd:.2f}' if isinstance(usd, int | float) else 'n/a'} |"
+        )
+        rows += 1
+        wall_total += wall if isinstance(wall, int | float) else 0.0
+        usd_total += usd if isinstance(usd, int | float) else 0.0
+    if not rows:
+        return "No runs yet: nothing is committed under `eval/results/`.\n"
+    lines.append(
+        f"| **Total ({rows} runs)** | | | | | {_duration(wall_total)} | ${usd_total:.2f} |"
+    )
+    lines += [
+        "",
+        "Dollars are the sum of the `usage` of each teacher call, priced in"
+        " `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs"
+        " $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the"
+        " figure the frontier section below treats as the run's time, and the training +"
+        " selection time it also lists is not added again. A run that resumed an earlier"
+        " invocation counts only its own. Totals skip runs that did not record a field.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
     return {
+        "ledger": render_ledger(results_dir),
         "classify": render_classify(load_runs(results_dir)),
         "classify-seeds": render_seed_spread(load_runs(results_dir, seeds=True)),
         "select": render_select(load_select(results_dir)),
