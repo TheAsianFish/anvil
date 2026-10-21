@@ -45,11 +45,30 @@ class LabelDef(_Strict):
 
 
 class TeacherSpec(_Strict):
-    provider: Literal["claude", "fake"] = "claude"
+    provider: Literal["claude", "ollama", "fake"] = "claude"
     model: str = "claude-opus-5-5"
+    """A Claude model id, or for `ollama` a local model tag such as `qwen2.5:3b`."""
     effort: Literal["low", "medium", "high"] = "low"
+    """Claude's effort setting; a local model has none, so `ollama` ignores it."""
     max_tokens: int = Field(default=4096, ge=512, le=16000)
     """Thinking tokens count toward this and Opus 5.5 always thinks; unused tokens are free."""
+    digest: str | None = None
+    """`ollama` only: the sha256 of the model's weights (`ollama list` shows its first 12
+    characters). A tag such as `qwen2.5:3b` can be re-pushed with other weights, so a pinned
+    digest makes the teacher refuse a server whose model has changed."""
+
+    @field_validator("digest")
+    @classmethod
+    def _hex_digest(cls, v: str | None) -> str | None:
+        if v is not None and not re.fullmatch(r"(sha256:)?[0-9a-f]{64}", v):
+            raise ValueError("digest must be 64 hex characters (the model's sha256)")
+        return v.removeprefix("sha256:") if v is not None else None
+
+    @model_validator(mode="after")
+    def _digest_is_local(self) -> TeacherSpec:
+        if self.digest is not None and self.provider != "ollama":
+            raise ValueError("teacher.digest pins a local model; it needs provider: ollama")
+        return self
 
 
 DEFAULT_LORA_TARGETS = [
