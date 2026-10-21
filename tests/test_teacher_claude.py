@@ -218,3 +218,66 @@ def test_identical_texts_share_a_failure(
     assert len(fake_transport.calls) == 1
     assert [f.input_id for f in batch.failures] == ["x1", "x2"]
     assert batch.spent_usd == pytest.approx(0.005)
+
+
+GENERATE = TaskSpec.model_validate(
+    {
+        "name": "sql",
+        "kind": "generate",
+        "instructions": "  Write the SQLite query.  ",
+        "outputs": [{"name": "sql", "description": "the query"}, "explanation"],
+    }
+)
+
+
+def test_generate_request_lists_fields_and_asks_for_strings(
+    fake_transport: FakeTransport,
+) -> None:
+    params = ClaudeTeacher(GENERATE, fake_transport).request_params(ITEM)
+    system = params["system"]
+    assert system.startswith("Write the SQLite query.\n\nFields:\n")
+    assert "- sql: the query\n- explanation\n" in system
+    assert "Labels:" not in system
+    assert "JSON object" in system
+    schema = params["output_config"]["format"]["schema"]
+    assert schema == {
+        "type": "object",
+        "properties": {"sql": {"type": "string"}, "explanation": {"type": "string"}},
+        "required": ["sql", "explanation"],
+        "additionalProperties": False,
+    }
+
+
+def test_generate_answer_is_stored_canonically(fake_transport: FakeTransport) -> None:
+    text = '{"explanation": "all rows", "sql": "SELECT * FROM \\"t\\" -- é"}'
+    fake_transport.program(ITEM.text, message(text))
+    batch = ClaudeTeacher(GENERATE, fake_transport).label([ITEM])
+    assert batch.failures == []
+    (lb,) = batch.labels
+    assert lb.label == '{"sql":"SELECT * FROM \\"t\\" -- é","explanation":"all rows"}'
+    assert lb.prompt_hash == GENERATE.prompt_hash
+    assert lb.cost_usd == pytest.approx(0.005)
+
+
+@pytest.mark.parametrize(
+    ("text", "reason"),
+    [
+        ('{"sql": "SELECT 1"}', "'explanation' must be a string"),
+        ('{"sql": "SELECT 1", "explanation": "x", "extra": "y"}', "['extra']"),
+        ('{"sql": 1, "explanation": "x"}', "'sql' must be a string"),
+        ('{"sql": null, "explanation": "x"}', "'sql' must be a string"),
+        ('["SELECT 1", "x"]', "not a JSON object"),
+        ('"SELECT 1"', "not a JSON object"),
+        ("SELECT 1", "not JSON"),
+    ],
+)
+def test_bad_generate_answers_become_failures(
+    fake_transport: FakeTransport, text: str, reason: str
+) -> None:
+    fake_transport.program(ITEM.text, message(text))
+    batch = ClaudeTeacher(GENERATE, fake_transport).label([ITEM])
+    assert batch.labels == []
+    (failure,) = batch.failures
+    assert failure.input_id == ITEM.id
+    assert reason in failure.reason
+    assert failure.cost_usd == pytest.approx(0.005)

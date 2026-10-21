@@ -75,10 +75,10 @@ jobs:
       - run: docker build -t anvil:ci .
       - run: docker run --rm anvil:ci --help
       - run: docker build --target serve -t anvil-serve:ci .
-      - name: serving image has no torch and its CLI starts
+      - name: serving image has no training packages and its CLI starts
         run: |
           docker run --rm --entrypoint python anvil-serve:ci -c \
-            "import importlib.util as u, sys; sys.exit(u.find_spec('torch') is not None)"
+            "import importlib.util as u, sys; sys.exit(any(u.find_spec(m) for m in ('torch', 'transformers', 'peft', 'accelerate')))"
           docker run --rm --entrypoint anvil anvil-serve:ci serve --help
 
   live:

@@ -569,6 +569,76 @@ The CPU price is an assumption (`--vcpu-hour-usd`), not a measurement; the CPU s
 At the bundle's threshold (0.6395, target kappa 0.9, rule `lower`) the student answers 82.3% of held-out inputs, so the cascade calls the teacher for 17.7% of traffic.
 <!-- END generated:bench -->
 
+### Generation parity: WikiSQL text-to-SQL (M6)
+
+- Command: `make eval-generate TEACHER=gold` (`python -m eval.generate wikisql --teacher gold`,
+  then `python -m eval.render`).
+- Method: 1,340 distinct questions drawn (seed 0) from WikiSQL's train split at a pinned
+  parquet commit, tables of at most 12 columns; the store's hash split holds out about a
+  quarter, of which 300 are scored. Each input is the table's column names and types and the
+  question; the answer is one SQLite query over a table named `t`. The student is
+  Qwen2.5-0.5B-Instruct with a rank-16 LoRA adapter on every linear layer, trained on 1,000
+  teacher queries in its own chat template (prompt tokens masked), 10% held back to pick the
+  epoch by greedy exact match, and decoded greedily. Both queries run in a sandboxed SQLite
+  copy of the question's table (text compared case-insensitively, as WikiSQL's evaluator
+  does); intervals resample questions. Execution match is also reported on the table with
+  every row doubled, which separates queries that only agree because the table has one
+  matching row.
+
+<!-- BEGIN generated:generate -->
+| Dataset | Teacher | Student | Teacher labels | Held-out | Execution match [95% CI] | Exec. match, rows doubled too | Exact SQL | Exec. match, non-empty reference | Zero-shot base [95% CI] | Student minus zero-shot [95% paired CI] | Teacher ceiling | Merged export | Label cost | Wall time |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| wikisql | gold | Qwen2.5-0.5B-Instruct | 1000 | 300 | 0.767 [0.717, 0.813] | 0.743 [0.693, 0.793] | 0.490 | 0.763 | 0.210 [0.167, 0.253] | +0.557 [0.497, 0.617] | n/a | 64/64 identical, max diff 8.8e-05 | $0.00 | 103 min |
+
+#### wikisql, teacher `gold`, student `Qwen2.5-0.5B-Instruct`
+
+- Raw output: `eval/results/generate-wikisql-gold/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
+- Command: `python -m eval.generate wikisql --teacher gold` at `795cc7d`; seed 0, 1000 bootstrap resamples (by question); 4 CPUs (cpu); wall 6201 s; spent $0.0000
+- Rescored: `python -m eval.generate wikisql --teacher gold --rescore --out eval/results/generate-wikisql-gold` at `bce6485` (the stored queries scored again by the current scorer; training and decoding not repeated)
+- Data: Salesforce/wikisql@48cfb60 `default/train/0000.parquet` (WikiSQL (Zhong et al., 2017, Salesforce); BSD-3-Clause in the GitHub repo, the Hub card lists it as unknown), 1340 questions sampled (seed 0, tables of at most 12 columns, sha256 8220f6e980c2); held-out inputs (column names and question) sharing at least 80% of their words with a pool input: 7
+- Training: LoRA r=16, alpha=32 on q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj; 892 examples and 108 held back to pick the epoch (greedy exact match), 2 epochs, 224 steps, best epoch 2, 5031 s; chat template: 1000 answers aligned, 0 dropped, longest sequence 288 tokens
+- Decoding: greedy, 1318 ms per held-out question (batches of 16, length-sorted)
+- Execution match on the 270 questions whose reference finds rows: 0.763; references that find nothing (no rows, an aggregate over no matching rows: NULL, or 0 from COUNT): 30 of 300 (any query that also finds nothing matches them, and doubling the rows cannot tell them apart)
+- Coincidental matches: 7 queries match on the table but not once every row is doubled (a missing aggregate over one row, a count that equals a cell)
+- Execution vs exact match: 83 queries match by result but differ as SQL, 0 the other way; with string literals compared case-insensitively (as the sandbox compares text) exact SQL is 0.630 and 42 differ; student execution errors: OperationalError 4
+- The teacher here is WikiSQL's own query for each question (no API key in this run), so this row measures the harness and how well the student learns from 1,000 clean labels; it is not a parity-with-Claude number.
+- Zero-shot base model (no adapter, same prompt): execution match 0.210 [0.167, 0.253], exact SQL 0.003, 0 answers wrapped in a code fence; errors: OperationalError 176
+- Execution match by aggregate: none: 0.79 (n=209), aggregate: 0.71 (n=91)
+- Execution match by WHERE conditions: 0: 1.00 (n=3), 1: 0.78 (n=202), 2: 0.74 (n=76), 3+: 0.68 (n=19)
+- Execution match by input length (words): <= 26: 0.79 (n=92), 27-30: 0.72 (n=64), 31-35: 0.80 (n=79), > 35: 0.74 (n=65)
+- Judge sample: skipped (no recorded verdicts at eval/labels/wikisql/judge-claude-haiku-5-5-9e7b905fc21cd29e.jsonl and no ANTHROPIC_API_KEY)
+- Merged export: 64/64 held-out completions identical to the adapter's, max |logit diff| 8.8e-05 on 8 prompts; 1988 MB, 8,798,208 adapter parameters folded in
+<!-- END generated:generate -->
+
+What the numbers say (all from the table above):
+
+- 1,000 labels and two CPU epochs of LoRA take the 0.5B model from 0.210 to 0.767 execution
+  match (+0.557, paired interval [0.497, 0.617]). Most of the zero-shot loss is queries that
+  do not run (176 of 300 raise an error), not wrong answers.
+- Exact SQL (0.490) understates the student: 83 queries return the same rows as the
+  reference but are written differently, and none goes the other way. Most of that is the
+  case of one string literal (WikiSQL writes `'sunbeam'` in one query and `'North Island'`
+  in another, and the sandbox compares text case-insensitively): with literals compared
+  that way, exact SQL is 0.630 and 42 queries are real rewrites (reordered conditions, a
+  different quoting of the same value).
+- 30 of the 300 references (10%) find nothing in their table: 22 are an aggregate over no
+  matching rows, which returns one row holding `NULL` (WikiSQL's own `SELECT MIN("Races")
+  FROM t WHERE "Podiums" < 2 AND "FLaps" > 0 AND "Season" > 2008`, where no row qualifies,
+  so `MIN` matches `AVG`), and 8 are a `COUNT` over no matching rows, which returns 0 and
+  matches any `COUNT` with a wrong filter. Doubling the rows cannot expose either. The first
+  scoring counted only zero-row results as empty and reported all 300 references as
+  non-empty; the scorer now runs each reference on a copy of its table with no rows and
+  calls it empty when the result is the same. That leaves 270 references with evidence,
+  on which the student scores 0.763. The stored queries were rescored (`--rescore`) instead
+  of being trained again.
+- Doubling every row breaks 7 matches (0.767 to 0.743): the reference and the student agree
+  only because the table has one matching row.
+- A known limit of the gold rendering: WikiSQL keeps comma-formatted numbers (`'55,045'`)
+  as text, so a gold `>` or `<` against such a cell compares strings, not numbers, and the
+  student's numeric form (`> 55,045`, a syntax error) is counted wrong. Both sides run the
+  same engine, so the parity number is self-consistent, but on those questions the
+  reference is not the question's answer.
+
 ## To measure
 
 | What | Command | Needs | Estimated cost |
@@ -582,6 +652,9 @@ At the bundle's threshold (0.6395, target kappa 0.9, rule `lower`) the student a
 | Teacher latency and cost per 1,000 inputs next to the student in the bench table, and the cascade's cost at its measured coverage | `make eval-classify` with a key (records the Haiku labels and their cost), then `uv run --group eval python -m eval.bench --teacher-live 50` | key | the eval's ~$0.35, plus about $0.01 for 50 uncached timed Haiku calls |
 | Calibration and the cascade against Claude labels (does the 0.9 threshold hold when the teacher is a model, not gold?) | after the keyed `make eval-classify`, `make eval-calibration eval-export` (`TEACHER=auto` replays the recorded labels; the students are retrained on them, about 1.5 h CPU) | key for the labels | $0 beyond the `make eval-classify` labels |
 | The export table with the int8 gate as it now stands (the first 16 probes also served one at a time; the committed run scored batched probes only) and the bench on that bundle | `make eval-export TEACHER=gold`, then `make bench TEACHER=gold` | about 2 h CPU for the two exports with the layer probe, 20 min for the bench | $0 |
+| Generation parity with Claude on WikiSQL: execution match of the Qwen2.5-0.5B LoRA student against `claude-haiku-5-5`'s queries, the paraphrase ceiling (100 questions) and teacher vs WikiSQL's own queries. Labels go to `eval/labels/wikisql/` and replay afterwards | `make eval-generate` with `ANTHROPIC_API_KEY` set (`TEACHER=auto` calls Claude once) | key; about 2 h CPU, or the Colab notebook on a T4 | about $0.10 with Haiku 5.5 effort `low` (1,400 requests at ~250 input and ~60 output tokens); under $0.25 if thinking triples the output |
+| The 100-item judge sample: `claude-haiku-5-5` judges whether the student's query answers the question as the teacher's does, compared with execution match item by item (how often a small table makes execution match wrong) | any `make eval-generate` run with `ANTHROPIC_API_KEY` set; the verdicts are written to `eval/labels/wikisql/judge-*.jsonl` and replay for free | key | about $0.01 (100 requests at ~500 input and ~80 output tokens) |
+| The generation run on a GPU (fp16 autocast on a T4): wall time and whether mixed precision changes the measured parity | `notebooks/anvil_gpu.ipynb` on Colab, then commit the downloaded `eval/results/generate-*` | a Colab T4 | $0 on the free tier |
 | A third training seed on both datasets (seeds 0 and 1 are in the table above) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 2`, then `make results` | about 1.5 h CPU (2 ModernBERT-base runs) | $0 |
 
 The toy task is synthetic and only exercises the pipeline; real parity numbers come from the

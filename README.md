@@ -23,14 +23,19 @@ a label and a dollar budget and records the labels-vs-kappa-vs-cost frontier.
 keeps a target kappa on the inputs the student answers; `anvil export` writes
 an ONNX bundle that must match PyTorch before it can be served; `anvil serve`
 answers over HTTP from ONNX Runtime (no torch in the image) and sends the
-inputs under the threshold back to the teacher.
+inputs under the threshold back to the teacher. For free-text answers
+(`kind: generate`, text-to-SQL here) the student is Qwen2.5-0.5B-Instruct
+with a LoRA adapter, trained on its own chat template and scored by
+execution match: the student's query and the teacher's run against the
+question's table in a sandboxed SQLite and must return the same rows.
 
-Status: **M5 of 7** (Claude teacher, label store, a full PyTorch training
+Status: **M6 of 7** (Claude teacher, label store, a full PyTorch training
 loop with exact resume, kappa with bootstrap intervals and error slices, the
 active-learning loop with resumable rounds, span extraction with verified
 character offsets and a token tagger, calibration and the escalating cascade,
-ONNX export with parity gates, the server and its image, and the
-`make eval-classify`, `make eval-extract`, `make eval-frontier`,
+ONNX export with parity gates, the server and its image, the LoRA generation
+student with execution-match scoring and a merged export, and the
+`make eval-classify`, `make eval-extract`, `make eval-generate`, `make eval-frontier`,
 `make eval-select`, `make eval-calibration`, `make eval-export` and
 `make bench` harnesses).
 See [PLAN.md](PLAN.md) for the milestones.
@@ -40,14 +45,14 @@ See [PLAN.md](PLAN.md) for the milestones.
 ```console
 $ make demo
 == anvil label (fake teacher, offline)
-labelled 91 held-out + 200 pool inputs with fake-rules-c7ee422d (0 from cache, $0.0000 spent); 291 labels in store worth $0.0000
+labelled 91 held-out + 200 pool inputs with fake-rules-bbf26b5d (0 from cache, $0.0000 spent); 291 labels in store worth $0.0000
 == anvil train (tiny random-init ModernBERT)
-trained 20261019-161530-n200 on 200 fake-rules-c7ee422d labels (16 held back for early stopping, best epoch 4, kappa 0.916): 6 epochs, loss 1.899 -> 0.196, 0.5s
+trained 20261020-142608-n200 on 200 fake-rules-bbf26b5d labels (16 held back for early stopping, best epoch 4, kappa 0.916): 6 epochs, loss 1.899 -> 0.196, 0.5s
 == anvil eval (held-out agreement with the teacher)
-student 20261019-161530-n200 vs fake-rules-c7ee422d on 91 held-out inputs: kappa 1.000 [1.000, 1.000], accuracy 1.000 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261019-161530-n200.json
+student 20261020-142608-n200 vs fake-rules-bbf26b5d on 91 held-out inputs: kappa 1.000 [1.000, 1.000], accuracy 1.000 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261020-142608-n200.json
 == anvil calibrate (temperature and the threshold that keeps kappa 0.9 with the teacher)
-calibrated 20261019-161530-n200 on 91 held-out fake-rules-c7ee422d labels: temperature 1.000, ECE 0.020 -> 0.020
-threshold 0.8821: the student answers 100.0% of held-out inputs at kappa 1.000, lower bound 1.000 (target 0.9); written to .anvil/demo/ticket-triage/students/20261019-161530-n200/calibration.json
+calibrated 20261020-142608-n200 on 91 held-out fake-rules-bbf26b5d labels: temperature 1.000, ECE 0.020 -> 0.020
+threshold 0.8821: the student answers 100.0% of held-out inputs at kappa 1.000, lower bound 1.000 (target 0.9); written to .anvil/demo/ticket-triage/students/20261020-142608-n200/calibration.json
 == anvil export (ONNX fp32, checked against PyTorch before it can be served)
 fp32: passed parity vs pytorch on 91 inputs: max |logit diff| 1.91e-06, agreement 1.000, kappa vs teacher 1.000 (drop +0.000); 0.7 MB (max |logit diff| <= 1e-04 and agreement == 1.0)
 bundle .anvil/demo/bundle; serve it with `anvil serve .anvil/demo/bundle`
@@ -56,19 +61,30 @@ bundle .anvil/demo/bundle; serve it with `anvil serve .anvil/demo/bundle`
   feature_request  from the student  (confidence 0.995)
   account          from the teacher  (confidence 0.870)
 == anvil loop (random selection, three rounds, fresh student each round)
-loop demo (random, seed 0) vs fake-rules-c7ee422d:
+loop demo (random, seed 0) vs fake-rules-bbf26b5d:
   round  labels  kappa [95% CI]          label cost  spent
       0      50  0.582 [0.452, 0.697]  $   0.0000  $0.0000
       1     100  0.881 [0.793, 0.955]  $   0.0000  $0.0000
       2     200  0.836 [0.738, 0.923]  $   0.0000  $0.0000
 == anvil label (extraction, fake teacher with off-by-one offsets)
-labelled 72 held-out + 240 pool inputs with fake-rules-a25234ff (0 from cache, $0.0000 spent); 312 labels in store worth $0.0000
+labelled 72 held-out + 240 pool inputs with fake-rules-680a73ed (0 from cache, $0.0000 spent); 312 labels in store worth $0.0000
 == anvil train (tiny random-init ModernBERT tagger; aligns every answer first)
 aligned 548 teacher mentions: 430 at their offset, 118 repaired (shifted 118), 0 dropped (0.0%), 0 snapped to token boundaries
-trained 20261019-161612-n240 on 240 fake-rules-a25234ff labels (21 held back for early stopping, best epoch 3, entity F1 1.000): 5 epochs, loss 1.752 -> 0.015, 0.5s
+trained 20261020-142649-n240 on 240 fake-rules-680a73ed labels (21 held back for early stopping, best epoch 3, entity F1 1.000): 5 epochs, loss 1.752 -> 0.015, 0.5s
 == anvil eval (entity F1 and token kappa against the teacher)
-student 20261019-161612-n240 vs fake-rules-a25234ff on 72 held-out inputs: entity F1 0.929 [0.885, 0.968] (precision 0.904, recall 0.955), token kappa 0.968 [0.949, 0.985] (held-out teacher mentions: 37 repaired, 0 dropped, 0.0%); report .anvil/demo/restaurant-slots/reports/eval-20261019-161612-n240.json
-== demo finished in 59s
+student 20261020-142649-n240 vs fake-rules-680a73ed on 72 held-out inputs: entity F1 0.929 [0.885, 0.968] (precision 0.904, recall 0.955), token kappa 0.968 [0.949, 0.985] (held-out teacher mentions: 37 repaired, 0 dropped, 0.0%); report .anvil/demo/restaurant-slots/reports/eval-20261020-142649-n240.json
+== anvil label (generation, fake teacher writes one SQL query per question)
+labelled 52 held-out + 120 pool inputs with fake-rules-25a3538a (0 from cache, $0.0000 spent); 172 labels in store worth $0.0000
+== anvil train (LoRA on a tiny random-init Qwen2; chat template, prompt tokens masked)
+aligned 120 answers to the chat template: 0 dropped (none, 0.0%); longest sequence 332 tokens
+trained 20261020-142707-n120 on 120 fake-rules-25a3538a labels (17 held back for early stopping, best epoch 6, validation score (exact match, loss as tie-break) 0.005): 6 epochs, loss 5.369 -> 5.276, 7.2s
+== anvil eval (greedy answers vs the teacher's; a random-init 2-layer decoder learns the
+   shape of the queries, not yet to copy values: real parity comes from Qwen2.5-0.5B)
+student 20261020-142707-n120 vs fake-rules-25a3538a on 52 held-out inputs: exact match 0.000 [0.000, 0.000] (per field: sql 0.000); 0 invalid answers; report .anvil/demo/toy-sql/reports/eval-20261020-142707-n120.json
+== anvil export (adapter merged into the base weights, same answers or nothing is written)
+merged: passed parity vs the adapter on 52 held-out inputs: 52/52 identical completions, max |logit diff| 3.58e-07 on 8; 0.4 MB (max abs logit diff <= 0.001 and every completion identical)
+merged model .anvil/demo/toy-sql/exports/20261020-142707-n120-merged (a plain transformers checkpoint)
+== demo finished in 91s
 ```
 
 The demo runs offline (loop warnings and its last line trimmed above): the
@@ -79,8 +95,11 @@ is calibrated (it agrees with every held-out label, so its temperature stays
 1 and the threshold is its lowest held-out confidence), exported to ONNX and
 served; of the three requests, the one under the threshold is answered by the
 teacher. The students are two-layer random-init ModernBERTs with a
-vocabulary built from the pool, so the demo finishes in about a minute on a
-laptop CPU, most of it Python start-up across ten commands. Its numbers are a
+vocabulary built from the pool and, for SQL, a two-layer random-init Qwen2
+over bytes with a LoRA adapter: it learns the shape of a query, not yet to
+copy the values, so its exact match is 0 here; the merged export still has to
+reproduce its answers exactly. The demo finishes in about a minute and a half
+on a laptop CPU, most of it Python start-up for each command. Its numbers are a
 smoke check of the pipeline, not results.
 
 <!-- GIF placeholder: record `anvil label/train/eval` against Claude with
@@ -125,6 +144,14 @@ cd examples/toy-extract
 uv run anvil label --inputs inputs.jsonl --n 200 --teacher fake
 uv run anvil train --teacher fake     # aligns every answer first; refuses above 5% unaligned
 uv run anvil eval                     # entity F1 and token kappa with bootstrap intervals
+
+# Generation: text-to-SQL with a LoRA student, scored by execution match
+cd ../toy-generate
+uv run anvil label --inputs inputs.jsonl --n 200 --teacher fake
+uv run anvil train --teacher fake     # student.model: Qwen/Qwen2.5-0.5B-Instruct for real runs
+uv run anvil eval                     # exact match per field (execution match is in make eval-generate)
+uv run anvil export                   # the adapter merged into the base, gated on identical outputs
+make eval-generate TEACHER=gold       # WikiSQL, 1,000 labels, Qwen2.5-0.5B on CPU (~2 h) or Colab
 ```
 
 A task is a YAML file:
@@ -146,6 +173,8 @@ splits: {heldout_fraction: 0.25, seed: 0}
 
 An extraction task has `kind: extract` and lists entity types under
 `labels`; see [examples/toy-extract/anvil.yaml](examples/toy-extract/anvil.yaml).
+A generation task has `kind: generate` and lists its answer fields under
+`outputs`; see [examples/toy-generate/anvil.yaml](examples/toy-generate/anvil.yaml).
 
 Inputs are JSONL, one `{"text": ..., "id": optional}` per line. State lives
 under `ANVIL_HOME` (default `.anvil/`): the SQLite label store, the teacher
@@ -193,6 +222,11 @@ flowchart LR
     CAL --> EX[export.py<br/>ONNX fp32 / int8,<br/>parity gates]
     EX -->|bundle| SV[serve.py<br/>FastAPI + ONNX Runtime]
     SV -->|confidence under threshold| T
+    ST -->|labelled pool, generate| CH[chat.py<br/>chat template, prompt<br/>masked, round trip checked]
+    CH --> LG[LoraGenerator<br/>Qwen2.5 + PEFT LoRA]
+    LG -->|greedy queries| SQ[evaluate/sql.py<br/>sandboxed SQLite<br/>execution match]
+    SQ --> EV
+    LG --> MG[merge.py<br/>adapter folded in,<br/>identical outputs]
 ```
 
 | Module | Role |
@@ -216,6 +250,9 @@ flowchart LR
 | `anvil/export.py`, `anvil/runtime.py` | `torch.onnx` (dynamo) export with dynamic batch and sequence axes, fp32 parity gate through the serving tokenizer, opt-in int8 with the MLP down-projections in fp32; `OnnxStudent` loads a bundle with ONNX Runtime and `tokenizers`, never torch |
 | `anvil/serve.py` | `anvil serve`: FastAPI `/predict`, `/healthz`, `/metrics`; inputs under the threshold go to the teacher in one batch per request; every teacher failure degrades to the student's answer |
 | `eval/calibration.py`, `eval/export.py`, `eval/bench.py` | `make eval-calibration` (temperature, coverage, and the split study of whether a threshold holds on unseen inputs), `make eval-export` (parity and the int8 layer probe), `make bench` |
+| `anvil/chat.py`, `anvil/students/generator.py`, `anvil/train/generator.py` | The generation student: each answer placed in the model's own chat template with the prompt tokens masked, checked (the generation prompt is a token prefix, the answer ends at end-of-turn and decodes back to the teacher's text); `LoraGenerator` (PEFT LoRA on every linear layer, greedy decoding with every setting explicit; `tiny` is a random-init two-layer Qwen2 over bytes); early stopping on validation exact match |
+| `anvil/evaluate/sql.py`, `anvil/evaluate/judge.py`, `anvil/merge.py` | Execution match in an in-memory SQLite copy of the question's table (authorizer, step limit, case-insensitive text); a Claude judge on a seeded sample, compared item by item with execution match; the adapter merged into the base weights, kept only if it answers the probes exactly as the adapter did |
+| `eval/generate.py`, `eval/wikisql.py` | `make eval-generate` on WikiSQL: zero-shot baseline, rows-doubled check, slices, judge sample, merged export; `--rescore` scores stored queries again without retraining |
 | `anvil/pipeline.py`, `anvil/cli.py` | `label`, `train`, `eval`, `loop`, `calibrate`, `export`, `serve` as a library API and a Typer CLI |
 
 **The hard part** (the core of the project, built over M2 and M3) is the
@@ -238,7 +275,11 @@ M5 turns the measurement into the product number, coverage at a target
 parity: a temperature-scaled student answers what it is sure of and
 escalates the rest, with the threshold checked on inputs it was not chosen
 on, because a threshold that reaches the target in-sample misses it on new
-data about half the time (RESULTS.md).
+data about half the time (RESULTS.md). M6 carries the instrument to free
+text, where agreement needs a definition: two SQL queries agree when they
+return the same rows, but on a small table different queries often do, so
+the report also counts matches that break when every row is doubled and
+references that return nothing.
 
 ## Design decisions
 
@@ -362,6 +403,22 @@ data about half the time (RESULTS.md).
 - **No torch on the serving path.** `anvil serve` uses ONNX Runtime and the
   Rust tokenizer; a test imports it with torch blocked, and the serving
   image is built from the lock file without torch or transformers.
+- **Generation answers are bare values in the model's own chat template.**
+  A one-field answer is trained as the SQL itself, not JSON around it
+  (wrapping SQL would teach the student to escape every quoted column
+  name), and the alignment is checked token by token instead of assumed.
+- **Greedy decoding with every setting written out.** Qwen's shipped
+  generation config samples and sets a repetition penalty of 1.1, which
+  penalises exactly the column names SQL has to repeat.
+- **Execution match, with its blind spots counted.** Exact SQL match
+  understates a student that writes the same query differently; execution
+  match overstates one that lands on the same rows by chance. The report
+  gives both, plus the match with every row doubled and on non-empty
+  references; a Claude judge on 100 items measures the remaining gap.
+- **A merged checkpoint, not ONNX, for the generator.** ONNX for a decoder
+  needs a KV-cache graph and a decoding loop; folding the adapter into the
+  base weights gives a plain transformers model that any server loads, gated
+  on identical completions.
 - **ONNX export goes through `torch.onnx`.** `optimum-onnx` 0.1 requires
   `transformers<4.58` and cannot be installed next to transformers 5; the M1
   spike in [docs/notes/onnx-export-spike.md](docs/notes/onnx-export-spike.md)
@@ -429,6 +486,25 @@ costs more per input than batch 1 because of padding. The int8 layer probe
 pins its accuracy loss on the MLP down-projections, which stay fp32. Teacher
 latency and dollars per 1,000 inputs need a key and are under "To measure".
 
+Text-to-SQL on WikiSQL (M6): Qwen2.5-0.5B-Instruct with a rank-16 LoRA
+adapter, 1,000 teacher queries, two epochs on CPU, 300 held-out questions
+scored by execution match in a sandboxed SQLite copy of each table. The
+teacher is WikiSQL's own queries (no key yet, so not a Claude parity
+number):
+
+| Execution match [95% CI] | Rows doubled too | Exact SQL | References that find rows (270) | Zero-shot base [95% CI] | Student minus zero-shot [95% paired CI] |
+|---|---|---|---|---|---|
+| 0.767 [0.717, 0.813] | 0.743 | 0.490 | 0.763 | 0.210 [0.167, 0.253] | +0.557 [0.497, 0.617] |
+
+Fine-tuning mostly teaches the base model to write SQL that runs (176 of its
+300 zero-shot queries raise an error). Exact match misses 83 queries that
+return the reference's rows, 41 of them differing only in the case of a
+string literal. 30 of the 300 WikiSQL references find nothing in their table
+(an aggregate over no matching rows, `NULL` or a `COUNT` of 0), which any
+other query that finds nothing matches; the fourth column leaves them out.
+The merged model answers 64 of 64 probes exactly as the adapter did. Claude parity and the 100-item judge sample are
+under "To measure" (about $0.11 with Haiku 5.5).
+
 ## Roadmap
 
 - [x] M1: scaffold, CI, Claude teacher with cache and cost accounting, label store, offline slice, ONNX export spike
@@ -436,7 +512,7 @@ latency and dollars per 1,000 inputs need a key and are under "To measure".
 - [x] M3: active-learning loop, selection interface with the random baseline and contract tests, frontier and synthetic selection evals (Claude frontier and the non-random strategies to measure)
 - [x] M4: span extraction with character-offset alignment, a BIO tagger, entity F1 and token kappa, MIT Restaurant harness (Claude parity to measure)
 - [x] M5: calibration and the cascade threshold, ONNX export with parity gates, FastAPI server with teacher escalation and a torch-free image, benchmarks (teacher latency and cost to measure)
-- [ ] M6: Qwen2.5-0.5B LoRA generation student
+- [x] M6: Qwen2.5-0.5B LoRA generation student, chat-template alignment, execution-match eval on WikiSQL, merged export, Colab notebook (Claude parity and the judge sample to measure)
 - [ ] M7: release (PyPI, GHCR, Hugging Face model cards)
 
 ## License

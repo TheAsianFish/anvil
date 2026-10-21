@@ -1,5 +1,5 @@
 .PHONY: help sync check fmt lint typecheck test test-live record demo docker spike-onnx \
-	eval-classify eval-extract eval-select eval-frontier eval-calibration eval-export bench \
+	eval-classify eval-extract eval-generate eval-select eval-frontier eval-calibration eval-export bench \
 	results clean
 
 UV ?= uv
@@ -48,6 +48,10 @@ eval-classify: ## M2 parity on AG News and Banking77 (TEACHER=auto|claude|replay
 
 eval-extract: ## M4 span extraction parity on MIT Restaurant (TEACHER=auto|claude|replay|gold), then RESULTS.md
 	$(RUN) python -m eval.extract mit_restaurant --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+eval-generate: ## M6 text-to-SQL parity on WikiSQL by execution match (TEACHER=auto|claude|replay|gold), then RESULTS.md
+	$(RUN) --group eval python -m eval.generate wikisql --teacher $(TEACHER)
 	$(RUN) python -m eval.render
 
 eval-select: ## M3 selection strategies on synthetic blobs (offline, free), then RESULTS.md

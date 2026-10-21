@@ -1,0 +1,200 @@
+{"id": "q0000", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is eli on?"}
+{"id": "q0001", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is jun?"}
+{"id": "q0002", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is older than 52?"}
+{"id": "q0003", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what is the oldest age in quito?"}
+{"id": "q0004", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is hana?"}
+{"id": "q0005", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is ana?"}
+{"id": "q0006", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is femi on?"}
+{"id": "q0007", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: the oldest age in osaka?"}
+{"id": "q0008", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people live in quito?"}
+{"id": "q0009", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is older than 47?"}
+{"id": "q0010", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is in the research team?"}
+{"id": "q0011", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: list everyone older than 25"}
+{"id": "q0012", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is eli on?"}
+{"id": "q0013", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people live in denver?"}
+{"id": "q0014", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people live in paris?"}
+{"id": "q0015", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is older than 47?"}
+{"id": "q0016", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people are based in denver?"}
+{"id": "q0017", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: the oldest age in lima?"}
+{"id": "q0018", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is in the finance team?"}
+{"id": "q0019", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who works in the support team?"}
+{"id": "q0020", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what is the oldest age in lima?"}
+{"id": "q0021", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: list everyone older than 33"}
+{"id": "q0022", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is in the sales team?"}
+{"id": "q0023", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does kai work in?"}
+{"id": "q0024", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: list everyone older than 30"}
+{"id": "q0025", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is chen?"}
+{"id": "q0026", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: the oldest age in oslo?"}
+{"id": "q0027", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who works in the design team?"}
+{"id": "q0028", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: list everyone older than 41"}
+{"id": "q0029", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What is the oldest age in oslo?"}
+{"id": "q0030", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: the oldest age in lagos?"}
+{"id": "q0031", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people are based in lagos?"}
+{"id": "q0032", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: list everyone older than 52"}
+{"id": "q0033", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what is the oldest age in paris?"}
+{"id": "q0034", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people live in osaka?"}
+{"id": "q0035", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people live in porto?"}
+{"id": "q0036", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who works in the sales team?"}
+{"id": "q0037", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who works in the ops team?"}
+{"id": "q0038", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: the oldest age in paris?"}
+{"id": "q0039", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who works in the finance team?"}
+{"id": "q0040", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is in the finance team?"}
+{"id": "q0041", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is bo?"}
+{"id": "q0042", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is in the legal team?"}
+{"id": "q0043", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is kai?"}
+{"id": "q0044", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is dara?"}
+{"id": "q0045", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who works in the design team?"}
+{"id": "q0046", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is jun?"}
+{"id": "q0047", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people live in denver?"}
+{"id": "q0048", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people live in lima?"}
+{"id": "q0049", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who works in the legal team?"}
+{"id": "q0050", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is gus on?"}
+{"id": "q0051", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does femi work in?"}
+{"id": "q0052", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: the oldest age in hanoi?"}
+{"id": "q0053", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what is the oldest age in oslo?"}
+{"id": "q0054", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is dara on?"}
+{"id": "q0055", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people live in osaka?"}
+{"id": "q0056", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: the oldest age in porto?"}
+{"id": "q0057", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What team does dara work in?"}
+{"id": "q0058", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people are based in lima?"}
+{"id": "q0059", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is older than 41?"}
+{"id": "q0060", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is hana on?"}
+{"id": "q0061", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is older than 52?"}
+{"id": "q0062", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is ivo?"}
+{"id": "q0063", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What team does ivo work in?"}
+{"id": "q0064", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is older than 25?"}
+{"id": "q0065", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is older than 33?"}
+{"id": "q0066", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: list everyone older than 47"}
+{"id": "q0067", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is eli?"}
+{"id": "q0068", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is chen on?"}
+{"id": "q0069", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is jun?"}
+{"id": "q0070", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who works in the support team?"}
+{"id": "q0071", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what is the oldest age in porto?"}
+{"id": "q0072", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does hana work in?"}
+{"id": "q0073", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people live in hanoi?"}
+{"id": "q0074", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is in the ops team?"}
+{"id": "q0075", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is femi on?"}
+{"id": "q0076", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is femi?"}
+{"id": "q0077", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is dara?"}
+{"id": "q0078", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is in the sales team?"}
+{"id": "q0079", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is ana?"}
+{"id": "q0080", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does ivo work in?"}
+{"id": "q0081", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people live in hanoi?"}
+{"id": "q0082", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is gus on?"}
+{"id": "q0083", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does ana work in?"}
+{"id": "q0084", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is dara on?"}
+{"id": "q0085", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What team does bo work in?"}
+{"id": "q0086", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people live in quito?"}
+{"id": "q0087", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people are based in paris?"}
+{"id": "q0088", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people are based in hanoi?"}
+{"id": "q0089", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what is the oldest age in hanoi?"}
+{"id": "q0090", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is ivo on?"}
+{"id": "q0091", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people live in paris?"}
+{"id": "q0092", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is in the ops team?"}
+{"id": "q0093", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who works in the legal team?"}
+{"id": "q0094", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is gus?"}
+{"id": "q0095", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people are based in quito?"}
+{"id": "q0096", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does dara work in?"}
+{"id": "q0097", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is in the support team?"}
+{"id": "q0098", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is ivo?"}
+{"id": "q0099", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is ivo?"}
+{"id": "q0100", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is eli?"}
+{"id": "q0101", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is ana on?"}
+{"id": "q0102", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: the oldest age in quito?"}
+{"id": "q0103", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What is the oldest age in denver?"}
+{"id": "q0104", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people are based in porto?"}
+{"id": "q0105", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who works in the research team?"}
+{"id": "q0106", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is in the design team?"}
+{"id": "q0107", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people are based in oslo?"}
+{"id": "q0108", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is older than 33?"}
+{"id": "q0109", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is dara?"}
+{"id": "q0110", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is ana on?"}
+{"id": "q0111", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is hana on?"}
+{"id": "q0112", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is gus?"}
+{"id": "q0113", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is kai?"}
+{"id": "q0114", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people live in oslo?"}
+{"id": "q0115", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who works in the hr team?"}
+{"id": "q0116", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is ivo?"}
+{"id": "q0117", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is femi?"}
+{"id": "q0118", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what is the oldest age in osaka?"}
+{"id": "q0119", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: the oldest age in denver?"}
+{"id": "q0120", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is chen?"}
+{"id": "q0121", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people live in lagos?"}
+{"id": "q0122", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is older than 41?"}
+{"id": "q0123", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is gus?"}
+{"id": "q0124", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people live in lagos?"}
+{"id": "q0125", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what is the oldest age in denver?"}
+{"id": "q0126", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who works in the hr team?"}
+{"id": "q0127", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is in the support team?"}
+{"id": "q0128", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is kai on?"}
+{"id": "q0129", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is in the data team?"}
+{"id": "q0130", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people live in oslo?"}
+{"id": "q0131", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is jun on?"}
+{"id": "q0132", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who works in the sales team?"}
+{"id": "q0133", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people are based in osaka?"}
+{"id": "q0134", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people are based in oslo?"}
+{"id": "q0135", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does gus work in?"}
+{"id": "q0136", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what age is bo?"}
+{"id": "q0137", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is in the legal team?"}
+{"id": "q0138", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is bo on?"}
+{"id": "q0139", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people are based in hanoi?"}
+{"id": "q0140", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is chen?"}
+{"id": "q0141", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is in the hr team?"}
+{"id": "q0142", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What team does chen work in?"}
+{"id": "q0143", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is in the research team?"}
+{"id": "q0144", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is gus?"}
+{"id": "q0145", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is kai?"}
+{"id": "q0146", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who works in the research team?"}
+{"id": "q0147", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is femi?"}
+{"id": "q0148", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people are based in lima?"}
+{"id": "q0149", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does eli work in?"}
+{"id": "q0150", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people live in porto?"}
+{"id": "q0151", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is eli?"}
+{"id": "q0152", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is jun on?"}
+{"id": "q0153", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is hana?"}
+{"id": "q0154", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is older than 30?"}
+{"id": "q0155", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how old is hana?"}
+{"id": "q0156", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does bo work in?"}
+{"id": "q0157", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people are based in osaka?"}
+{"id": "q0158", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who is older than 30?"}
+{"id": "q0159", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: who works in the data team?"}
+{"id": "q0160", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is ivo on?"}
+{"id": "q0161", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who works in the ops team?"}
+{"id": "q0162", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What is the oldest age in lagos?"}
+{"id": "q0163", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what is the oldest age in lagos?"}
+{"id": "q0164", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is in the hr team?"}
+{"id": "q0165", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is dara?"}
+{"id": "q0166", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What is the oldest age in lima?"}
+{"id": "q0167", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is older than 25?"}
+{"id": "q0168", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does jun work in?"}
+{"id": "q0169", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is bo on?"}
+{"id": "q0170", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people are based in paris?"}
+{"id": "q0171", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is kai?"}
+{"id": "q0172", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: what team does chen work in?"}
+{"id": "q0173", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is eli?"}
+{"id": "q0174", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: how many people live in lima?"}
+{"id": "q0175", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who works in the finance team?"}
+{"id": "q0176", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Which team is chen on?"}
+{"id": "q0177", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is in the design team?"}
+{"id": "q0178", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is bo?"}
+{"id": "q0179", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What team does hana work in?"}
+{"id": "q0180", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What is the oldest age in porto?"}
+{"id": "q0181", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: Who is in the data team?"}
+{"id": "q0182", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What is the oldest age in paris?"}
+{"id": "q0183", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What team does gus work in?"}
+{"id": "q0184", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What team does ana work in?"}
+{"id": "q0185", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people are based in denver?"}
+{"id": "q0186", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What is the oldest age in hanoi?"}
+{"id": "q0187", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is femi?"}
+{"id": "q0188", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people are based in quito?"}
+{"id": "q0189", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is jun?"}
+{"id": "q0190", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people are based in porto?"}
+{"id": "q0191", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: which team is kai on?"}
+{"id": "q0192", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What is the oldest age in quito?"}
+{"id": "q0193", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How many people are based in lagos?"}
+{"id": "q0194", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: How old is hana?"}
+{"id": "q0195", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What team does kai work in?"}
+{"id": "q0196", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is ana?"}
+{"id": "q0197", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What age is chen?"}
+{"id": "q0198", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What team does eli work in?"}
+{"id": "q0199", "text": "Table t columns: \"name\" (text), \"team\" (text), \"city\" (text), \"age\" (real)\nQuestion: What is the oldest age in osaka?"}

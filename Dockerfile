@@ -12,10 +12,12 @@ COPY anvil ./anvil
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable --extra export
 
-# The serving dependencies, pinned by the same lock file. torch and transformers are core
+# The serving dependencies, pinned by the same lock file. torch, transformers and peft are core
 # dependencies of the package (training needs them), so they are filtered out of the exported
-# requirements together with what only they pull in, and the wheel is installed without
-# dependencies. `anvil serve` never imports them; a test enforces that.
+# requirements together with what only they pull in. The export is already the full pinned
+# closure, so both installs skip dependency resolution: a training package left in the list
+# must not pull torch back in from PyPI (the CUDA build, several GB). `anvil serve` never
+# imports them; tests enforce that and check the filter against uv.lock.
 FROM python:3.12-slim AS serve-build
 COPY --from=ghcr.io/astral-sh/uv:0.13 /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
@@ -23,10 +25,10 @@ WORKDIR /app
 COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN uv export --locked --no-dev --extra serve --no-emit-project --no-hashes --no-header \
         --no-annotate -o requirements-all.txt \
-    && grep -viE '^(torch|transformers|sympy|mpmath|networkx|jinja2|markupsafe|safetensors|regex)==' \
+    && grep -viE '^(torch|transformers|peft|accelerate|psutil|sympy|mpmath|networkx|jinja2|markupsafe|safetensors|regex|setuptools)==' \
         requirements-all.txt | grep -v '^--' > requirements.txt
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv venv /app/.venv && uv pip install --python /app/.venv -r requirements.txt
+    uv venv /app/.venv && uv pip install --python /app/.venv --no-deps -r requirements.txt
 COPY anvil ./anvil
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv build --wheel --out-dir dist && uv pip install --python /app/.venv --no-deps dist/*.whl

@@ -96,8 +96,103 @@ def test_unknown_field(tmp_path: Path) -> None:
     assert "lables" in str(_config_error(tmp_path, {**BASE, "lables": ["x"]}))
 
 
-def test_generate_is_not_implemented_yet(tmp_path: Path) -> None:
-    assert "M6" in str(_config_error(tmp_path, {**BASE, "kind": "generate"}))
+GENERATE: dict[str, Any] = {  # Any: a YAML document
+    "name": "t",
+    "kind": "generate",
+    "instructions": "Write the SQL query.",
+    "outputs": [{"name": "sql", "description": "the query"}],
+}
+
+
+def test_generate_takes_outputs(tmp_path: Path) -> None:
+    spec = load_spec(_write(tmp_path, GENERATE))
+    assert spec.output_names == ["sql"]
+    assert spec.label_names == []
+    two = load_spec(_write(tmp_path, {**GENERATE, "outputs": ["query", "explanation"]}))
+    assert two.output_names == ["query", "explanation"]
+    assert all(field.description == "" for field in two.outputs)
+
+
+@pytest.mark.parametrize(
+    ("doc", "message"),
+    [
+        ({**GENERATE, "outputs": []}, "at least one field under `outputs`"),
+        ({k: v for k, v in GENERATE.items() if k != "outputs"}, "at least one field"),
+        ({**GENERATE, "labels": ["a", "b"]}, "not labels"),
+        ({**GENERATE, "outputs": ["sql", "sql"]}, "output field names must be unique"),
+        ({**GENERATE, "outputs": ["a b"]}, "must be letters"),
+        ({**BASE, "outputs": ["sql"]}, "`outputs` is for generate tasks"),
+        ({**BASE, "kind": "extract", "labels": ["Dish"], "outputs": ["sql"]}, "`outputs`"),
+    ],
+)
+def test_invalid_generate_specs(tmp_path: Path, doc: dict[str, Any], message: str) -> None:
+    assert message in str(_config_error(tmp_path, doc))
+
+
+def _rewrite(output: dict[str, str], pattern: str = r"show (\w+)") -> dict[str, object]:
+    return {"pattern": pattern, "output": output}
+
+
+def test_generate_fake_rewrites(tmp_path: Path) -> None:
+    doc = {**GENERATE, "fake": {"rewrites": [_rewrite({"sql": r"SELECT \1"})]}}
+    spec = load_spec(_write(tmp_path, doc))
+    assert spec.fake is not None
+    assert spec.fake.rewrites[0].output == {"sql": r"SELECT \1"}
+
+
+@pytest.mark.parametrize(
+    ("fake", "message"),
+    [
+        ({"rewrites": [_rewrite({"query": "x"})]}, "writes fields ['query']"),
+        ({"rewrites": [_rewrite({"sql": "x", "extra": "y"})]}, "the task's outputs are ['sql']"),
+        ({"rewrites": [_rewrite({})]}, "writes fields []"),
+        ({"rewrites": [_rewrite({"sql": "x"}, "show (")]}, "is not a regular expression"),
+        ({"rules": {"sql": ["x"]}}, "uses fake.rewrites, not rules"),
+        ({"default": "x"}, "uses fake.rewrites, not rules"),
+    ],
+)
+def test_invalid_generate_fakes(tmp_path: Path, fake: dict[str, object], message: str) -> None:
+    assert message in str(_config_error(tmp_path, {**GENERATE, "fake": fake}))
+
+
+@pytest.mark.parametrize("kind", ["classify", "extract"])
+def test_rewrites_are_only_for_generate(tmp_path: Path, kind: str) -> None:
+    doc = {**BASE, "kind": kind, "fake": {"rewrites": [_rewrite({"sql": "x"})]}}
+    assert "fake.rewrites are for generate tasks" in str(_config_error(tmp_path, doc))
+
+
+def test_classify_prompt_hash_is_unchanged_by_generate_fields(small_spec: TaskSpec) -> None:
+    # Pinned from M5: labels recorded before generate existed must keep their keys.
+    assert small_spec.prompt_hash == "e7161d2efbe250ed"
+
+
+def test_generate_prompt_hash_tracks_the_outputs() -> None:
+    spec = TaskSpec.model_validate(GENERATE)
+    h = spec.prompt_hash
+    reworded = [spec.outputs[0].model_copy(update={"description": "a SQLite query"})]
+    assert spec.model_copy(update={"outputs": reworded}).prompt_hash != h
+    renamed = [spec.outputs[0].model_copy(update={"name": "query"})]
+    assert spec.model_copy(update={"outputs": renamed}).prompt_hash != h
+    more = TaskSpec.model_validate({**GENERATE, "outputs": ["sql", "why"]})
+    assert more.prompt_hash != h
+    assert spec.model_copy(update={"instructions": "Other."}).prompt_hash != h
+    rewrites = {"rewrites": [_rewrite({"sql": "x"})]}
+    faked = TaskSpec.model_validate({**GENERATE, "fake": rewrites})
+    assert faked.prompt_hash == h  # the fake teacher's rules are not the prompt
+    classify = TaskSpec.model_validate({**BASE, "instructions": GENERATE["instructions"]})
+    assert classify.prompt_hash != h
+
+
+def test_generate_student_settings(tmp_path: Path) -> None:
+    doc = {**GENERATE, "student": {"max_new_tokens": 64, "lora": {"r": 8, "alpha": 16}}}
+    spec = load_spec(_write(tmp_path, doc))
+    assert spec.student.max_new_tokens == 64
+    assert (spec.student.lora.r, spec.student.lora.alpha) == (8, 16)
+    assert "q_proj" in spec.student.lora.target_modules
+    bad_lora: list[dict[str, object]] = [{"r": 0}, {"target_modules": []}, {"dropout": 1.0}]
+    for bad in bad_lora:
+        _config_error(tmp_path, {**GENERATE, "student": {"lora": bad}})
+    _config_error(tmp_path, {**GENERATE, "student": {"max_new_tokens": 0}})
 
 
 def test_extract_takes_entity_types(tmp_path: Path) -> None:

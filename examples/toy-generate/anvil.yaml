@@ -1,0 +1,45 @@
+# Toy generation task for the offline demo: answer questions about one small table with SQL.
+name: toy-sql
+kind: generate
+instructions: |
+  Write one SQLite query that answers the question about table t. Quote column names with
+  double quotes. Answer with only the query.
+outputs:
+  - name: sql
+    description: the SQLite query
+
+teacher:
+  provider: claude
+  model: claude-opus-5-5
+  effort: low
+
+student:
+  model: tiny          # a 2-layer random-init Qwen2 over bytes; Qwen/Qwen2.5-0.5B-Instruct for real runs
+  max_length: 384
+  max_new_tokens: 56
+  epochs: 6
+  batch_size: 8
+  learning_rate: 0.01
+  validation_fraction: 0.1
+  seed: 0
+
+splits:
+  heldout_fraction: 0.25
+  seed: 0
+
+# Rewrite rules for `--teacher fake` (offline demo and tests): the first pattern that matches
+# writes the query, with the captured words in it. Not used with Claude.
+fake:
+  rewrites:
+    - pattern: 'who (?:works|is) in the (\w+) team'
+      output: {sql: "SELECT \"name\" FROM t WHERE \"team\" = '\\1'"}
+    - pattern: 'how many people (?:live|are based) in (\w+)'
+      output: {sql: "SELECT COUNT(\"name\") FROM t WHERE \"city\" = '\\1'"}
+    - pattern: '(?:how old is|what age is) (\w+)'
+      output: {sql: "SELECT \"age\" FROM t WHERE \"name\" = '\\1'"}
+    - pattern: '(?:which team is|what team does) (\w+)'
+      output: {sql: "SELECT \"team\" FROM t WHERE \"name\" = '\\1'"}
+    - pattern: '(?:who is|everyone) older than (\d+)'
+      output: {sql: "SELECT \"name\" FROM t WHERE \"age\" > \\1"}
+    - pattern: 'oldest age in (\w+)'
+      output: {sql: "SELECT MAX(\"age\") FROM t WHERE \"city\" = '\\1'"}

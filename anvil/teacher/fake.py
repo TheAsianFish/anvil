@@ -8,9 +8,10 @@ import re
 from collections.abc import Sequence
 
 from anvil.errors import ConfigError
+from anvil.outputs import encode_output
 from anvil.spans import Mention, encode_answer
 from anvil.spec import TaskSpec
-from anvil.teacher.base import Item, Label, LabelBatch
+from anvil.teacher.base import Failure, Item, Label, LabelBatch
 
 
 def _unit(*parts: object) -> float:
@@ -41,7 +42,10 @@ class FakeTeacher:
             for label in spec.label_names
             if (words := self._fake.rules.get(label))
         ]
-        self._default = self._fake.default or spec.label_names[0]
+        self._default = self._fake.default or (spec.label_names or [""])[0]
+        self._rewrites = [
+            (re.compile(rw.pattern, re.IGNORECASE), rw.output) for rw in self._fake.rewrites
+        ]
 
     @staticmethod
     def model_id_for(spec: TaskSpec) -> str:
@@ -85,7 +89,31 @@ class FakeTeacher:
             out.append(Mention(item.text[start:end], label, claimed))
         return out
 
+    def rewrite(self, text: str) -> str | None:
+        """Generate: the stored answer of the first rewrite whose pattern matches, or None."""
+        for pattern, output in self._rewrites:
+            match = pattern.search(text)
+            if match is not None:
+                fields = {name: match.expand(template) for name, template in output.items()}
+                return encode_output(fields, self._spec.output_names)
+        return None
+
     def label(self, items: Sequence[Item]) -> LabelBatch:
+        if self._spec.kind == "generate":
+            batch = LabelBatch()
+            for item in items:
+                value = self.rewrite(item.text)
+                batch.add(
+                    Failure(item.id, "no fake rewrite matches the input")
+                    if value is None
+                    else Label(
+                        input_id=item.id,
+                        label=value,
+                        teacher_model=self.model_id,
+                        prompt_hash=self._spec.prompt_hash,
+                    )
+                )
+            return batch
         if self._spec.kind == "extract":
             return LabelBatch(
                 labels=[

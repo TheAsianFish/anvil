@@ -126,7 +126,10 @@ def train_cmd(
         )
         res = r.result
         losses = res.epoch_losses
-        metric = "entity F1" if task.kind == "extract" else "kappa"
+        metric = {
+            "extract": "entity F1",
+            "generate": "validation score (exact match, loss as tie-break)",
+        }.get(task.kind, "kappa")
         stopping = (
             f" ({res.validation_examples} held back for early stopping, best epoch"
             f" {res.best_epoch}, {metric} {res.best_metric:.3f})"
@@ -140,6 +143,14 @@ def train_cmd(
                 f"aligned {a.mentions} teacher mentions: {a.matched['exact']} at their offset,"
                 f" {a.repaired} repaired ({repairs or 'none'}), {a.unaligned} dropped"
                 f" ({a.unaligned_rate:.1%}), {a.snapped} snapped to token boundaries"
+            )
+        if r.chat is not None:
+            c = r.chat
+            dropped = ", ".join(f"{k} {v}" for k, v in c.dropped.items() if v)
+            print(
+                f"aligned {c.examples} answers to the chat template: {c.unusable} dropped"
+                f" ({dropped or 'none'}, {c.dropped_rate:.1%}); longest sequence {c.longest}"
+                " tokens"
             )
         print(
             f"trained {r.run_id} on {res.examples + res.validation_examples} {r.teacher_model}"
@@ -161,6 +172,7 @@ def eval_cmd(
 
     def body() -> None:
         from anvil.evaluate.extraction import ExtractionAgreement
+        from anvil.evaluate.generation import GenerationAgreement
         from anvil.pipeline import Workspace, evaluate
 
         task, settings = _setup(spec)
@@ -181,6 +193,15 @@ def eval_cmd(
                 f" (precision {e.precision:.3f}, recall {e.recall:.3f}),"
                 f" token kappa {a.token_kappa:.3f} [{tk.low:.3f}, {tk.high:.3f}]{aligned};"
                 f" report {r.report_path}"
+            )
+            return
+        if isinstance(a, GenerationAgreement):
+            em = a.exact_match
+            fields = ", ".join(f"{f.name} {f.match_rate:.3f}" for f in a.field_match)
+            print(
+                f"student {r.student} vs {r.teacher_model} on {a.n} held-out inputs: exact match"
+                f" {em.estimate:.3f} [{em.low:.3f}, {em.high:.3f}] (per field: {fields});"
+                f" {a.invalid} invalid answers; report {r.report_path}"
             )
             return
         print(
@@ -339,15 +360,34 @@ def export_cmd(
         bool, typer.Option("--int8", help="Also export a dynamic int8 model.")
     ] = False,
     probes: Annotated[
-        int, typer.Option(min=1, help="Held-out inputs the parity check runs on.")
+        int,
+        typer.Option(
+            min=1, help="Held-out inputs the parity check runs on (generators: at most 64)."
+        ),
     ] = 512,
 ) -> None:
-    """Export the student to ONNX and check it against PyTorch before it can be served."""
+    """Export the student and check it before it can be served: an ONNX bundle for a
+    classifier, the adapter merged into its base model for a generator."""
 
     def body() -> None:
-        from anvil.pipeline import Workspace, export_bundle
+        from anvil.pipeline import Workspace, export_bundle, export_merged
 
         task, settings = _setup(spec)
+        if task.kind == "generate":
+            if int8:
+                raise ConfigError("--int8 is for ONNX classifier bundles, not merged generators")
+            m = export_merged(
+                task, Workspace.for_task(settings.home, task), student, out, probes=min(probes, 64)
+            )
+            mp = m.parity
+            print(
+                f"merged: passed parity vs the adapter on {mp.probes} held-out inputs:"
+                f" {mp.same_completions}/{mp.probes} identical completions, max |logit diff|"
+                f" {mp.max_abs_logit_diff:.2e} on {mp.logit_probes}; {m.size_mb:.1f} MB"
+                f" ({mp.gate})"
+            )
+            print(f"merged model {m.out} (a plain transformers checkpoint)")
+            return
         r = export_bundle(
             task, Workspace.for_task(settings.home, task), student, out, int8=int8, probes=probes
         )

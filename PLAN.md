@@ -407,6 +407,55 @@ Batches halve the cost of large pools and are used when a batch exceeds
   priced at a stated vCPU-hour rate (an input, not a measurement). With no key, the teacher
   is the gold labels throughout, so teacher latency and cost per 1,000 inputs are under "To
   measure".
+- **M6 (2026-10-20).** A `generate` task lists its answer fields under `outputs` (strings);
+  the teacher returns them through structured outputs and the store keeps them as one
+  canonical JSON object, so classify and extract prompt hashes are unchanged. A one-field
+  answer is trained as its bare value, not JSON: wrapping SQL would make the student escape
+  every double-quoted column name. The student is trained on its own chat template around
+  a system message (the task's instructions, not the teacher's JSON-format prompt) and the
+  input; prompt tokens are masked, and `anvil/chat.py` checks rather than assumes that the
+  generation prompt is a token prefix of the training sequence, that the answer ends with the
+  end-of-turn token (what the template adds after it is not trained), and that the answer's
+  tokens decode back to the teacher's text. An example longer than `max_length` is dropped,
+  never cut, under the same 5% gate as span alignment. The training loop gained
+  `trainable_only` checkpoints (the adapter, not 2 GB of frozen base per copy). Early
+  stopping uses greedy exact match on the validation slice with the validation loss as a
+  bounded tie-break: exact match stays 0 for several epochs at first, and a stop on that tie
+  kept the first epoch. Decoding is greedy with every setting written out, because Qwen's
+  shipped generation config samples and sets a repetition penalty of 1.1, which penalises
+  exactly the column names SQL has to repeat. "Merged export" is the adapter folded into the
+  base weights as a plain transformers checkpoint, gated on identical completions and logits
+  within 1e-3 against the adapter model; ONNX for a decoder needs a KV-cache graph and a
+  decoding loop, which is left out. WikiSQL is read from the Hub's parquet conversion at a
+  pinned commit (its loader is a script), each gold query rendered as SQLite over a table
+  named `t`; execution match runs both queries in an in-memory, authorizer-restricted,
+  step-limited SQLite copy of the question's table with case-insensitive text columns (as
+  WikiSQL's own evaluator). Because a small table lets different queries return the same rows,
+  the report also gives strict normalised-SQL match, execution match on questions whose
+  reference returns a row, and the judge sample, which compares a Claude judge's verdicts
+  with execution match item by item (it needs a key: "To measure"). The baseline is the base
+  model zero-shot on the same prompt. With no key the teacher is WikiSQL's own queries
+  (`TEACHER=gold`). `anvil loop` and `anvil calibrate` stay classify-only, and serving the
+  generator is not in this milestone. Scoring found that 22 of 300 WikiSQL references aggregate over
+  no matching rows and return one `NULL` row, which any other aggregate over nothing matches,
+  and 8 more are a `COUNT` over no matching rows, which returns 0 and matches any `COUNT` with
+  a wrong filter. A reference now counts as empty when it returns the same result on a copy of
+  its table with no rows, a definition that needs no list of aggregates. Since training and
+  greedy decoding are deterministic, `eval.generate --rescore` scores a run's stored queries
+  again instead of retraining for two hours; the report keeps the raw completions and the
+  zero-shot per-item results so a later scorer change can be replayed from the committed file.
+  A recorded judge verdict is keyed by the question and a hash of the exact pair judged, since
+  the candidate is the student's query and changes with every retrain; the rubric states that
+  text compares case-insensitively, as the sandbox does. The review of this milestone also
+  bounded the sandbox's result size (the row and length caps were independent, so ten
+  thousand rows of large blobs could exhaust memory, and the quadratic built-ins run inside
+  one VM instruction where the step limit cannot interrupt them: the length cap is 10 KB and
+  results have a byte budget), made an answer longer than `max_new_tokens` a counted drop
+  (it trained fine and could never be generated in full), stripped bare targets (a leading
+  newline merges with the template's own into one Qwen token, so the prompt was no longer a
+  prefix), and added the base model's own end tokens to the stop set (Qwen2.5-Instruct's
+  tokenizer names only `<|im_end|>` while its generation config also stops on
+  `<|endoftext|>`; the stored WikiSQL completions show neither leaked, so no number changed).
 
 ## Milestones
 
@@ -415,5 +464,5 @@ Batches halve the cost of large pools and are used when a batch exceeds
 - [x] M3: Active learning and the frontier — `select.py` interface with the `random` baseline, property tests and the synthetic selection study; `anvil loop` with label and dollar budgets, from-scratch retrains and `frontier.jsonl`; `make eval-frontier` (3 seeds, 5 budgets, every strategy present) and `make eval-select`; RESULTS.md frontier table with "labels to kappa 0.8 / 0.9". Done when the loop runs end to end offline with the fake teacher and the frontier table is produced from real labels where a key exists.
 - [x] M4: Extraction — teacher schema with character-offset spans, `align.py` (verification, token snapping, unaligned-rate report), `EncoderTagger`, entity-level F1 and token kappa vs teacher, `make eval-extract` on MIT Restaurant. Done when alignment has tests for off-by-one, overlapping and unicode cases and the extraction eval writes its table.
 - [x] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
-- [ ] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.
+- [x] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.
 - [ ] M7: Release readiness — `anvil push` with the rendered model card, PyPI and GHCR workflows with `if:` guards, RELEASE.md with the secrets to add, README (architecture, results table, demo, roadmap), final RESULTS.md with every measured number and its cost, CONTRIBUTING.md refreshed. Done when a clean-venv wheel install runs `anvil --help` and the demo, and every README number traces to a RESULTS.md entry.
