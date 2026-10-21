@@ -498,10 +498,13 @@ measure without a key and asked what the results leave unanswered.
   and does it copy the teacher's mistakes) has not been observed once. `OllamaTeacher` is in
   the component table but not in the code (`anvil/teacher/` has `claude`, `fake`, `labelfile`).
 - A pilot with a local open model as the teacher (Ollama 0.40.7, `qwen2.5:3b`, the repo's own
-  system prompt and JSON schema as the `format`, temperature 0, 60 held-out inputs of the
-  `make eval-classify` sample; method and raw rows in `docs/notes/ollama-teacher-pilot.md`):
+  system prompt and JSON schema as the `format`, temperature 0, `num_ctx` 2048, the first 60
+  inputs of the `make eval-classify` sample (`eval.data.sample` with the config's size and seed,
+  pool and held-out mixed), one `POST /api/chat` per input from a throwaway client script; the
+  rows are not committed, M8's labels of the same sample supersede them, and a re-run of the
+  first 15 Banking77 inputs returned the same 15 labels):
   Banking77 33/60 agree with gold (kappa 0.54), 0 invalid outputs, median 1.7 s per label with
-  the 505-token system prompt prefix-cached; the same 60 under the paraphrased ceiling prompt
+  the system prompt prefix-cached (about 505 prompt tokens per request); the same 60 under the paraphrased ceiling prompt
   agree with the first pass 47/60; AG News 46/60 (median 2.5 s). `qwen2.5:7b` scores 36/60 on
   Banking77 at 3.8 s per label and agrees with the 3B model on 40/60. So a laptop can label
   the whole 2,700-input sample in about 1.5 h, with a teacher noisy enough to make the
@@ -512,7 +515,9 @@ measure without a key and asked what the results leave unanswered.
   scoring 1.0 when the temperature fit ran to its bound. Nothing measures what the served
   bundle does with inputs from another distribution.
 - The one-sided 95% percentile bound behind the threshold rule kept the target in 90.5% and
-  87.0% of unseen halves, not 95%; `anvil/evaluate/bootstrap.py` names BCa as the upgrade and
+  87.0% of unseen halves. That is not a coverage measurement (the unseen half's own estimate
+  is noisy, and the rule takes the best of many thresholds), so whether the bound itself covers
+  95% has never been measured; `anvil/evaluate/bootstrap.py` names BCa as the upgrade and
   its coverage test covers one regime (kappa 0.7, 200 items, 5 labels), while the rule is
   applied at kappa 0.9-0.97 on about 400 accepted inputs with 4 or 77 labels.
 
@@ -528,12 +533,16 @@ measure without a key and asked what the results leave unanswered.
   `cancel_transfer`, `automatic_top_up` labelled `top_up_by_card_charge`) should reappear in
   the student's confusion matrix; and the lower-bound rule finds no threshold at kappa 0.9 on
   Banking77, because no student can reach 0.9 with a teacher whose self-agreement is below it,
-  so the target must be read against the ceiling. A matched synthetic control (gold labels
+  so the target must be read against the ceiling (the ceiling is measured on all inputs and the
+  rule on the confident ones, where the teacher may be more consistent: a threshold found
+  there refutes this part, and the run reports the ceiling on the accepted inputs too). A matched synthetic control (gold labels
   corrupted at the teacher's measured error rate, once uniformly and once through fixed
   confusion pairs) says which of the two kinds of noise the real teacher is.
   Command: `make eval-classify TEACHER=ollama` on both datasets (labels land in `eval/labels/`
-  and every later run replays them at $0), then `make eval-calibration TEACHER=replay` and
-  `make eval-noise`.
+  and every later run replays them at $0, with no Ollama server), then
+  `make eval-calibration TEACHER=ollama` and `make eval-noise`. About 5 h of laptop CPU in
+  all: 1.3 h of labelling and about 1 h of ModernBERT training per dataset (the gold
+  Banking77 run took 57 min), plus the MiniLM control.
 - **M9, the cascade off-distribution.** Question: what does the served Banking77 bundle do with
   inputs it was never meant to see? Hypotheses: on Banking77's own test split coverage stays
   within 3 points of 82.3% and kappa on the answered inputs stays at or above 0.9; on CLINC150's
@@ -547,7 +556,9 @@ measure without a key and asked what the results leave unanswered.
   at kappa 0.95 with 250 items it covers 88-92%, BCa (bias and acceleration from the jackknife,
   computed from marginals like the replicates) 93-96%, and at 77 labels with 100 items both
   show an estimator bias no interval fixes; switching the rule to BCa costs at most 3 points of
-  coverage on the committed Banking77 logits. Command: `make eval-coverage` (a simulation,
+  coverage on the committed Banking77 logits; and the threshold search itself (the largest
+  coverage whose bound clears the target, over every candidate threshold) holds the target less
+  often than a single bound at a fixed threshold. Command: `make eval-coverage` (a simulation,
   minutes, offline) and `make eval-calibration` from `logits.npz`.
 
 **Rejected.**
@@ -566,6 +577,16 @@ measure without a key and asked what the results leave unanswered.
   cascade serves batch 1.
 - The strategies in `anvil/select.py`: reserved, as before.
 
+**Review.** I re-ran `make check` (926 passed, 1 skipped, 24 xfailed, 2 min 14 s) and
+`make eval-select` (byte-identical apart from wall time and commit), recomputed every pilot
+figure from its rows, and re-labelled 15 Banking77 inputs with `qwen2.5:3b` (15/15 the same).
+Kept all three milestones. Sharpened: M8 gets a time budget, replays its labels as
+`TEACHER=ollama`, and reports the ceiling on the accepted inputs, since that is where the
+threshold rule applies; M10 also simulates the threshold search, because the rule picks the
+best of many thresholds and a fixed-threshold coverage study would miss that selection
+effect. The pilot's note and raw rows moved out of this change (a plan change touches only
+PLAN.md and the roadmap); the method is above.
+
 ## Milestones
 
 - [x] M1: Scaffold, CI and a thin vertical slice — package layout, `uv` lockfile, ruff + mypy strict + pytest + GitHub Actions (lint, type, test on 3.12), Dockerfile, Makefile, MIT licence; `anvil.yaml` spec; `Teacher` protocol with `ClaudeTeacher` (structured outputs, disk cache, cost accounting, recorded fixtures, live test skipped without a key) and `FakeTeacher`; store with hash splits; `anvil label | train | eval` end to end on a toy classify task with a tiny random-init encoder; ModernBERT ONNX export spike recorded in `docs/notes/`. Done when `make check` is green in CI and `make demo` runs the slice offline in under two minutes.
@@ -575,6 +596,6 @@ measure without a key and asked what the results leave unanswered.
 - [x] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
 - [x] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.
 - [x] M7: Release readiness — `anvil push` with the rendered model card, PyPI and GHCR workflows with `if:` guards, RELEASE.md with the secrets to add, README (architecture, results table, demo, roadmap), final RESULTS.md with every measured number and its cost, CONTRIBUTING.md refreshed. Done when a clean-venv wheel install runs `anvil --help` and the demo, and every README number traces to a RESULTS.md entry.
-- [ ] M8: The first fallible teacher — `OllamaTeacher` (`provider: ollama`, the same system prompt, JSON schema, parsing, disk cache and label files as the Claude teacher; tokens from Ollama's counts, dollars $0 with CPU seconds recorded, the model pinned by its digest in `meta.json`), `--teacher ollama` in the classification harness so the labels are committed under `eval/labels/` and replay for free, `make eval-classify TEACHER=ollama` on AG News and Banking77 with `qwen2.5:3b` (teacher-vs-gold, the paraphrase ceiling, student-vs-teacher and student-vs-gold with paired intervals, the teacher's confusions against the student's), `make eval-calibration TEACHER=replay` on those labels, and `make eval-noise` (gold corrupted at the measured teacher error rate, uniform and confusion-pair, 3 seeds, the frontier's MiniLM student) as the control. Done when the first non-gold parity table is in RESULTS.md with its ceiling and teacher-vs-gold rows, the student-vs-gold against teacher-vs-gold comparison is stated with its paired interval, and the unit tests cover the Ollama teacher with a scripted transport.
+- [ ] M8: The first fallible teacher — `OllamaTeacher` (`provider: ollama`, the same system prompt, JSON schema, parsing, disk cache and label files as the Claude teacher; tokens from Ollama's counts, dollars $0 with CPU seconds recorded, the model pinned by its digest in `meta.json`), `--teacher ollama` in the classification harness so the labels are committed under `eval/labels/` and replay for free, `make eval-classify TEACHER=ollama` on AG News and Banking77 with `qwen2.5:3b` (teacher-vs-gold, the paraphrase ceiling, student-vs-teacher and student-vs-gold with paired intervals, the teacher's confusions against the student's), `make eval-calibration TEACHER=ollama` on those labels (replayed from `eval/labels/`; the ceiling also reported on the accepted inputs), and `make eval-noise` (gold corrupted at the measured teacher error rate, uniform and confusion-pair, 3 seeds, the frontier's MiniLM student) as the control. Done when the first non-gold parity table is in RESULTS.md with its ceiling and teacher-vs-gold rows, the student-vs-gold against teacher-vs-gold comparison is stated with its paired interval, and the unit tests cover the Ollama teacher with a scripted transport.
 - [ ] M9: The cascade off-distribution — `eval/shift.py` (`make eval-shift`) scores an exported bundle through `anvil/runtime.py` on Banking77's test split (coverage, kappa on the answered inputs, ECE), CLINC150's out-of-scope utterances and AG News sentences (acceptance rate above the served threshold, confidence histograms), and compares max-softmax with max-logit or energy and with distance to the training embeddings by AUROC and in-distribution coverage cost; the model card states that coverage was measured in-distribution. Done when RESULTS.md holds the shift table with the hypotheses answered, and the loaders are pinned by revision with licences recorded.
-- [ ] M10: Does the interval cover? — BCa intervals in `anvil/evaluate/bootstrap.py` (jackknife from marginals, one-sided variant), `make eval-coverage` (a simulation over kappa {0.85, 0.9, 0.95}, items {100, 250, 500}, labels {4, 77}: coverage of the percentile and BCa bounds, point-estimate bias), `choose_threshold` on the BCa bound with the coverage cost measured from the committed `logits.npz`. Done when the simulation runs in CI in under a minute, RESULTS.md holds the coverage table and the re-run calibration tables, and the default rule is whichever the table justifies, with the reason written down.
+- [ ] M10: Does the interval cover? — BCa intervals in `anvil/evaluate/bootstrap.py` (jackknife from marginals, one-sided variant), `make eval-coverage` (a simulation over kappa {0.85, 0.9, 0.95}, items {100, 250, 500}, labels {4, 77}: coverage of the percentile and BCa bounds, point-estimate bias, and how often the threshold search's chosen threshold truly meets the target), `choose_threshold` on the BCa bound with the coverage cost measured from the committed `logits.npz`. Done when the simulation runs in CI in under a minute, RESULTS.md holds the coverage table and the re-run calibration tables, and the default rule is whichever the table justifies, with the reason written down.
