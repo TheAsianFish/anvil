@@ -39,7 +39,7 @@ def _offline(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) ->
         home = request.getfixturevalue("tmp_path") / "anvil-home"
         monkeypatch.setenv("ANVIL_HOME", str(home))
         monkeypatch.setenv("ANVIL_LOG_LEVEL", "WARNING")
-        for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANVIL_RECORD_DIR"):
+        for name in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "ANVIL_RECORD_DIR", "HF_TOKEN"):
             monkeypatch.delenv(name, raising=False)
         # An empty, explicitly selected SDK config dir, so a developer's `ant auth login`
         # profile can never leak into an offline test.

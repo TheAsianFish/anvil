@@ -17,6 +17,7 @@ classifiers = [
 ]
 dependencies = [
     "anthropic>=1.15,<2",
+    "huggingface-hub>=2.2,<3",
     "numpy>=2.2",
     "peft>=0.21,<1",
     "pydantic>=2.14,<3",

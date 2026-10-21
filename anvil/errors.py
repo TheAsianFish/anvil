@@ -33,3 +33,7 @@ class AlignmentError(ConfigError):
 class ExportError(AnvilError):
     """A student could not be exported to ONNX, failed its parity gate, or an exported bundle
     is missing or incomplete."""
+
+
+class HubError(AnvilError):
+    """Publishing to the Hugging Face Hub failed (network, permissions, a rejected upload)."""

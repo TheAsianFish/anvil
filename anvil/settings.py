@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 from anvil.errors import ConfigError
@@ -24,8 +24,9 @@ def _int(env: dict[str, str], name: str, default: int, minimum: int = 1) -> int:
 
 @dataclass(frozen=True)
 class Settings:
-    """Runtime settings. Nothing here is a secret: the anthropic SDK resolves its own
-    credentials (`ANTHROPIC_API_KEY`, `ANTHROPIC_AUTH_TOKEN` or an `ant auth login` profile)."""
+    """Runtime settings. The one secret is `hf_token`, kept out of the repr so it never reaches
+    a log line; the anthropic SDK resolves its own credentials (`ANTHROPIC_API_KEY`,
+    `ANTHROPIC_AUTH_TOKEN` or an `ant auth login` profile)."""
 
     home: Path
     """Working directory for the store, the teacher cache and trained students."""
@@ -36,6 +37,8 @@ class Settings:
     log_level: str
     serve_threads: int | None = None
     """ONNX Runtime intra-op threads for `anvil serve`; None leaves ONNX Runtime's default."""
+    hf_token: str | None = field(default=None, repr=False)
+    """`HF_TOKEN`: write access to the Hugging Face Hub, for `anvil push`."""
 
     @classmethod
     def from_env(cls, env: dict[str, str] | None = None) -> Settings:
@@ -52,4 +55,5 @@ class Settings:
             serve_threads=_int(e, "ANVIL_SERVE_THREADS", 1)
             if e.get("ANVIL_SERVE_THREADS")
             else None,
+            hf_token=e.get("HF_TOKEN") or None,
         )
