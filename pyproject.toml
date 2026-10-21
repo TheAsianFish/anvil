@@ -120,6 +120,7 @@ files = [
     "eval/bench.py",
     "eval/generate.py",
     "eval/wikisql.py",
+    "eval/noise.py",
 ]
 warn_unreachable = true
 
