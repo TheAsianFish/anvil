@@ -303,8 +303,8 @@ def require_complete(
         path = label_file(config.dataset.name, spec.teacher.model, spec.prompt_hash)
         raise ConfigError(
             f"{missing} inputs have no recorded label in {_shown(path)}; the recording is"
-            " incomplete, so re-label with --teacher claude (only the missing inputs are paid"
-            " for) or run with --teacher gold"
+            " incomplete, so re-label with the live teacher (--teacher claude or ollama; only"
+            " the missing inputs are asked) or run with --teacher gold"
         )
 
 

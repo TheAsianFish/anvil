@@ -259,13 +259,15 @@ class TaskSpec(_Strict):
 
     @property
     def prompt_hash(self) -> str:
-        """Hash of everything that changes the teacher's answers, except the model id.
+        """Hash of everything that changes the teacher's answers, except the model tag.
 
         Labels are keyed by (teacher model, prompt hash), so editing the instructions, the label
         set or the teacher's effort produces new labels instead of silently mixing old and new
         ones. `max_tokens` is left out: it decides whether an answer is truncated (a failure),
         not which label a completed answer has. `PROMPT_FORMAT_VERSION` is in, so a change to
-        how the spec is rendered into the request also starts a new key.
+        how the spec is rendered into the request also starts a new key. A pinned
+        `teacher.digest` is in too: a local model's tag can be re-pushed with other weights, and
+        those are another teacher whose labels must not be served or topped up as this one's.
         """
         payload: dict[str, object] = {
             "format": PROMPT_FORMAT_VERSION,
@@ -276,6 +278,8 @@ class TaskSpec(_Strict):
         }
         if self.kind == "generate":  # only here, so classify and extract keys stay as they were
             payload["outputs"] = [field.model_dump() for field in self.outputs]
+        if self.teacher.digest is not None:  # only when pinned, so every other key is unchanged
+            payload["digest"] = self.teacher.digest
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
         return hashlib.sha256(blob).hexdigest()[:16]
 

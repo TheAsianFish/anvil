@@ -70,11 +70,16 @@ def test_with_local_teacher_keeps_the_prompt_and_swaps_the_model(tmp_path: Path)
     t = local.spec.teacher
     assert (t.provider, t.model, t.digest) == ("ollama", MODEL, DIGEST)
     assert t.max_tokens == claude.spec.teacher.max_tokens
-    assert local.spec.prompt_hash == claude.spec.prompt_hash  # the labels compare
+    # The same prompt; the key differs only by the pinned weights, so labels of other weights
+    # land in another file (labels of the two teachers still compare item by item).
+    unpinned = local.spec.model_copy(update={"teacher": t.model_copy(update={"digest": None})})
+    assert unpinned.prompt_hash == claude.spec.prompt_hash
+    assert local.spec.prompt_hash != claude.spec.prompt_hash
     para = local.paraphrase_spec()
     assert para.teacher.model == MODEL
     assert para.teacher.provider == "ollama"
-    assert para.prompt_hash == claude.paraphrase_spec().prompt_hash
+    assert para.teacher.digest == DIGEST
+    assert para.prompt_hash not in (local.spec.prompt_hash, claude.paraphrase_spec().prompt_hash)
     assert claude.spec.teacher.provider == "claude"  # the original is untouched
 
 
@@ -88,7 +93,11 @@ def test_shipped_configs_pin_the_local_model(name: str) -> None:
     int(digest, 16)  # hex
     local = config.with_local_teacher()
     assert local.spec.teacher.digest == digest
-    assert local.spec.prompt_hash == config.spec.prompt_hash
+    assert local.spec.prompt_hash != config.spec.prompt_hash  # keyed by the pinned weights
+    # The committed recordings are the labels of exactly these weights.
+    path = classify.label_file(name, MODEL, local.spec.prompt_hash)
+    assert path.exists()
+    assert classify.label_file(name, MODEL, local.paraphrase_spec().prompt_hash).exists()
 
 
 # --- eval.classify: statistics --------------------------------------------------------------

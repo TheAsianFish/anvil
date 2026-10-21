@@ -51,6 +51,7 @@ from anvil.settings import Settings
 from anvil.store import Split
 from anvil.students.encoder import EncoderClassifier
 from anvil.teacher.base import Label
+from anvil.teacher.labelfile import LabelFileTeacher
 from eval.classify import (
     CONFIG_DIR,
     RESULTS_DIR,
@@ -58,8 +59,8 @@ from eval.classify import (
     _versions,
     file_safe,
     git_provenance,
+    label_file,
     load_config,
-    make_teacher,
     require_complete,
     teacher_errors,
     workspace,
@@ -161,11 +162,19 @@ def run_dataset(
     ws = workspace(settings, spec, data)
     inputs = ws.root / "inputs.jsonl"
     write_inputs(inputs, data.items)
-    recorded = make_teacher("ollama", config, spec, data, settings)
+    # Replay only: a gap in the recording is an error here, never labelled live, so the
+    # control always trains on exactly the labels `make eval-classify TEACHER=ollama` scored.
+    recording = label_file(name, spec.teacher.model, spec.prompt_hash)
+    if not recording.exists():
+        raise ConfigError(
+            f"no recorded {spec.teacher.model} labels for {name} at {recording}; run"
+            " `make eval-classify TEACHER=ollama` first"
+        )
+    recorded = LabelFileTeacher.from_file(recording, spec.teacher.model, spec.prompt_hash)
     with ws.open_store(spec) as store:
         pool_done = len(store.labelled(recorded.model_id, spec.prompt_hash, Split.POOL))
     labelled = label(spec, ws, recorded, inputs, max(0, pool_labels - pool_done), heldout_labels)
-    require_complete("ollama", labelled.failures, config, spec)
+    require_complete("replay", labelled.failures, config, spec)
     with ws.open_store(spec) as store:
         pool = store.labelled(recorded.model_id, spec.prompt_hash, Split.POOL)
         heldout = store.labelled(recorded.model_id, spec.prompt_hash, Split.HELDOUT)

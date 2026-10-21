@@ -279,7 +279,7 @@ def test_paraphrase_labels_missing_the_subset_are_a_config_error(
     )
     write_label_file(classify.label_file("toy", model, para.prompt_hash), [])
     out = tmp_path / "results" / "classify-toy-haiku"
-    with pytest.raises(ConfigError, match="re-label with --teacher claude"):
+    with pytest.raises(ConfigError, match="re-label with the live teacher"):
         classify.run(config, data, "replay", out, _settings(tmp_path), n_resamples=50)
 
 

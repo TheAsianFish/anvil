@@ -221,6 +221,17 @@ def test_pinned_digest_mismatch_aborts_the_batch(toy_spec: TaskSpec) -> None:
     assert server.calls == []
 
 
+def test_pinned_digest_keys_the_labels(toy_spec: TaskSpec) -> None:
+    # Labels, label files and students are keyed by (model tag, prompt hash): re-pinning to
+    # other weights must start a new key, or the old weights' labels would be replayed and
+    # topped up as the new teacher's. Unpinned specs (every Claude spec) keep their key.
+    unpinned = ollama_spec(toy_spec)
+    a, b = ollama_spec(toy_spec, digest=DIGEST), ollama_spec(toy_spec, digest=OTHER_DIGEST)
+    assert unpinned.prompt_hash == toy_spec.prompt_hash
+    assert len({unpinned.prompt_hash, a.prompt_hash, b.prompt_hash}) == 3
+    assert ollama_spec(toy_spec, digest=f"sha256:{DIGEST}").prompt_hash == a.prompt_hash
+
+
 def test_pinned_digest_with_a_full_cache_never_asks_the_server(
     toy_spec: TaskSpec, tmp_path: Path
 ) -> None:
