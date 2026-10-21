@@ -1,4 +1,4 @@
-.PHONY: help sync check fmt lint typecheck test test-live record demo docker spike-onnx \
+.PHONY: help sync check fmt lint typecheck test test-live record demo wheel-check docker spike-onnx \
 	eval-classify eval-extract eval-generate eval-select eval-frontier eval-calibration eval-export bench \
 	results clean
 
@@ -36,6 +36,9 @@ record: ## re-record the Claude fixtures in tests/recordings (spends a few cents
 
 demo: ## offline vertical slice on the toy task: label -> train -> eval
 	./scripts/demo.sh "$(DEMO_HOME)"
+
+wheel-check: ## build the wheel, install it in a fresh venv, run `anvil --help` and the demo on it
+	./scripts/wheel_check.sh
 
 docker: ## build the CLI image and the torch-free serving image
 	docker build -t anvil:dev .

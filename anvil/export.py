@@ -335,6 +335,7 @@ def export_student(
             "calibration": calibration,
             # train_labels is one label per training example: too big for serving metadata.
             "student": {k: v for k, v in student.meta.items() if k != "train_labels"},
+            "run": student_dir.name,  # names the eval report (`<task>/reports/eval-<run>.json`)
             "spec": spec,
         }
         shutil.copy2(student_dir / TOKENIZER_FILE, tmp / TOKENIZER_FILE)

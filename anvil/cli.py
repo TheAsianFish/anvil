@@ -1,4 +1,5 @@
-"""Command-line interface: `anvil label | train | eval | loop | calibrate | export | serve`.
+"""Command-line interface:
+`anvil label | train | eval | loop | calibrate | export | serve | push`.
 
 Top-level imports stay torch-free: `anvil serve` runs in an image without torch, so every
 command imports its heavy dependencies inside its body."""
@@ -463,6 +464,50 @@ def serve_cmd(
         )
         # No uvicorn log config or access log: our JSON `predict` line covers each request.
         uvicorn.run(api, host=host, port=port, log_config=None, access_log=False)
+
+    _run(body)
+
+
+@app.command("push")
+def push_cmd(
+    artifact: Annotated[Path, typer.Argument(help="Exported student directory (`anvil export`).")],
+    repo: Annotated[str, typer.Option("--repo", help="Hugging Face model repo, namespace/name.")],
+    public: Annotated[
+        bool, typer.Option("--public", help="Create the repo public (default: private).")
+    ] = False,
+    report: Annotated[
+        Path | None,
+        typer.Option(help="Eval report for the card (default: found next to the export)."),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Write the model card and list the files; no upload."),
+    ] = False,
+) -> None:
+    """Publish an exported student to the Hugging Face Hub with a model card rendered from
+    its measured results (needs HF_TOKEN)."""
+
+    def body() -> None:
+        from anvil.hub import push
+
+        settings = Settings.from_env()
+        log.configure(settings.log_level)
+        r = push(
+            artifact,
+            repo,
+            home=settings.home,
+            token=settings.hf_token,
+            private=not public,
+            dry_run=dry_run,
+            report=report,
+        )
+        print(f"model card {r.card}")
+        if r.dry_run:
+            print(f"dry run: {len(r.files)} files would be uploaded to {r.repo_id}:")
+            for f in r.files:
+                print(f"  {f}")
+        else:
+            print(f"pushed {len(r.files)} files to {r.url}")
 
     _run(body)
 

@@ -125,10 +125,11 @@ wheels = [
 
 [[package]]
 name = "anvil-distil"
-version = "0.1.0.dev0"
+version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
+    { name = "huggingface-hub" },
     { name = "numpy" },
     { name = "peft" },
     { name = "pydantic" },
@@ -171,6 +172,7 @@ eval = [
 requires-dist = [
     { name = "anthropic", specifier = ">=1.15,<2" },
     { name = "fastapi", marker = "extra == 'serve'", specifier = ">=0.120" },
+    { name = "huggingface-hub", specifier = ">=2.2,<3" },
     { name = "numpy", specifier = ">=2.2" },
     { name = "onnx", marker = "extra == 'export'", specifier = ">=1.23" },
     { name = "onnxruntime", marker = "extra == 'export'", specifier = ">=1.31" },
