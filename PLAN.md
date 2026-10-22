@@ -543,6 +543,30 @@ measure without a key and asked what the results leave unanswered.
   `make eval-calibration TEACHER=ollama` and `make eval-noise`. About 5 h of laptop CPU in
   all: 1.3 h of labelling and about 1 h of ModernBERT training per dataset (the gold
   Banking77 run took 57 min), plus the MiniLM control.
+
+  **Outcome (built).** Labelling took 1.8 h (AG News) and 1.3 h (Banking77) of server time.
+  The two students trained in 41 and 68 min, the control in 2.5 h of shared CPU, all at $0.
+  Of the hypotheses:
+  - Teacher vs gold held: 0.719 on AG News, 0.544 on Banking77.
+  - Ceiling about 0.75 on Banking77: refuted. Self-agreement was 0.831.
+  - Student vs teacher below the ceiling held: 0.861 vs 0.937 and 0.667 vs 0.831 on the same
+    inputs.
+  - Student beats teacher on AG News by at least 0.05: refuted. Student minus teacher vs gold
+    was -0.023 [-0.059, 0.013] (Banking77 -0.004 [-0.037, 0.030]). The student repeats 73% and
+    50% of the teacher's held-out errors.
+  - No kappa-0.9 threshold on Banking77: refuted, as the plan allowed. One exists at 31.9%
+    coverage, where the teacher's self-agreement on the accepted ceiling inputs is 0.936.
+  - The control answers the "which noise" question: the teacher's noise is its confusions.
+    Uniform noise at the same error count costs MiniLM 0.05 (AG News) and 0.28 (Banking77) of
+    kappa against gold; the teacher's labels cost 0.19 and 0.34, close to its confusion
+    matrix dealt to random inputs (0.20 and 0.37).
+
+  The consequence for the product: a parity number against a fallible teacher can look good
+  (0.847) while the student sits at the teacher's accuracy. The cascade then serves the
+  teacher's systematic errors at full confidence.
+
+  Review fixes: the pinned digest is now part of the label key (re-pinning used to replay the
+  old weights' labels), and transient Ollama errors are retried before they are recorded.
 - **M9, the cascade off-distribution.** Question: what does the served Banking77 bundle do with
   inputs it was never meant to see? Hypotheses: on Banking77's own test split coverage stays
   within 3 points of 82.3% and kappa on the answered inputs stays at or above 0.9; on CLINC150's
@@ -596,6 +620,6 @@ PLAN.md and the roadmap); the method is above.
 - [x] M5: Calibration, export and serving — temperature scaling and ECE, threshold search for coverage at target kappa, coverage-vs-parity curve; ONNX fp32 + int8 export with the parity gate; `anvil serve` (FastAPI + ONNX Runtime, escalation to the teacher, structured logs); `make bench` (latency, throughput, $ per 1k vs teacher); runtime Dockerfile. Done when `make eval-calibration`, `make eval-export` and `make bench` write their tables and the server's tests cover escalation with the fake teacher.
 - [x] M6: Generation student — `LoraGenerator` on Qwen2.5-0.5B-Instruct with PEFT through the same loop, chat-template alignment, execution-match parity on the text-to-SQL task plus a 100-item judge sample, merged export; Colab notebook for the GPU run. Done when the generation path trains on a tiny random-init Qwen config in CI and RESULTS.md holds either the measured parity or the exact "To measure" command and cost.
 - [x] M7: Release readiness — `anvil push` with the rendered model card, PyPI and GHCR workflows with `if:` guards, RELEASE.md with the secrets to add, README (architecture, results table, demo, roadmap), final RESULTS.md with every measured number and its cost, CONTRIBUTING.md refreshed. Done when a clean-venv wheel install runs `anvil --help` and the demo, and every README number traces to a RESULTS.md entry.
-- [ ] M8: The first fallible teacher — `OllamaTeacher` (`provider: ollama`, the same system prompt, JSON schema, parsing, disk cache and label files as the Claude teacher; tokens from Ollama's counts, dollars $0 with CPU seconds recorded, the model pinned by its digest in `meta.json`), `--teacher ollama` in the classification harness so the labels are committed under `eval/labels/` and replay for free, `make eval-classify TEACHER=ollama` on AG News and Banking77 with `qwen2.5:3b` (teacher-vs-gold, the paraphrase ceiling, student-vs-teacher and student-vs-gold with paired intervals, the teacher's confusions against the student's), `make eval-calibration TEACHER=ollama` on those labels (replayed from `eval/labels/`; the ceiling also reported on the accepted inputs), and `make eval-noise` (gold corrupted at the measured teacher error rate, uniform and confusion-pair, 3 seeds, the frontier's MiniLM student) as the control. Done when the first non-gold parity table is in RESULTS.md with its ceiling and teacher-vs-gold rows, the student-vs-gold against teacher-vs-gold comparison is stated with its paired interval, and the unit tests cover the Ollama teacher with a scripted transport.
+- [x] M8: The first fallible teacher — `OllamaTeacher` (`provider: ollama`, the same system prompt, JSON schema, parsing, disk cache and label files as the Claude teacher; tokens from Ollama's counts, dollars $0 with CPU seconds recorded, the model pinned by its digest in `meta.json`), `--teacher ollama` in the classification harness so the labels are committed under `eval/labels/` and replay for free, `make eval-classify TEACHER=ollama` on AG News and Banking77 with `qwen2.5:3b` (teacher-vs-gold, the paraphrase ceiling, student-vs-teacher and student-vs-gold with paired intervals, the teacher's confusions against the student's), `make eval-calibration TEACHER=ollama` on those labels (replayed from `eval/labels/`; the ceiling also reported on the accepted inputs), and `make eval-noise` (gold corrupted at the measured teacher error rate, uniform and confusion-pair, 3 seeds, the frontier's MiniLM student) as the control. Done when the first non-gold parity table is in RESULTS.md with its ceiling and teacher-vs-gold rows, the student-vs-gold against teacher-vs-gold comparison is stated with its paired interval, and the unit tests cover the Ollama teacher with a scripted transport.
 - [ ] M9: The cascade off-distribution — `eval/shift.py` (`make eval-shift`) scores an exported bundle through `anvil/runtime.py` on Banking77's test split (coverage, kappa on the answered inputs, ECE), CLINC150's out-of-scope utterances and AG News sentences (acceptance rate above the served threshold, confidence histograms), and compares max-softmax with max-logit or energy and with distance to the training embeddings by AUROC and in-distribution coverage cost; the model card states that coverage was measured in-distribution. Done when RESULTS.md holds the shift table with the hypotheses answered, and the loaders are pinned by revision with licences recorded.
 - [ ] M10: Does the interval cover? — BCa intervals in `anvil/evaluate/bootstrap.py` (jackknife from marginals, one-sided variant), `make eval-coverage` (a simulation over kappa {0.85, 0.9, 0.95}, items {100, 250, 500}, labels {4, 77}: coverage of the percentile and BCa bounds, point-estimate bias, and how often the threshold search's chosen threshold truly meets the target), `choose_threshold` on the BCa bound with the coverage cost measured from the committed `logits.npz`. Done when the simulation runs in CI in under a minute, RESULTS.md holds the coverage table and the re-run calibration tables, and the default rule is whichever the table justifies, with the reason written down.
