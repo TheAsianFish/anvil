@@ -1095,7 +1095,7 @@ def render_coverage(report: Report, meta: Report) -> str:
     fixed = sorted(fixed, key=lambda c: (c["labels"], c["n"], c["kappa"]))
     search = sorted(search, key=lambda c: (c["labels"], c["n"], c["target"]))
     pop = cfg["search_population"]
-    at = ", ".join(f"{u} -> {k}" for u, k in pop["kappa_at_coverage"].items())
+    at = ", ".join(f"{_pct(float(u))} -> {_f(k)}" for u, k in pop["kappa_at_coverage"].items())
     out = [
         "- Raw output: `eval/results/coverage-simulation/` (`report.json`, `meta.json`)",
         f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; {cfg['fixed_reps']}"

@@ -92,7 +92,7 @@ def test_render_coverage_tables() -> None:
     assert (
         "95% BCa lower bound met 52/56 (92.9%), coverage given up versus the oracle 12.0%" in text
     )
-    assert "1.0 -> 0.84, 0.5 -> 0.99" in text
+    assert "100.0% -> 0.840, 50.0% -> 0.990" in text
 
 
 def test_blocks_for_coverage_missing_and_present(tmp_path: Path) -> None:
