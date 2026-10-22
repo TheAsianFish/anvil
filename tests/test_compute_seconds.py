@@ -9,13 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from anvil.serve import _teacher_for
+from anvil.serve import SERVE_TEACHER_TIMEOUT_S, _teacher_for
 from anvil.settings import Settings
 from anvil.spec import TaskSpec
 from anvil.store import Store
 from anvil.teacher.base import Failure, Item, Label, LabelBatch
 from anvil.teacher.labelfile import LabelFileTeacher, read_label_file, write_label_file
-from anvil.teacher.ollama import OllamaTeacher
+from anvil.teacher.ollama import HttpOllamaTransport, OllamaTeacher
 from tests.test_teacher_ollama import MODEL, ollama_spec
 
 OLD_SCHEMA = """
@@ -124,6 +124,10 @@ def test_serve_builds_the_ollama_teacher(toy_spec: TaskSpec, settings: Settings)
         teacher = _teacher_for(mode, spec, settings, Path("bundle"))
         assert isinstance(teacher, OllamaTeacher)
         assert teacher.model_id == MODEL
+        # A served request must not wait out the labelling timeout (600 s, two retries).
+        transport = teacher._transport
+        assert isinstance(transport, HttpOllamaTransport)
+        assert (transport._timeout, transport._retries) == (SERVE_TEACHER_TIMEOUT_S, 0)
     # An Ollama spec wins over an explicit claude mode only through `ollama`/`auto`:
     # `claude` still asks for Claude, which needs credentials the test env lacks.
     assert _teacher_for("none", spec, settings, Path("bundle")) is None

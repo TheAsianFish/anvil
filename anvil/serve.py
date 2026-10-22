@@ -43,6 +43,9 @@ log = get_logger(__name__)
 TeacherMode = Literal["auto", "claude", "ollama", "fake", "none"]
 Variant = Literal["fp32", "int8"]
 LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+SERVE_TEACHER_TIMEOUT_S = 60.0
+"""How long a request waits on a local teacher before falling back to the student (the Claude
+transport's own timeout is also 60 s)."""
 _REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _MAX_ERROR_CHARS = 200
 
@@ -434,7 +437,14 @@ def _teacher_for(
     if mode == "ollama" or spec.teacher.provider == "ollama":
         # A student distilled from a local model escalates to that model (`auto` included):
         # its threshold was calibrated against that teacher's labels, not Claude's.
-        return build_teacher(spec, settings, provider="ollama")
+        # A request waits on its escalation, so it gets a minute and no retries, not the
+        # labelling defaults (600 s, two retries); a timeout falls back to the student.
+        from anvil.teacher.ollama import HttpOllamaTransport
+
+        transport = HttpOllamaTransport(
+            settings.ollama_url, timeout_s=SERVE_TEACHER_TIMEOUT_S, retries=0
+        )
+        return build_teacher(spec, settings, provider="ollama", ollama=transport)
     try:
         return build_teacher(spec, settings, provider="claude")
     except ConfigError:

@@ -22,6 +22,7 @@ import json
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from typing import Protocol
 
@@ -72,19 +73,29 @@ class _TransientError(Exception):
 class HttpOllamaTransport:
     """Talks to Ollama's HTTP API with the standard library (no SDK needed)."""
 
-    def __init__(self, url: str, timeout_s: float = 600.0, backoff_s: float = 1.0) -> None:
+    def __init__(
+        self,
+        url: str,
+        timeout_s: float = 600.0,
+        backoff_s: float = 1.0,
+        retries: int = RETRIES,
+    ) -> None:
         if not url.startswith(("http://", "https://")):
-            raise ConfigError(f"ANVIL_OLLAMA_URL={url!r} must start with http:// or https://")
+            raise ConfigError("ANVIL_OLLAMA_URL must start with http:// or https://")
+        if "@" in urllib.parse.urlsplit(url).netloc:
+            # urllib would not send these credentials anyway, and every error quotes the URL.
+            raise ConfigError("ANVIL_OLLAMA_URL must not carry credentials (user:password@)")
         self._url = url.rstrip("/")
         self._timeout = timeout_s
         self._backoff_s = backoff_s
+        self._retries = retries
 
     def _request(self, method: str, path: str, body: JSONDict | None = None) -> JSONDict:
-        for attempt in range(RETRIES + 1):
+        for attempt in range(self._retries + 1):
             try:
                 return self._request_once(method, path, body)
             except _TransientError as exc:
-                if attempt == RETRIES:
+                if attempt == self._retries:
                     raise TeacherError(str(exc)) from exc
                 time.sleep(self._backoff_s * 2**attempt)
         raise AssertionError("unreachable")
@@ -103,10 +114,15 @@ class HttpOllamaTransport:
         except urllib.error.HTTPError as exc:
             detail = exc.read().decode("utf-8", "replace")[:200]
             model = (body or {}).get("model")
-            if exc.code == 404:
+            if exc.code == 404 and path == "/api/chat" and "model" in detail:
                 raise ConfigError(
                     f"the Ollama server has no model {model!r} ({detail}); run"
                     f" `ollama pull {model}`"
+                ) from exc
+            if exc.code == 404:
+                raise ConfigError(
+                    f"{self._url}{path} does not exist ({detail}); point ANVIL_OLLAMA_URL at the"
+                    " Ollama server's root, e.g. http://127.0.0.1:11434"
                 ) from exc
             if exc.code == 400:
                 raise ConfigError(f"Ollama rejected the request: {detail}") from exc
@@ -118,7 +134,7 @@ class HttpOllamaTransport:
                 raise _no_server(self._url, exc.reason) from exc
             raise _TransientError(f"could not reach Ollama at {self._url}: {exc.reason}") from exc
         except TimeoutError as exc:
-            raise _TransientError(f"Ollama did not answer within {self._timeout:.0f} s") from exc
+            raise _TransientError(f"Ollama did not answer within {self._timeout:g} s") from exc
         except (http.client.HTTPException, ConnectionError) as exc:
             raise _TransientError(f"the connection to Ollama broke: {exc!r}") from exc
         try:

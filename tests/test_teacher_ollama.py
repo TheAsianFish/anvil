@@ -365,6 +365,30 @@ def test_http_404_says_to_pull_the_model(http: tuple[_State, str]) -> None:
         HttpOllamaTransport(url)({"model": MODEL})
 
 
+def test_http_404_on_another_path_blames_the_url(http: tuple[_State, str]) -> None:
+    # A URL with an extra path (".../api") reaches a server that is not Ollama's root: the
+    # error must name the URL, not tell the user to pull a model.
+    state, url = http
+    state.routes[("GET", "/api/api/tags")] = (404, b"404 page not found")
+    with pytest.raises(ConfigError, match="ANVIL_OLLAMA_URL") as info:
+        HttpOllamaTransport(url + "/api").digest(MODEL)
+    assert "ollama pull" not in str(info.value)
+
+
+def test_url_with_credentials_is_refused() -> None:
+    with pytest.raises(ConfigError, match="credentials") as info:
+        HttpOllamaTransport("http://user:secret@127.0.0.1:11434")
+    assert "secret" not in str(info.value)
+
+
+def test_http_without_retries_tries_once(http: tuple[_State, str]) -> None:
+    state, url = http
+    state.routes[("POST", "/api/chat")] = (503, {"error": "busy"})
+    with pytest.raises(TeacherError, match="503"):
+        HttpOllamaTransport(url, backoff_s=0, retries=0)({"model": MODEL})
+    assert len(state.requests) == 1
+
+
 def test_http_500_is_a_per_input_teacher_error(http: tuple[_State, str]) -> None:
     state, url = http
     state.routes[("POST", "/api/chat")] = (500, {"error": "out of memory"})
