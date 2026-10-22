@@ -346,7 +346,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     settings = Settings.from_env()
     log.configure(settings.log_level)
-    command = "python -m eval.noise " + " ".join(argv if argv is not None else sys.argv[1:])
+    args_shown = " ".join(argv if argv is not None else sys.argv[1:])
+    command = f"python -m eval.noise {args_shown}".rstrip()
     provenance = git_provenance()
     seeds = tuple(args.seeds) if args.seeds else SEEDS
     smoke = (
