@@ -253,7 +253,7 @@ flowchart LR
 | `anvil/students/encoder.py` | Any Hugging Face encoder with a classification head; `tiny` builds a random-init ModernBERT for tests and the demo |
 | `anvil/train/loop.py` | One generic PyTorch loop: seeded batches, gradient accumulation, AMP, warmup + linear decay, clipping, early stopping, per-epoch checkpoints that resume bit for bit |
 | `anvil/train/classifier.py` | Cross-entropy for the encoder classifier; early stopping on the kappa of a validation slice of the training labels |
-| `anvil/evaluate/` | Kappa and accuracy with vectorised percentile bootstrap CIs, macro F1, per-class scores, top confusions, teacher self-agreement, slices by confidence and input length; for extraction, exact-match entity F1, word-level tag kappa, an error breakdown (boundary, type, missed, spurious) and intervals that resample inputs |
+| `anvil/evaluate/` | Kappa and accuracy with vectorised percentile and BCa bootstrap CIs (the jackknife from marginals), macro F1, per-class scores, top confusions, teacher self-agreement, slices by confidence and input length; for extraction, exact-match entity F1, word-level tag kappa, an error breakdown (boundary, type, missed, spurious) and intervals that resample inputs |
 | `anvil/spans.py`, `anvil/align.py` | Extraction answers as mentions (text, type, claimed offset); alignment verifies each against the input with a ladder of repair rules, resolves overlaps, snaps spans to student tokens as BIO tags and reports every repair and drop |
 | `anvil/students/tagger.py`, `anvil/train/tagger.py` | `EncoderTagger`: any encoder with a fast tokenizer and a token-classification head, trained by the same loop with early stopping on validation entity F1 |
 | `eval/extract.py` | `make eval-extract` on MIT Restaurant: gazetteer baseline, ceiling, gold comparison and the alignment stress study |
@@ -263,7 +263,7 @@ flowchart LR
 | `anvil/select.py` | `select_batch(pool, k, strategy, seed)`: `random` (the reference curve); `uncertainty`, `margin` and `diverse` are declared with a contract test suite and not written yet |
 | `anvil/loop.py` | `anvil loop`: rounds of select, label, retrain from scratch, score; label, dollar and target-kappa stops; picks stored before labelling so an interrupted loop resumes to the same rows |
 | `eval/frontier.py`, `eval/select_study.py` | `make eval-frontier` (3 seeds x 5 budgets per strategy) and `make eval-select` (synthetic blobs, logistic student) |
-| `anvil/calibrate.py` | Temperature scaling (bisection on the NLL gradient), ECE and reliability bins, the coverage-vs-kappa curve, and the threshold search on the point estimate or a one-sided bootstrap lower bound; numpy only |
+| `anvil/calibrate.py` | Temperature scaling (bisection on the NLL gradient), ECE and reliability bins, the coverage-vs-kappa curve, and the threshold search on the point estimate or a one-sided percentile or BCa bootstrap lower bound; numpy only |
 | `anvil/export.py`, `anvil/runtime.py` | `torch.onnx` (dynamo) export with dynamic batch and sequence axes, fp32 parity gate through the serving tokenizer, opt-in int8 with the MLP down-projections in fp32; `OnnxStudent` loads a bundle with ONNX Runtime and `tokenizers`, never torch |
 | `anvil/serve.py` | `anvil serve`: FastAPI `/predict`, `/healthz`, `/metrics`; inputs under the threshold go to the teacher in one batch per request; every teacher failure degrades to the student's answer |
 | `eval/calibration.py`, `eval/export.py`, `eval/bench.py` | `make eval-calibration` (temperature, coverage, and the split study of whether a threshold holds on unseen inputs), `make eval-export` (parity and the int8 layer probe), `make bench` |
@@ -401,6 +401,13 @@ references that return nothing.
   and `make eval-calibration` measures both rules on held-out halves the
   threshold never saw. *Rejected:* a learned deferral model (more to
   maintain for a gain the plain threshold already measures).
+- **Percentile bound, not BCa (M10).** `make eval-coverage` simulates the
+  bound where the rule uses it. Both methods cover about 93% instead of 95%
+  (pooled 93.1% and 93.0%). BCa helps with 4 labels and hurts with 77,
+  where it reads ties on the discrete disagreement count as bias: at 100
+  items and kappa 0.95 it covers 88.6% against 92.4%. On the Banking77
+  gold splits it kept the target less often too (88.0% against 90.5%). So the
+  default stays the percentile bound, and BCa is `--rule bca`.
 - **Temperature scaling, and when not to.** One scalar T fitted by NLL on
   the held-out teacher labels makes confidence readable as agreement; it
   does not change any label. When the fit runs to a bound (the student
@@ -535,7 +542,10 @@ Choosing the threshold where the kappa estimate reaches the target holds that
 target on new inputs about half the time; requiring the bootstrap lower bound
 to reach it holds it in roughly nine of ten splits, at a cost of 7 (Banking77: median
 coverage 80.2% against 87.1%) to 23 (AG News: 65.1% against 88.3%) points of
-coverage. Temperature scaling makes the confidences readable as agreement
+coverage. The bound itself covers about 93% rather than 95% at these sizes, and
+picking the best threshold costs about two points more: the threshold the search
+chooses truly keeps its target in 91% of simulated searches (M10). Temperature
+scaling makes the confidences readable as agreement
 rates but buys no coverage (Banking77 at kappa 0.9: 87.1% calibrated, 87.9%
 uncalibrated, within noise). On Banking77 the
 served student answers in 27.6 ms p50 over HTTP in fp32 and 18.1 ms in int8
@@ -594,7 +604,7 @@ under "To measure" (about $0.11 with Haiku 5.5).
 - [x] M6: Qwen2.5-0.5B LoRA generation student, chat-template alignment, execution-match eval on WikiSQL, merged export, Colab notebook (Claude parity and the judge sample to measure)
 - [x] M7: release readiness: `anvil push` with a rendered model card, PyPI and GHCR release workflow, clean-venv wheel check, RELEASE.md, spend ledger in RESULTS.md
 
-Planned in PLAN.md, evolution round 1 (M8 and M9 built):
+Planned in PLAN.md, evolution round 1 (all built):
 
 - [x] M8: the first fallible teacher: `OllamaTeacher` (a local open model, `qwen2.5:3b` in the
   harness) so the parity table gets a teacher that can be wrong, with the paraphrase ceiling,
@@ -604,8 +614,10 @@ Planned in PLAN.md, evolution round 1 (M8 and M9 built):
   out-of-scope utterances and AG News; max softmax against max logit, energy and
   embedding distance as the escalation signal (the threshold transfers; 2.6% of
   out-of-scope requests get through; energy helps a little; see Results)
-- [ ] M10: does the interval cover? A coverage simulation of the percentile and BCa bootstrap
+- [x] M10: does the interval cover? A coverage simulation of the percentile and BCa bootstrap
   bounds at the kappa, sample size and label count where the threshold rule applies them
+  (both cover about 93%; the threshold search keeps its target 91% of the time; BCa is
+  worse at 77 labels, so the percentile bound stays the default; see Results)
 
 Still open, each needing a key or the owner's own code:
 
