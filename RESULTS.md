@@ -20,8 +20,10 @@ directory under `eval/results/`.
 | `calibration-banking77-gold` | eval-calibration | gold | `python -m eval.calibration --teacher gold` | `b127db2` | 0m 58s | $0.00 |
 | `classify-ag_news-gold` | eval-classify | gold | `python -m eval.classify ag_news banking77 --teacher gold` | `74cca5e` | 36m 10s | $0.00 |
 | `classify-ag_news-gold-seed1` | eval-classify | gold | `python -m eval.classify ag_news --teacher gold --seed 1` | `1c900f7` | 47m 59s | $0.00 |
+| `classify-ag_news-qwen2.5-3b` | eval-classify | qwen2.5:3b | `python -m eval.classify ag_news banking77 --teacher ollama` | `e25575f` | 41m 06s | $0.00 |
 | `classify-banking77-gold` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold` | `d4f4016` | 56m 31s | $0.00 |
 | `classify-banking77-gold-seed1` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold --seed 1` | `7c205b0` | 45m 20s | $0.00 |
+| `classify-banking77-qwen2.5-3b` | eval-classify | qwen2.5:3b | `python -m eval.classify ag_news banking77 --teacher ollama` | `e25575f` | 1h 07m 55s | $0.00 |
 | `export-ag_news-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 47m 30s | $0.00 |
 | `export-banking77-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 1h 03m 02s | $0.00 |
 | `extract-mit_restaurant-gold` | eval-extract | gold | `python -m eval.extract mit_restaurant --teacher gold` | `7dace8b` (uncommitted changes) | 15m 01s | $0.00 |
@@ -30,7 +32,7 @@ directory under `eval/results/`.
 | `generate-wikisql-gold` | eval-generate | gold | `python -m eval.generate wikisql --teacher gold` | `795cc7d` | 1h 43m 21s | $0.00 |
 | `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
 | `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
-| **Total (15 runs)** | | | | | 9h 18m 10s | $0.00 |
+| **Total (17 runs)** | | | | | 11h 07m 11s | $0.00 |
 
 Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
 <!-- END generated:ledger -->
@@ -85,7 +87,9 @@ Findings so far (from the table below):
 | Dataset | Teacher | Student | Teacher labels | Held-out | Student kappa [95% CI] | Accuracy | Macro F1 | Majority acc. | TF-IDF kappa [95% CI] | Student minus TF-IDF kappa [95% paired CI] | Teacher ceiling kappa | Label cost | Wall time |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | ag_news | gold | ModernBERT-base | 2000 | 477 | 0.844 [0.805, 0.882] | 0.883 | 0.882 | 0.260 | 0.835 [0.795, 0.873] | +0.009 [-0.033, 0.054] | n/a | $0.00 | 36 min |
+| ag_news | qwen2.5:3b | ModernBERT-base | 2000 | 477 | 0.847 [0.808, 0.884] | 0.889 | 0.871 | 0.319 | 0.732 [0.684, 0.781] | +0.115 [0.067, 0.166] | 0.937 [0.895, 0.978] | $0.00 | 41 min |
 | banking77 | gold | ModernBERT-base | 2000 | 496 | 0.842 [0.807, 0.873] | 0.845 | 0.814 | 0.024 | 0.662 [0.621, 0.702] | +0.180 [0.141, 0.223] | n/a | $0.00 | 57 min |
+| banking77 | qwen2.5:3b | ModernBERT-base | 2000 | 496 | 0.687 [0.641, 0.726] | 0.694 | 0.614 | 0.036 | 0.499 [0.454, 0.544] | +0.188 [0.145, 0.229] | 0.831 [0.779, 0.882] | $0.00 | 68 min |
 
 #### ag_news, teacher `gold`, student `ModernBERT-base`
 
@@ -100,6 +104,24 @@ Findings so far (from the table below):
 - Agreement by confidence: 0.34-0.67: 0.54 (n=48), 0.68-0.84: 0.75 (n=48), 0.85-0.93: 0.90 (n=48), 0.93-0.96: 0.90 (n=48), 0.96-0.98: 0.88 (n=48), 0.98-0.99: 0.94 (n=48), 0.99-0.99: 0.98 (n=48), 0.99-1.00: 0.96 (n=47), 1.00-1.00: 1.00 (n=47), 1.00-1.00: 1.00 (n=47)
 - Agreement by length (words): 14-31: 0.85 (n=120), 32-37: 0.89 (n=119), 37-43: 0.92 (n=119), 43-107: 0.87 (n=119)
 
+#### ag_news, teacher `qwen2.5:3b`, student `ModernBERT-base`
+
+- Raw output: `eval/results/classify-ag_news-qwen2.5-3b/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
+- Command: `python -m eval.classify ag_news banking77 --teacher ollama` at `e25575f`; seed 0, 1000 bootstrap resamples; 4 CPUs; wall 2466 s; spent $0.0000
+- Data: fancyzhx/ag_news@eb185aa (AG's corpus, used under its academic terms (http://groups.di.unipi.it/~gulli/AG_corpus_of_news_articles.html)), 2500 inputs sampled (seed 0, sha256 3cf708037e01)
+- Training: 1806 examples and 194 held back to pick the epoch, out of 2000 teacher labels; 3 epochs, 339 steps, best epoch 1, 2319 s
+- Near-duplicates: 3 of 477 held-out inputs share at least 80% of their words with a labelled pool input (identical texts never straddle the split; these are the ones a hash cannot catch)
+- Teacher: `qwen2.5:3b` through Ollama, weights sha256 `357c53fb659c` (pinned in the eval config); 2477 labels took 1.81 h of server time (median 2.58 s per label), the ceiling's second pass 9 min more, $0
+- Against gold: teacher 0.719 [0.672, 0.764], student 0.696 [0.645, 0.743]
+- Student minus teacher, agreement with gold on the same 477 inputs (paired bootstrap): kappa -0.023 [-0.059, 0.013], accuracy -0.017 [-0.044, 0.010]
+- On the 101 held-out inputs the teacher got wrong, the student gave the teacher's label on 74 (73%), the gold label on 18 (18%) and another on 9 (9%); on the 376 it got right, the student is wrong on 26 (7%)
+- The teacher's top confusions (gold -> teacher label: how often the teacher / the student makes it): `sci_tech` -> `business` 59 / 55, `business` -> `world` 12 / 21, `sci_tech` -> `world` 9 / 16, `world` -> `sports` 6 / 5, `business` -> `sci_tech` 4 / 2, `sci_tech` -> `sports` 4 / 3
+- On the ceiling's 200 inputs: teacher vs itself 0.937 [0.895, 0.978], student vs teacher 0.861 [0.799, 0.916]; the student agrees with the teacher on 90.6% of 191 inputs where the teacher repeated its label and on 77.8% of 9 where it did not
+- Weakest classes with at least 5 held-out items (F1 vs teacher, support): `sci_tech` 0.75 (59), `business` 0.88 (152), `world` 0.89 (138), `sports` 0.96 (128)
+- Top confusions (teacher -> student): `business` -> `world` 15, `sci_tech` -> `business` 8, `business` -> `sci_tech` 7, `sci_tech` -> `world` 7, `sports` -> `world` 5
+- Agreement by confidence: 0.31-0.58: 0.52 (n=48), 0.58-0.77: 0.71 (n=48), 0.77-0.90: 0.79 (n=48), 0.90-0.97: 0.92 (n=48), 0.97-0.99: 0.98 (n=48), 0.99-1.00: 0.98 (n=48), 1.00-1.00: 1.00 (n=48), 1.00-1.00: 1.00 (n=47), 1.00-1.00: 1.00 (n=47), 1.00-1.00: 1.00 (n=47)
+- Agreement by length (words): 14-31: 0.87 (n=120), 32-37: 0.86 (n=119), 37-43: 0.91 (n=119), 43-107: 0.92 (n=119)
+
 #### banking77, teacher `gold`, student `ModernBERT-base`
 
 - Raw output: `eval/results/classify-banking77-gold/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
@@ -112,6 +134,24 @@ Findings so far (from the table below):
 - Top confusions (teacher -> student): `card_not_working` -> `declined_card_payment` 3, `transfer_timing` -> `pending_transfer` 3, `card_delivery_estimate` -> `card_arrival` 2, `card_swallowed` -> `lost_or_stolen_card` 2, `compromised_card` -> `card_payment_not_recognised` 2
 - Agreement by confidence: 0.19-0.56: 0.40 (n=50), 0.57-0.78: 0.60 (n=50), 0.78-0.93: 0.64 (n=50), 0.93-0.98: 0.88 (n=50), 0.98-0.99: 0.98 (n=50), 0.99-1.00: 0.98 (n=50), 1.00-1.00: 0.98 (n=49), 1.00-1.00: 1.00 (n=49), 1.00-1.00: 1.00 (n=49), 1.00-1.00: 1.00 (n=49)
 - Agreement by length (words): 4-7: 0.86 (n=124), 7-10: 0.89 (n=124), 10-13: 0.78 (n=124), 13-53: 0.85 (n=124)
+
+#### banking77, teacher `qwen2.5:3b`, student `ModernBERT-base`
+
+- Raw output: `eval/results/classify-banking77-qwen2.5-3b/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
+- Command: `python -m eval.classify ag_news banking77 --teacher ollama` at `e25575f`; seed 0, 1000 bootstrap resamples; 4 CPUs; wall 4075 s; spent $0.0000
+- Data: legacy-datasets/banking77@f541215 (CC-BY-4.0 (Casanueva et al., 2020, PolyAI)), 2500 inputs sampled (seed 0, sha256 2aeaf7290b43)
+- Training: 1809 examples and 191 held back to pick the epoch, out of 2000 teacher labels; 9 epochs, 1026 steps, best epoch 7, 3990 s
+- Near-duplicates: 17 of 496 held-out inputs share at least 80% of their words with a labelled pool input (identical texts never straddle the split; these are the ones a hash cannot catch)
+- Teacher: `qwen2.5:3b` through Ollama, weights sha256 `357c53fb659c` (pinned in the eval config); 2496 labels took 1.26 h of server time (median 1.70 s per label), the ceiling's second pass 6 min more, $0
+- Against gold: teacher 0.544 [0.501, 0.586], student 0.540 [0.497, 0.586]
+- Student minus teacher, agreement with gold on the same 496 inputs (paired bootstrap): kappa -0.004 [-0.037, 0.030], accuracy -0.004 [-0.036, 0.030]
+- On the 223 held-out inputs the teacher got wrong, the student gave the teacher's label on 112 (50%), the gold label on 39 (17%) and another on 72 (32%); on the 273 it got right, the student is wrong on 41 (15%)
+- The teacher's top confusions (gold -> teacher label: how often the teacher / the student makes it): `card_payment_wrong_exchange_rate` -> `wrong_exchange_rate_for_cash_withdrawal` 9 / 10, `card_payment_fee_charged` -> `extra_charge_on_statement` 6 / 3, `get_physical_card` -> `passcode_forgotten` 6 / 4, `order_physical_card` -> `get_physical_card` 6 / 6, `balance_not_updated_after_bank_transfer` -> `transfer_not_received_by_recipient` 5 / 4, `card_arrival` -> `card_delivery_estimate` 5 / 5
+- On the ceiling's 200 inputs: teacher vs itself 0.831 [0.779, 0.882], student vs teacher 0.667 [0.600, 0.733]; the student agrees with the teacher on 74.9% of 167 inputs where the teacher repeated its label and on 30.3% of 33 where it did not
+- Weakest classes with at least 5 held-out items (F1 vs teacher, support): `card_acceptance` 0.22 (5), `refund_not_showing_up` 0.36 (7), `supported_cards_and_currencies` 0.38 (9), `reverted_card_payment` 0.40 (5), `pending_transfer` 0.45 (10)
+- Top confusions (teacher -> student): `card_not_working` -> `card_delivery_estimate` 3, `extra_charge_on_statement` -> `top_up_by_card_charge` 3, `get_disposable_virtual_card` -> `get_physical_card` 3, `apple_pay_or_google_pay` -> `top_up_by_card_charge` 2, `card_arrival` -> `card_about_to_expire` 2
+- Agreement by confidence: 0.16-0.49: 0.24 (n=50), 0.49-0.69: 0.48 (n=50), 0.70-0.80: 0.62 (n=50), 0.81-0.91: 0.50 (n=50), 0.91-0.97: 0.68 (n=50), 0.97-0.99: 0.84 (n=50), 0.99-1.00: 0.78 (n=49), 1.00-1.00: 0.92 (n=49), 1.00-1.00: 0.90 (n=49), 1.00-1.00: 1.00 (n=49)
+- Agreement by length (words): 4-7: 0.72 (n=124), 7-10: 0.70 (n=124), 10-13: 0.71 (n=124), 13-53: 0.65 (n=124)
 <!-- END generated:classify -->
 
 Training-seed spread (only the student seed changes: weight init, data order, validation slice):
@@ -131,7 +171,12 @@ TEACHER=ollama`). Unlike gold, this teacher can be wrong, so each row puts the s
 agreement with it next to the teacher's own agreement with gold and with itself.
 
 <!-- BEGIN generated:classify-teacher -->
-No run with a model as the teacher yet: `make eval-classify TEACHER=ollama`.
+| Dataset | Teacher | Student | Teacher vs gold | Teacher vs itself (ceiling) | Student vs teacher | Student vs teacher, ceiling inputs | Student vs gold | Student minus teacher vs gold [95% paired CI] | Same student on gold labels |
+|---|---|---|---|---|---|---|---|---|---|
+| ag_news | qwen2.5:3b | ModernBERT-base | 0.719 [0.672, 0.764] | 0.937 [0.895, 0.978] | 0.847 [0.808, 0.884] | 0.861 [0.799, 0.916] | 0.696 [0.645, 0.743] | -0.023 [-0.059, 0.013] | 0.844 [0.805, 0.882] |
+| banking77 | qwen2.5:3b | ModernBERT-base | 0.544 [0.501, 0.586] | 0.831 [0.779, 0.882] | 0.687 [0.641, 0.726] | 0.667 [0.600, 0.733] | 0.540 [0.497, 0.586] | -0.004 [-0.037, 0.030] | 0.842 [0.807, 0.873] |
+
+All kappas are on the same held-out inputs (the ceiling and its column on the first 200 of them, which the teacher labelled under two prompts). "Same student on gold labels" is the gold-teacher run of the table above: the same sample, split and student trained on clean labels.
 <!-- END generated:classify-teacher -->
 
 ### Noise control: what kind of noise is the local teacher's? (M8)
