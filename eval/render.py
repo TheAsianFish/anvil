@@ -265,8 +265,10 @@ def render_fallible(runs: list[tuple[str, Report, Report]]) -> str:
     rows = [(name, r) for name, r, _ in runs if r["teacher"]["kind"] != "gold"]
     if not rows:
         return "No run with a model as the teacher yet: `make eval-classify TEACHER=ollama`.\n"
+    # The gold run's held-out ids too: its kappa is only comparable on the same inputs, which
+    # a teacher that failed some of them (they leave its held-out set) would break.
     clean = {
-        r["dataset"]["name"]: r["agreement"]
+        r["dataset"]["name"]: (r["agreement"], _heldout_ids(r))
         for _, r, _ in runs
         if r["teacher"]["kind"] == "gold" and r["student"]["model"]
     }
@@ -281,7 +283,9 @@ def render_fallible(runs: list[tuple[str, Report, Report]]) -> str:
         ceiling = r.get("ceiling") or {}
         same = ceiling.get("on_same_items") or {}
         errors = gold.get("errors") or {}
-        reference = clean.get(r["dataset"]["name"])
+        reference, ids = clean.get(r["dataset"]["name"], (None, None))
+        if reference is not None and ids != _heldout_ids(r):
+            reference = None
         lines.append(
             f"| {r['dataset']['name']} | {t['model']} | {_student_name(s['model'])}"
             f" | {_ci(gold.get('teacher_vs_gold'))}"
@@ -289,7 +293,7 @@ def render_fallible(runs: list[tuple[str, Report, Report]]) -> str:
             f" | {_ci(r['agreement'])} | {_ci(same.get('student_vs_teacher'))}"
             f" | {_ci(gold.get('student_vs_gold'))}"
             f" | {_diff(errors.get('student_minus_teacher_vs_gold_kappa'))}"
-            f" | {_ci(reference) if reference else 'n/a'} |"
+            f" | {_ci(reference) if reference else 'n/a (other held-out inputs)'} |"
         )
     lines += [
         "",
@@ -300,6 +304,11 @@ def render_fallible(runs: list[tuple[str, Report, Report]]) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _heldout_ids(report: Report) -> list[str] | None:
+    ids = (report.get("predictions") or {}).get("input_id")
+    return sorted(ids) if isinstance(ids, list) else None
 
 
 def _f1_ci(stats: Mapping[str, Any] | None, key: str = "entity_f1_ci") -> str:

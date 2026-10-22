@@ -592,3 +592,22 @@ def test_run_dataset_trains_each_condition_once_and_reuses_students(
 def test_results_dir_names_are_file_safe() -> None:
     assert noise.results_dir("toy", "qwen2.5:3b", False).name == "noise-toy-qwen2.5-3b"
     assert noise.results_dir("toy", "qwen2.5:3b", True).name.startswith("noise-toy-qwen2.5-3b")
+
+
+RESULTS = Path(__file__).resolve().parents[1] / "eval" / "results"
+
+
+def test_gold_reference_needs_the_same_heldout_inputs() -> None:
+    # The committed runs share their held-out inputs; once a teacher failure drops one of them,
+    # the gold run's kappa is on other inputs and must not sit in the same row.
+    gold, local = (
+        json.loads((RESULTS / name / "report.json").read_text())
+        for name in ("classify-ag_news-gold", "classify-ag_news-qwen2.5-3b")
+    )
+    runs: list[tuple[str, render.Report, render.Report]] = [("g", gold, {}), ("q", local, {})]
+    gold_kappa = render._ci(gold["agreement"])
+    assert gold_kappa in render.render_fallible(runs)
+    local["predictions"]["input_id"] = local["predictions"]["input_id"][1:]
+    table = render.render_fallible(runs)
+    assert gold_kappa not in table
+    assert "n/a (other held-out inputs)" in table
