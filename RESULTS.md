@@ -34,9 +34,11 @@ directory under `eval/results/`.
 | `frontier-ag_news-gold` | eval-frontier | gold | `python -m eval.frontier --teacher gold` | `f929d74` | 1h 27m 18s | $0.00 |
 | `frontier-banking77-gold` | eval-frontier | gold | `python -m eval.frontier banking77 --teacher gold` | `278462c` | 27m 58s | $0.00 |
 | `generate-wikisql-gold` | eval-generate | gold | `python -m eval.generate wikisql --teacher gold` | `795cc7d` | 1h 43m 21s | $0.00 |
+| `noise-ag_news-qwen2.5-3b` | eval-noise | qwen2.5:3b | `python -m eval.noise ` | `e25575f` | 1h 17m 14s | $0.00 |
+| `noise-banking77-qwen2.5-3b` | eval-noise | qwen2.5:3b | `python -m eval.noise ` | `e25575f` | 1h 11m 30s | $0.00 |
 | `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
 | `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
-| **Total (19 runs)** | | | | | 11h 09m 53s | $0.00 |
+| **Total (21 runs)** | | | | | 13h 38m 36s | $0.00 |
 
 Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
 <!-- END generated:ledger -->
@@ -215,8 +217,66 @@ got wrong, moved uniformly; gold with the teacher's own confusion matrix dealt t
 inputs of each class), each scored against gold on the same held-out inputs.
 
 <!-- BEGIN generated:noise -->
-No noise-control run yet: `make eval-noise`.
+#### ag_news, teacher `qwen2.5:3b`, student `all-MiniLM-L6-v2`
+
+- Raw output: `eval/results/noise-ag_news-qwen2.5-3b/` (`report.json` with every run's held-out predictions, `meta.json`)
+- Command: `python -m eval.noise ` at `e25575f`; seeds 0, 1, 2; 4 CPUs; wall 1h 17m 14s; $0
+- Training labels: 2000 pool inputs; the teacher got 476 (24%) wrong (kappa with gold 0.683 [0.660, 0.706]), so each corrupted set has exactly that many wrong labels
+- Scored on 477 held-out inputs, where the teacher's own kappa with gold is 0.719 [0.672, 0.764]
+
+| Trained on | Student vs gold kappa, mean (range) | Student vs teacher kappa | Teacher's held-out errors the student repeats |
+|---|---|---|---|
+| gold labels | 0.863 (0.857-0.869) | 0.722 (0.715-0.730) | 22 (19-25)% |
+| the teacher's labels | 0.676 (0.655-0.688) | 0.839 (0.820-0.858) | 77 (75-79)% |
+| gold, uniform noise | 0.811 (0.785-0.826) | 0.685 (0.659-0.703) | 23 (20-25)% |
+| gold, the teacher's confusions | 0.666 (0.644-0.678) | 0.700 (0.674-0.718) | 52 (50-54)% |
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold, uniform noise (paired bootstrap, per seed): seed 0 -0.130 [-0.190, -0.070], seed 1 -0.141 [-0.192, -0.087], seed 2 -0.133 [-0.182, -0.082]
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold, the teacher's confusions (paired bootstrap, per seed): seed 0 -0.023 [-0.072, 0.024], seed 1 +0.010 [-0.034, 0.057], seed 2 +0.044 [-0.006, 0.102]
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold labels (paired bootstrap, per seed): seed 0 -0.208 [-0.263, -0.155], seed 1 -0.183 [-0.232, -0.134], seed 2 -0.169 [-0.216, -0.121]
+
+#### banking77, teacher `qwen2.5:3b`, student `all-MiniLM-L6-v2`
+
+- Raw output: `eval/results/noise-banking77-qwen2.5-3b/` (`report.json` with every run's held-out predictions, `meta.json`)
+- Command: `python -m eval.noise ` at `e25575f`; seeds 0, 1, 2; 4 CPUs; wall 1h 11m 30s; $0
+- Training labels: 2000 pool inputs; the teacher got 868 (43%) wrong (kappa with gold 0.560 [0.539, 0.582]), so each corrupted set has exactly that many wrong labels
+- Scored on 496 held-out inputs, where the teacher's own kappa with gold is 0.544 [0.501, 0.586]
+
+| Trained on | Student vs gold kappa, mean (range) | Student vs teacher kappa | Teacher's held-out errors the student repeats |
+|---|---|---|---|
+| gold labels | 0.842 (0.830-0.848) | 0.498 (0.485-0.505) | 3 (3-4)% |
+| the teacher's labels | 0.503 (0.501-0.509) | 0.684 (0.680-0.687) | 55 (54-55)% |
+| gold, uniform noise | 0.567 (0.554-0.576) | 0.388 (0.371-0.406) | 9 (7-11)% |
+| gold, the teacher's confusions | 0.476 (0.468-0.484) | 0.561 (0.540-0.579) | 39 (35-44)% |
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold, uniform noise (paired bootstrap, per seed): seed 0 -0.070 [-0.125, -0.015], seed 1 -0.076 [-0.129, -0.022], seed 2 -0.045 [-0.101, 0.009]
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold, the teacher's confusions (paired bootstrap, per seed): seed 0 +0.016 [-0.015, 0.049], seed 1 +0.033 [-0.002, 0.072], seed 2 +0.033 [-0.000, 0.067]
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold labels (paired bootstrap, per seed): seed 0 -0.346 [-0.391, -0.299], seed 1 -0.348 [-0.395, -0.299], seed 2 -0.321 [-0.370, -0.274]
 <!-- END generated:noise -->
+
+Findings:
+
+- **The local teacher's noise is its confusions, not random noise.** At the teacher's exact
+  error count, uniform noise costs the student little: 0.811 against 0.863 for gold on AG
+  News (24% of labels wrong), and 0.567 against 0.842 on Banking77 (43% wrong). The teacher's
+  own labels cost far more: 0.676 and 0.503. Teacher minus uniform is negative on all six
+  seeds, and its paired interval excludes 0 on five of them (-0.130 to -0.141 on AG News).
+- **The confusion matrix alone accounts for that cost.** The same confusions dealt to random
+  inputs of each class score 0.666 and 0.476, within a few hundredths of the real teacher's
+  labels. Teacher minus pair ranges from -0.023 to +0.044, and every paired interval includes
+  0. The student learns the teacher's (gold class, label) pairs as rules, whichever inputs
+  carry them. This is why the ModernBERT student above copies the teacher instead of
+  correcting it.
+- **Some of the teacher's errors are not clear-cut.** On AG News, the student trained on
+  *gold* still makes the teacher's mistake on 22% of the teacher's held-out errors (3% on
+  Banking77). Those inputs sit near a class boundary, where the teacher and the student
+  trained on gold disagree with the gold label in the same way.
+- The control's wall times include contention: it shared the 4 cores with the ModernBERT
+  training of the table above.
 
 ### Label-count frontier: AG News and Banking77 (M3)
 

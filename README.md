@@ -478,6 +478,27 @@ active-selection and cascade milestones build on. Parity with Claude and the
 teacher's self-agreement ceiling are listed under "To measure" with their
 commands and cost (about $0.35 with Haiku 5.5).
 
+**A fallible teacher (M8).** The same harness, sample and student with a teacher
+that can be wrong: `qwen2.5:3b` served by Ollama on the same CPU (weights pinned
+by digest, labels committed under `eval/labels/` so every later run replays them
+for $0 with no server):
+
+| Dataset | Teacher vs gold | Teacher vs itself (paraphrased prompt) | Student vs teacher | Student vs gold | Student minus teacher vs gold [95% paired CI] |
+|---|---|---|---|---|---|
+| AG News | 0.719 | 0.937 | 0.847 | 0.696 | -0.023 [-0.059, 0.013] |
+| Banking77 | 0.544 | 0.831 | 0.687 | 0.540 | -0.004 [-0.037, 0.030] |
+
+The student does not average its teacher's mistakes away; it learns them.
+It repeats 73% (AG News) and 50% (Banking77) of the teacher's held-out
+errors, and it ends up no closer to gold than the teacher. A parity of 0.847
+looks good, but its student is at 0.696 against the truth, where the same
+student trained on gold labels reaches 0.844. The control shows why. Take gold labels and corrupt them at the teacher's
+exact error count. Spread uniformly, the noise costs a MiniLM student little
+(kappa vs gold 0.811 on AG News, 0.567 on Banking77). The teacher's own
+confusion matrix costs far more (0.666, 0.476). The real teacher's labels
+land with the confusion matrix (0.676, 0.503). The teacher's errors are
+systematic, so more labels from it would not fix them (RESULTS.md, M8).
+
 Span extraction on MIT Restaurant (8 slot types, ~9-word queries), the same
 setup with a ModernBERT-base BIO tagger on 1,442 gold-teacher labels, scored
 on 500 held-out sentences with intervals that resample sentences:
