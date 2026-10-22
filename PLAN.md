@@ -600,8 +600,8 @@ measure without a key and asked what the results leave unanswered.
   often than a single bound at a fixed threshold. Command: `make eval-coverage` (a simulation,
   minutes, offline) and `make eval-calibration` from `logits.npz`.
   Outcome (M10 built). The percentile bound covers 93.1% pooled and BCa 93.0%. The first
-  hypothesis held for 4 labels (89.6%) but not for 77 (94.6%). BCa's 93-96% was refuted: it
-  covers 90.6% at 4 labels and does worst at 77 labels with 100 items (88.6%), where it reads
+  hypothesis held for 4 labels (89.6%) but not for 77 (94.6%). BCa's 93-96% was refuted: its
+  worst 4-label cell covers 90.6%, and it does worst at 77 labels with 100 items (88.6%), where it reads
   ties on the discrete disagreement count as bias. The estimator bias was refuted (under 0.002
   everywhere). The coverage cost held on the full held-out split (at most 1.7 points), but on the
   unseen halves BCa held the target less often on Banking77 (gold) and cost AG News up to 13
