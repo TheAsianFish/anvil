@@ -1332,7 +1332,8 @@ def render_shift(runs: list[tuple[str, Report, Report]]) -> str:
             f" `{src['student_run']}` ({src['train_inputs']} training inputs); bundle"
             f" `{bundle['variant']}` through `anvil/runtime.py` at temperature"
             f" {_f(bundle['temperature'], 3)} and threshold {_f(bundle['threshold'], 4)};"
-            f" {meta.get('cpus')} CPUs; wall {_duration(secs)}; $0",
+            f" {meta.get('cpus')} CPUs; wall {_duration(secs)};"
+            f" spent ${float(meta.get('spent_usd', 0.0)):.2f}",
             f"- Re-analysis from the committed scores, no model: `python -m eval.shift --scores"
             f" eval/results/{name}/scores.npz`",
             "",

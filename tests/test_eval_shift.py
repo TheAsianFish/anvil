@@ -567,6 +567,22 @@ def test_main_reanalyses_saved_scores(
     assert meta["command"].startswith("python -m eval.shift")
 
 
+def test_main_records_what_training_the_student_spent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # On an empty workspace `run` labels and trains the student; a Claude teacher pays for
+    # that, and the meta (which the spend ledger sums) must say so.
+    monkeypatch.setattr(shift, "git_provenance", lambda: {"git_sha": "abc", "git_dirty": False})
+    monkeypatch.setattr(shift, "RESULTS_DIR", tmp_path)
+    sets, heldout = make_study()
+    context = {**make_context(), "spent_usd": 0.42}
+    monkeypatch.setattr(shift, "run", lambda config, teacher, settings: (sets, heldout, context))
+
+    assert main(["--teacher", "claude"]) == 0
+    meta = json.loads((tmp_path / "shift-banking77-gold" / "meta.json").read_text("utf-8"))
+    assert meta["spent_usd"] == 0.42
+
+
 def test_main_missing_scores_exits_2(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

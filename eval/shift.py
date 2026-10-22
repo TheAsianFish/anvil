@@ -777,6 +777,7 @@ def run(
             "note": "max |softmax(ONNX logits) - PyTorch softmax| per set, at T = 1",
         },
         "seconds": seconds,
+        "spent_usd": ts.spent_usd,
     }
     return sets, held, context
 
@@ -834,7 +835,8 @@ def main(argv: list[str] | None = None) -> int:
             "versions": _versions(),
             "teacher_model": source["teacher_model"],
             "wall_seconds": round(time.perf_counter() - started, 1),
-            "spent_usd": 0.0,
+            # Labelling only happens when the workspace lacks the student (a Claude teacher pays).
+            "spent_usd": float(context.get("spent_usd") or 0.0),  # type: ignore[arg-type]
             "finished_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
     (out / "report.json").write_text(json.dumps(report, indent=2) + "\n", "utf-8")

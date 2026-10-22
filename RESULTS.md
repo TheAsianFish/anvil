@@ -951,7 +951,7 @@ Findings:
 #### banking77, teacher `gold`, student `ModernBERT-base`: the served bundle off-distribution
 
 - Raw output: `eval/results/shift-banking77-gold/` (`report.json`, `meta.json`, `scores.npz` with every input's logits and distance scores)
-- Command: `python -m eval.shift --teacher gold` at `773e679`; student run `20261022-083846-n2000` (2000 training inputs); bundle `fp32` through `anvil/runtime.py` at temperature 1.281 and threshold 0.6907; 4 CPUs; wall 10m 59s; $0
+- Command: `python -m eval.shift --teacher gold` at `773e679`; student run `20261022-083846-n2000` (2000 training inputs); bundle `fp32` through `anvil/runtime.py` at temperature 1.281 and threshold 0.6907; 4 CPUs; wall 10m 59s; spent $0.00
 - Re-analysis from the committed scores, no model: `python -m eval.shift --scores eval/results/shift-banking77-gold/scores.npz`
 
 | Set | Role | Source (pinned) | Licence | Inputs | Answered by the student [95% CI] | Mean confidence | Most frequent answers |
