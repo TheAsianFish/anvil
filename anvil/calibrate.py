@@ -357,6 +357,8 @@ def choose_threshold(
         raise ValueError(f"target_kappa must be finite, got {target_kappa}")
     if min_accepted < 1:
         raise ValueError(f"min_accepted must be positive, got {min_accepted}")
+    if rule == "bca" and min_accepted < 2:
+        raise ValueError("rule 'bca' needs min_accepted >= 2: its jackknife leaves one item out")
     if not 0.0 < confidence_level < 1.0:
         raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
     _, t, s, order = _cascade_inputs(confidence, teacher, student, n_labels)

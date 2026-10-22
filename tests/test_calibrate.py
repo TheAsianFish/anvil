@@ -348,6 +348,12 @@ def test_bca_rule_takes_the_first_point_whose_bca_bound_clears_the_target() -> N
                 assert choice.rule == "bca"
 
 
+def test_bca_rule_needs_two_answered_inputs() -> None:
+    with pytest.raises(ValueError, match="min_accepted >= 2"):
+        choose_threshold([0.9, 0.5], [0, 1], [0, 0], 2, 0.5, rule="bca", min_accepted=1)
+    assert choose_threshold([0.9, 0.5], [0, 1], [0, 0], 2, 0.5, rule="lower", min_accepted=1)
+
+
 def test_lower_rule_gives_up_coverage_the_point_rule_keeps() -> None:
     # The full curve's kappa clears the target by a hair: the point rule takes all 200 inputs,
     # the lower bound of 200 inputs does not reach it, so the lower rule must stop earlier.
