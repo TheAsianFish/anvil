@@ -35,6 +35,8 @@ class DatasetRef:
     text_field: str = "text"
     label_field: str = "label"
     license: str = ""
+    config: str | None = None
+    """The dataset's configuration (`clinc/clinc_oos` has `small`, `plus` and `imbalanced`)."""
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,7 @@ def load_rows(ref: DatasetRef) -> tuple[list[str], list[str]]:
     """All (text, gold label name) rows of the split, in dataset order."""
     from datasets import load_dataset
 
-    ds = load_dataset(ref.repo, revision=ref.revision, split=ref.split)
+    ds = load_dataset(ref.repo, ref.config, revision=ref.revision, split=ref.split)
     names = ds.features[ref.label_field].names
     texts = [str(t) for t in ds[ref.text_field]]
     labels = [label_name(names[int(k)]) for k in ds[ref.label_field]]
