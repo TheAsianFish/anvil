@@ -37,8 +37,9 @@ directory under `eval/results/`.
 | `noise-ag_news-qwen2.5-3b` | eval-noise | qwen2.5:3b | `python -m eval.noise ` | `e25575f` | 1h 17m 14s | $0.00 |
 | `noise-banking77-qwen2.5-3b` | eval-noise | qwen2.5:3b | `python -m eval.noise ` | `e25575f` | 1h 11m 30s | $0.00 |
 | `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
+| `shift-banking77-gold` | eval-shift | gold | `python -m eval.shift --teacher gold` | `773e679` | 10m 59s | $0.00 |
 | `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
-| **Total (21 runs)** | | | | | 13h 38m 36s | $0.00 |
+| **Total (22 runs)** | | | | | 13h 49m 35s | $0.00 |
 
 Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
 <!-- END generated:ledger -->
@@ -878,10 +879,161 @@ At the bundle's threshold (0.6395, target kappa 0.9, rule `lower`) the student a
 ### The cascade off-distribution: Banking77 (M9)
 
 - Command: `make eval-shift TEACHER=gold` (`python -m eval.shift --teacher gold`, then
-  `python -m eval.render`).
+  `python -m eval.render`). It scores the exported fp32 bundle through `anvil/runtime.py`,
+  as `anvil serve` does, on three sets pinned by revision in `eval/shift.yaml` (licences in
+  the table). Everything after the forward passes re-runs from the committed `scores.npz`
+  in seconds (`--scores`).
+- Which bundle: the eval workspace had to be rebuilt, and retraining the Banking77 student
+  on this machine (AMD EPYC 9V74) did not reproduce the M5 student (trained on an EPYC
+  7763). The two runs share the data, seed and code, and their losses agree to six digits
+  at step 1 (gradient norm 39.770115 against 39.770176), then drift apart; early stopping
+  kept epoch 5 here and epoch 8 there. Float kernels differ between CPU generations, so
+  "bit for bit" (M5) holds on one machine only. This bundle has temperature 1.28, threshold
+  0.691 and 78.6% held-out coverage, against 1.24, 0.639 and 82.3% for M5's. The
+  hypotheses below are read against this bundle's own held-out numbers.
+- Method: the served decision is "answer when the calibrated max softmax reaches the
+  threshold". Every input of CLINC150's out-of-scope test set and of the AG News sample that
+  clears it gets a Banking77 intent, so it is wrong by construction. Four other scores come
+  from the same request: max logit, energy (logsumexp of the logits), cosine similarity to
+  the 5th nearest of the 2,000 training embeddings, and the Mahalanobis distance to the
+  nearest class mean (Ledoit-Wolf covariance). The embeddings are the mean-pooled last
+  hidden layer of the PyTorch student, because the bundle returns logits only. Each score is
+  compared by AUROC against the Banking77 test split (1,000 bootstrap resamples, paired
+  across scores), and as a second gate. The gate's cut is set on the 496 held-out inputs to
+  give up 3% of them, then read on the test split and the other sets.
+
+Findings:
+
+- **The threshold transfers to the dataset's own test split.** On 3,079 test inputs the
+  student answers 78.4% [76.9%, 79.8%] (held-out: 78.6%) at kappa 0.946 [0.937, 0.956] with
+  gold, so the 0.9 target holds with room to spare. The test kappa is higher than the
+  held-out 0.922 because the lower-bound rule is conservative: it stops where the bound, not
+  the estimate, reaches 0.9. Near-copies of training rows do not explain the gap: 182 test
+  inputs share at least 80% of their words with a sampled training text and are answered
+  more often (93.4%), but the other 2,897 give the same kappa (0.945). Temperature scaling
+  holds too (ECE 0.038 at T = 1, 0.023 at the bundle's temperature).
+- **The cascade escalates almost everything that is not banking; the 40% hypothesis was
+  wrong by more than an order of magnitude.** The student answers 2.6% [1.6%, 3.6%] of
+  CLINC150's out-of-scope requests and 0.7% of AG News items. With 77 intents, an input
+  that fits none spreads its probability mass: 80% of out-of-scope requests get a top
+  probability below 0.3, against a 0.691 threshold that the kappa target forced up. A
+  threshold chosen for agreement on hard in-distribution inputs is also a decent
+  out-of-distribution filter. Whether that holds for a 4-way student (AG News), where an
+  unrelated input needs far less mass to clear a threshold, is not measured here.
+- **What does get through is adjacent, not random.** The out-of-scope requests answered most
+  confidently are the ones a bank customer could write: "i need to update my address" goes
+  to `edit_personal_details` at 0.990, "how much of a refund will i get this year" (a tax
+  refund) to `refund_not_showing_up`, and a kindergarten enrolment question to `age_limit`.
+  Six of the seven news items that clear the threshold go to
+  `card_payment_wrong_exchange_rate`; the most confident are interest-rate and price stories. The risk to plan for is near-domain traffic
+  that shares the label's words, not gibberish.
+- **Energy and max logit are better signals than max softmax, but only a little; embedding
+  distances are worse.** AUROC against CLINC out-of-scope: max softmax 0.969, max logit
+  0.982, energy 0.985 (+0.016 [+0.013, +0.019] paired). Against AG News: 0.981, 0.992,
+  0.995. The intervals exclude zero, but the gain is a third of the 0.05 the hypothesis
+  asked for. The gain shows more in the tail: at 95% of test inputs kept, energy lets
+  through 5.5% of out-of-scope requests against 15.6% for max softmax. The training-
+  embedding distances lose to max softmax (k-NN -0.004 and -0.024; Mahalanobis +0.006 and
+  -0.040). On this fine-tuned encoder, the logits carry the out-of-distribution signal
+  better than its pooled hidden state does.
+- **As a gate, energy halves the leak at the same coverage cost, from a small base.** Spending
+  about 3 points of held-out coverage on a stricter max-softmax threshold takes CLINC
+  acceptance from 2.6% to 2.0%; spending it on an energy cut takes it to 1.1% (test cost 2.6
+  points). That is 9 fewer wrong answers per 1,000 out-of-scope requests. The served rule
+  stays max softmax: the gain is real but small, and energy needs its own cut and a second
+  calibration step that `anvil calibrate` does not have.
+- **Hypotheses:** H1 held (coverage moved 0.3 points, kappa 0.946). H2 was refuted on both
+  sets (2.6% and 0.7%, not 40% or more). H3 was refuted: no free score gains 0.05 AUROC, and
+  energy's +0.016 is the best. The model card now says that its coverage was measured in
+  distribution (`anvil/hub.py`, `IN_DISTRIBUTION_NOTE`).
 
 <!-- BEGIN generated:shift -->
-No shift run yet: `make eval-shift`.
+#### banking77, teacher `gold`, student `ModernBERT-base`: the served bundle off-distribution
+
+- Raw output: `eval/results/shift-banking77-gold/` (`report.json`, `meta.json`, `scores.npz` with every input's logits and distance scores)
+- Command: `python -m eval.shift --teacher gold` at `773e679`; student run `20261022-083846-n2000` (2000 training inputs); bundle `fp32` through `anvil/runtime.py` at temperature 1.281 and threshold 0.6907; 4 CPUs; wall 10m 59s; $0
+- Re-analysis from the committed scores, no model: `python -m eval.shift --scores eval/results/shift-banking77-gold/scores.npz`
+
+| Set | Role | Source (pinned) | Licence | Inputs | Answered by the student [95% CI] | Mean confidence | Most frequent answers |
+|---|---|---|---|---|---|---|---|
+| banking77_test | in distribution | `legacy-datasets/banking77`@`f541215` test | CC-BY-4.0 (Casanueva et al., 2020, PolyAI) | 3079 | 78.4% [76.9%, 79.8%] | 0.839 | - |
+| clinc_oos | out of distribution | `clinc/clinc_oos`@`155b9c7` plus/test, label `oos` | CC-BY-3.0 (Larson et al., 2019) | 1000 | 2.6% [1.6%, 3.6%] | 0.227 | `automatic_top_up` 4, `age_limit` 4, `refund_not_showing_up` 3, `edit_personal_details` 2, `card_payment_wrong_exchange_rate` 2 |
+| ag_news | out of distribution | `fancyzhx/ag_news`@`eb185aa` test | AG's corpus, used under its academic terms (http://groups.di.unipi.it/~gulli/AG_corpus_of_news_articles.html) | 1000 | 0.7% [0.2%, 1.3%] | 0.189 | `card_payment_wrong_exchange_rate` 6, `apple_pay_or_google_pay` 1 |
+
+In distribution: the threshold chosen on 496 held-out inputs, read on 3079 banking77_test inputs (kappa and ECE against the gold labels).
+
+| | Held-out (threshold chosen here) | Test split |
+|---|---|---|
+| Coverage | 78.6% | 78.4% [76.9%, 79.8%] |
+| Kappa on answered inputs [95% CI] | 0.922 | 0.946 [0.937, 0.956] |
+| Accuracy on answered inputs | | 94.7% |
+| Kappa on all inputs | | 0.851 |
+| ECE (15 bins), T = 1 -> bundle temperature | | 0.038 -> 0.023 |
+| Test inputs that are not near-copies of a training-sample text | | 2897: coverage 77.4%, kappa on answered 0.945 [0.935, 0.955] |
+| Test inputs that are near-copies | | 182: coverage 93.4% |
+
+Test inputs identical to one of the 2500 sampled training rows: 2; near-duplicates (word Jaccard >= 0.8): 182.
+
+Served confidence (max softmax at the bundle temperature), share of each set per bin; the threshold is 0.691:
+
+| Confidence | banking77_test | clinc_oos | ag_news |
+|---|---|---|---|
+| 0.0-0.1 | 0.0% | 11.0% | 17.1% |
+| 0.1-0.2 | 1.3% | 46.9% | 52.2% |
+| 0.2-0.3 | 2.6% | 22.0% | 17.8% |
+| 0.3-0.4 | 3.7% | 9.7% | 6.6% |
+| 0.4-0.5 | 4.7% | 3.9% | 3.2% |
+| 0.5-0.6 | 4.7% | 2.8% | 1.6% |
+| 0.6-0.7 | 4.9% | 1.1% | 0.8% |
+| 0.7-0.8 | 5.0% | 1.2% | 0.4% |
+| 0.8-0.9 | 10.5% | 0.7% | 0.3% |
+| 0.9-1.0 | 62.5% | 0.7% | 0.0% |
+
+Separating banking77_test from each other set: AUROC (in-distribution inputs scoring higher) with 95% bootstrap intervals, its paired difference from max softmax, and the share of the other set at or above the score that keeps 95% of the test split (FPR at 95% TPR):
+
+| Score | clinc_oos: AUROC | clinc_oos: minus max softmax | clinc_oos: FPR95 | ag_news: AUROC | ag_news: minus max softmax | ag_news: FPR95 |
+|---|---|---|---|---|---|---|
+| max softmax (served) | 0.969 [0.964, 0.974] | - | 15.6% | 0.981 [0.978, 0.985] | - | 9.8% |
+| max logit | 0.982 [0.978, 0.986] | +0.013 [+0.011, +0.015] | 8.0% | 0.992 [0.990, 0.994] | +0.011 [+0.009, +0.013] | 3.5% |
+| energy | 0.985 [0.981, 0.988] | +0.016 [+0.013, +0.019] | 5.5% | 0.995 [0.993, 0.996] | +0.013 [+0.011, +0.016] | 1.8% |
+| k-NN cosine to training embeddings | 0.964 [0.959, 0.970] | -0.004 [-0.009, +0.001] | 19.7% | 0.958 [0.952, 0.963] | -0.024 [-0.029, -0.018] | 31.0% |
+| Mahalanobis to class means | 0.974 [0.969, 0.979] | +0.006 [+0.000, +0.011] | 12.6% | 0.941 [0.935, 0.948] | -0.040 [-0.046, -0.033] | 40.8% |
+
+Each score as a second gate on top of the served threshold, its cut set to give up 3% of the held-out inputs, then read on the test split and the other sets:
+
+| Gate | Held-out coverage | Test coverage (cost) | Test kappa on answered | clinc_oos answered | ag_news answered |
+|---|---|---|---|---|---|
+| served threshold only | 78.6% | 78.4% | 0.946 | 2.6% | 0.7% |
+| + max softmax (served) | 75.8% | 75.6% (2.8 points) | 0.954 | 2.0% | 0.6% |
+| + max logit | 75.8% | 76.3% (2.1 points) | 0.949 | 1.3% | 0.3% |
+| + energy | 75.8% | 75.8% (2.6 points) | 0.950 | 1.1% | 0.2% |
+| + k-NN cosine to training embeddings | 75.8% | 76.2% (2.1 points) | 0.950 | 1.9% | 0.6% |
+| + Mahalanobis to class means | 75.8% | 75.3% (3.1 points) | 0.951 | 1.2% | 0.5% |
+
+The clinc_oos inputs the student is surest of (each answered with a banking77 label):
+
+- "i need to update my address" -> `edit_personal_details` (0.990)
+- "is there a way to change your houses address" -> `edit_personal_details` (0.989)
+- "tell me where to go to get my son enrolled in public kindergarten" -> `age_limit` (0.985)
+- "how long do i have to wait to get my refund" -> `refund_not_showing_up` (0.984)
+- "how much of a refund will i get this year" -> `refund_not_showing_up` (0.973)
+
+The ag_news inputs the student is surest of (each answered with a banking77 label):
+
+- "US rates seen headed up despite soft-spot worries Federal Reserve policy-makers were expected to raise US i..." -> `card_payment_wrong_exchange_rate` (0.899)
+- "Producer Price Surge Fuels Inflation Fears Producer prices surged 1.7 percent in October, their sharpest mo..." -> `card_payment_wrong_exchange_rate` (0.892)
+- "New Zealand bank raises key interest rate WELLINGTON New Zealand #39;s central bank raised the benchmark in..." -> `card_payment_wrong_exchange_rate` (0.850)
+- "Apple beefs up .Mac storage limits Customers of Apple #39;s .Mac Internet service can hit the delete button..." -> `apple_pay_or_google_pay` (0.777)
+- "Crude oil prices fall to their lowest level in seven weeks Crude oil futures closed below 48 dollars a barr..." -> `card_payment_wrong_exchange_rate` (0.774)
+
+Hypotheses (PLAN.md, M9), decided by the numbers above:
+
+- H1 **held**: on the test split coverage stays within 3 points of the held-out 78.6% (moved 0.3 points) and kappa on the answered inputs stays at or above 0.9 (0.946).
+- H2 **refuted** for clinc_oos: the student answers at least 40% above the served threshold (2.6%).
+- H2 **refuted** for ag_news: the student answers at least 40% above the served threshold (0.7%).
+- H3 **refuted**: a free score beats max softmax by at least 0.05 AUROC on every other set while its gate costs under 3 points of test coverage (scores that do: none).
+
+The distance scores use the PyTorch student's embeddings; its probabilities differ from the ONNX bundle's by at most 8.9e-05 on any input scored.
 <!-- END generated:shift -->
 
 ### Generation parity: WikiSQL text-to-SQL (M6)
@@ -970,6 +1122,7 @@ What the numbers say (all from the table above):
 | Generation parity with Claude on WikiSQL: execution match of the Qwen2.5-0.5B LoRA student against `claude-haiku-5-5`'s queries, the paraphrase ceiling (100 questions) and teacher vs WikiSQL's own queries. Labels go to `eval/labels/wikisql/` and replay afterwards | `make eval-generate` with `ANTHROPIC_API_KEY` set (`TEACHER=auto` calls Claude once) | key; about 2 h CPU, or the Colab notebook on a T4 | about $0.10 with Haiku 5.5 effort `low` (1,400 requests at ~250 input and ~60 output tokens); under $0.25 if thinking triples the output |
 | The 100-item judge sample: `claude-haiku-5-5` judges whether the student's query answers the question as the teacher's does, compared with execution match item by item (how often a small table makes execution match wrong) | any `make eval-generate` run with `ANTHROPIC_API_KEY` set; the verdicts are written to `eval/labels/wikisql/judge-*.jsonl` and replay for free | key | about $0.01 (100 requests at ~500 input and ~80 output tokens) |
 | The generation run on a GPU (fp16 autocast on a T4): wall time and whether mixed precision changes the measured parity | `notebooks/anvil_gpu.ipynb` on Colab, then commit the downloaded `eval/results/generate-*` | a Colab T4 | $0 on the free tier |
+| The shift study on a 4-label student: does a threshold that filters out-of-scope inputs for 77 intents still filter them for AG News's 4 topics? | copy `eval/shift.yaml` with `dataset: ag_news`, AG News's test split as the in-distribution set and CLINC150 out-of-scope plus Banking77's test split as the others, then `uv run --group eval python -m eval.shift --teacher gold --config <file>` | about 1 h CPU for the AG News student if the workspace lacks it, 15 min for the study | $0 |
 | A third training seed on both datasets (seeds 0 and 1 are in the table above) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 2`, then `make results` | about 1.5 h CPU (2 ModernBERT-base runs) | $0 |
 
 The toy task is synthetic and only exercises the pipeline; real parity numbers come from the

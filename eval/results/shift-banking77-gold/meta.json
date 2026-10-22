@@ -1,0 +1,21 @@
+{
+  "command": "python -m eval.shift --teacher gold",
+  "git_sha": "773e679588c341b628d434fb9caf096802285d77",
+  "git_dirty": false,
+  "anvil": "0.1.0",
+  "python": "3.12.3",
+  "platform": "Linux-7.0.0-1017-azure-x86_64-with-glibc2.39",
+  "cpus": 4,
+  "versions": {
+    "torch": "2.14.1+cpu",
+    "transformers": "5.20.1",
+    "onnxruntime": "1.31.0",
+    "tokenizers": "0.23.3",
+    "scikit-learn": "1.9.1",
+    "datasets": "5.1.0"
+  },
+  "teacher_model": "gold",
+  "wall_seconds": 658.9,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-22T09:47:21Z"
+}
