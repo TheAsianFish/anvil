@@ -586,7 +586,7 @@ measure without a key and asked what the results leave unanswered.
   2.6% of CLINC150's out-of-scope requests and 0.7% of AG News items clear the threshold,
   because a 77-way softmax spreads mass on inputs that fit no intent. H3 was refuted: energy
   is the best free score at +0.016 AUROC over max softmax (interval excludes zero), and the
-  embedding distances do worse. The served rule stays max softmax. Added on the way: a
+  embedding distances do no better (level on CLINC, worse on AG News). The served rule stays max softmax. Added on the way: a
   reading without the 182 test inputs that are near-copies of training rows (kappa
   unchanged at 0.945), and an `IN_DISTRIBUTION_NOTE` on every model card that has a
   threshold.

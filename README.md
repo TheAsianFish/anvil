@@ -562,7 +562,7 @@ spreads its probability mass, so it rarely clears the 0.69 threshold. What leaks
 near-domain ("i need to update my address" goes to `edit_personal_details` at 0.99),
 not random. Energy, the logsumexp of the same logits, separates in from out
 slightly better than max softmax (AUROC 0.985 against 0.969 on CLINC), and
-distances to the training embeddings do worse. The model card now states that its
+distances to the training embeddings do no better (level on CLINC, worse on AG News). The model card now states that its
 coverage was measured in distribution.
 
 Text-to-SQL on WikiSQL (M6): Qwen2.5-0.5B-Instruct with a rank-16 LoRA

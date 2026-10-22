@@ -928,14 +928,17 @@ Findings:
   `card_payment_wrong_exchange_rate`; the most confident are interest-rate and price stories. The risk to plan for is near-domain traffic
   that shares the label's words, not gibberish.
 - **Energy and max logit are better signals than max softmax, but only a little; embedding
-  distances are worse.** AUROC against CLINC out-of-scope: max softmax 0.969, max logit
+  distances are no better.** AUROC against CLINC out-of-scope: max softmax 0.969, max logit
   0.982, energy 0.985 (+0.016 [+0.013, +0.019] paired). Against AG News: 0.981, 0.992,
   0.995. The intervals exclude zero, but the gain is a third of the 0.05 the hypothesis
   asked for. The gain shows more in the tail: at 95% of test inputs kept, energy lets
   through 5.5% of out-of-scope requests against 15.6% for max softmax. The training-
-  embedding distances lose to max softmax (k-NN -0.004 and -0.024; Mahalanobis +0.006 and
-  -0.040). On this fine-tuned encoder, the logits carry the out-of-distribution signal
-  better than its pooled hidden state does.
+  embedding distances are level with max softmax on CLINC (k-NN -0.004 [-0.009, +0.001],
+  Mahalanobis +0.006 [+0.000, +0.011]) and clearly worse on AG News (-0.024 and -0.040).
+  The vector is the mean-pooled last layer, which is the classification head's input (the
+  student pools by mean); the head's own output (dense, GELU, LayerNorm), the layer Lee et
+  al. use, was not tried. On that vector, the logits carry the out-of-distribution signal
+  better than the pooled hidden state does.
 - **As a gate, energy halves the leak at the same coverage cost, from a small base.** Spending
   about 3 points of held-out coverage on a stricter max-softmax threshold takes CLINC
   acceptance from 2.6% to 2.0%; spending it on an energy cut takes it to 1.1% (test cost 2.6
