@@ -894,8 +894,8 @@ def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
 _CONDITION_NAMES = {
     "gold": "gold labels",
     "teacher": "the teacher's labels",
-    "uniform": "gold, uniform noise",
-    "pair": "gold, the teacher's confusions",
+    "uniform": "gold with uniform noise",
+    "pair": "gold with the teacher's confusions",
 }
 
 

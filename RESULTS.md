@@ -229,12 +229,12 @@ inputs of each class), each scored against gold on the same held-out inputs.
 |---|---|---|---|
 | gold labels | 0.863 (0.857-0.869) | 0.722 (0.715-0.730) | 22 (19-25)% |
 | the teacher's labels | 0.676 (0.655-0.688) | 0.839 (0.820-0.858) | 77 (75-79)% |
-| gold, uniform noise | 0.811 (0.785-0.826) | 0.685 (0.659-0.703) | 23 (20-25)% |
-| gold, the teacher's confusions | 0.666 (0.644-0.678) | 0.700 (0.674-0.718) | 52 (50-54)% |
+| gold with uniform noise | 0.811 (0.785-0.826) | 0.685 (0.659-0.703) | 23 (20-25)% |
+| gold with the teacher's confusions | 0.666 (0.644-0.678) | 0.700 (0.674-0.718) | 52 (50-54)% |
 
-- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold, uniform noise (paired bootstrap, per seed): seed 0 -0.130 [-0.190, -0.070], seed 1 -0.141 [-0.192, -0.087], seed 2 -0.133 [-0.182, -0.082]
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold with uniform noise (paired bootstrap, per seed): seed 0 -0.130 [-0.190, -0.070], seed 1 -0.141 [-0.192, -0.087], seed 2 -0.133 [-0.182, -0.082]
 
-- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold, the teacher's confusions (paired bootstrap, per seed): seed 0 -0.023 [-0.072, 0.024], seed 1 +0.010 [-0.034, 0.057], seed 2 +0.044 [-0.006, 0.102]
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold with the teacher's confusions (paired bootstrap, per seed): seed 0 -0.023 [-0.072, 0.024], seed 1 +0.010 [-0.034, 0.057], seed 2 +0.044 [-0.006, 0.102]
 
 - Kappa with gold, the student trained on the teacher's labels minus the one trained on gold labels (paired bootstrap, per seed): seed 0 -0.208 [-0.263, -0.155], seed 1 -0.183 [-0.232, -0.134], seed 2 -0.169 [-0.216, -0.121]
 
@@ -249,12 +249,12 @@ inputs of each class), each scored against gold on the same held-out inputs.
 |---|---|---|---|
 | gold labels | 0.842 (0.830-0.848) | 0.498 (0.485-0.505) | 3 (3-4)% |
 | the teacher's labels | 0.503 (0.501-0.509) | 0.684 (0.680-0.687) | 55 (54-55)% |
-| gold, uniform noise | 0.567 (0.554-0.576) | 0.388 (0.371-0.406) | 9 (7-11)% |
-| gold, the teacher's confusions | 0.476 (0.468-0.484) | 0.561 (0.540-0.579) | 39 (35-44)% |
+| gold with uniform noise | 0.567 (0.554-0.576) | 0.388 (0.371-0.406) | 9 (7-11)% |
+| gold with the teacher's confusions | 0.476 (0.468-0.484) | 0.561 (0.540-0.579) | 39 (35-44)% |
 
-- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold, uniform noise (paired bootstrap, per seed): seed 0 -0.070 [-0.125, -0.015], seed 1 -0.076 [-0.129, -0.022], seed 2 -0.045 [-0.101, 0.009]
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold with uniform noise (paired bootstrap, per seed): seed 0 -0.070 [-0.125, -0.015], seed 1 -0.076 [-0.129, -0.022], seed 2 -0.045 [-0.101, 0.009]
 
-- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold, the teacher's confusions (paired bootstrap, per seed): seed 0 +0.016 [-0.015, 0.049], seed 1 +0.033 [-0.002, 0.072], seed 2 +0.033 [-0.000, 0.067]
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold with the teacher's confusions (paired bootstrap, per seed): seed 0 +0.016 [-0.015, 0.049], seed 1 +0.033 [-0.002, 0.072], seed 2 +0.033 [-0.000, 0.067]
 
 - Kappa with gold, the student trained on the teacher's labels minus the one trained on gold labels (paired bootstrap, per seed): seed 0 -0.346 [-0.391, -0.299], seed 1 -0.348 [-0.395, -0.299], seed 2 -0.321 [-0.370, -0.274]
 <!-- END generated:noise -->
