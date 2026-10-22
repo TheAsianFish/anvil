@@ -493,10 +493,13 @@ It repeats 73% (AG News) and 50% (Banking77) of the teacher's held-out
 errors, and it ends up no closer to gold than the teacher. A parity of 0.847
 looks good, but its student is at 0.696 against the truth, where the same
 student trained on gold labels reaches 0.844. The control shows why. Take gold labels and corrupt them at the teacher's
-exact error count. Spread uniformly, the noise costs a MiniLM student little
-(kappa vs gold 0.811 on AG News, 0.567 on Banking77). The teacher's own
-confusion matrix costs far more (0.666, 0.476). The real teacher's labels
-land with the confusion matrix (0.676, 0.503). The teacher's errors are
+exact error count. Spread uniformly, the noise costs a MiniLM student less
+(kappa vs gold 0.811 on AG News, 0.567 on Banking77, against 0.863 and 0.842
+on gold). The teacher's own confusion matrix costs more (0.666, 0.476), and
+the real teacher's labels land with it (0.676, 0.503). The student trained on
+the teacher's labels also repeats more of the teacher's specific held-out
+mistakes than one trained on its confusions placed at random (77% vs 52% on
+AG News), so part of the noise follows the inputs. The teacher's errors are
 systematic, so more labels from it would not fix them (RESULTS.md, M8).
 
 Span extraction on MIT Restaurant (8 slot types, ~9-word queries), the same

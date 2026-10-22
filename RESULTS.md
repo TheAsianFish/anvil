@@ -261,17 +261,27 @@ inputs of each class), each scored against gold on the same held-out inputs.
 
 Findings:
 
-- **The local teacher's noise is its confusions, not random noise.** At the teacher's exact
-  error count, uniform noise costs the student little: 0.811 against 0.863 for gold on AG
-  News (24% of labels wrong), and 0.567 against 0.842 on Banking77 (43% wrong). The teacher's
-  own labels cost far more: 0.676 and 0.503. Teacher minus uniform is negative on all six
-  seeds, and its paired interval excludes 0 on five of them (-0.130 to -0.141 on AG News).
-- **The confusion matrix alone accounts for that cost.** The same confusions dealt to random
-  inputs of each class score 0.666 and 0.476, within a few hundredths of the real teacher's
-  labels. Teacher minus pair ranges from -0.023 to +0.044, and every paired interval includes
-  0. The student learns the teacher's (gold class, label) pairs as rules, whichever inputs
-  carry them. This is why the ModernBERT student above copies the teacher instead of
-  correcting it.
+- **The local teacher's noise costs what its confusions cost, not what random noise costs.**
+  At the teacher's exact error count, uniform noise costs the student little on AG News
+  (0.811 against 0.863 for gold, 24% of labels wrong) and 0.28 of kappa on Banking77 (0.567
+  against 0.842, 43% wrong). The teacher's own labels cost more: 0.676 and 0.503. Teacher
+  minus uniform is negative on all six seeds, and its paired interval excludes 0 on five of
+  them (-0.130 to -0.141 on AG News).
+- **On kappa with gold, the teacher's labels and its confusion matrix cannot be told apart.**
+  The same confusions dealt to random inputs of each class score 0.666 and 0.476, within a
+  few hundredths of the real teacher's labels. Teacher minus pair ranges from -0.023 to
+  +0.044, and every paired interval includes 0 (Banking77's seed 2 only just). That is
+  consistent with the confusion matrix carrying the cost, not proof of it. Keeping each
+  class's error count also means the pair condition puts many of its errors where the teacher
+  put its own, which pulls the two together.
+- **But part of the teacher's noise is tied to the inputs.** The student trained on the
+  teacher's labels repeats 77% (AG News) and 55% (Banking77) of the teacher's held-out
+  mistakes, against 52% and 39% for the one trained on the same confusions placed at random,
+  with no overlap between the seed ranges. A class-level confusion cannot teach a student
+  which unseen inputs to get wrong; the teacher's own labels do, because it mislabels the same
+  kind of input the same way (AG News's stories about technology companies filed as
+  `business`). The ModernBERT student above copying 73% of the errors is consistent with this,
+  though the control ran on MiniLM.
 - **Some of the teacher's errors are not clear-cut.** On AG News, the student trained on
   *gold* still makes the teacher's mistake on 22% of the teacher's held-out errors (3% on
   Banking77). Those inputs sit near a class boundary, where the teacher and the student

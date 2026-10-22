@@ -556,10 +556,12 @@ measure without a key and asked what the results leave unanswered.
     50% of the teacher's held-out errors.
   - No kappa-0.9 threshold on Banking77: refuted, as the plan allowed. One exists at 31.9%
     coverage, where the teacher's self-agreement on the accepted ceiling inputs is 0.936.
-  - The control answers the "which noise" question: the teacher's noise is its confusions.
-    Uniform noise at the same error count costs MiniLM 0.05 (AG News) and 0.28 (Banking77) of
-    kappa against gold; the teacher's labels cost 0.19 and 0.34, close to its confusion
-    matrix dealt to random inputs (0.20 and 0.37).
+  - The control answers the "which noise" question: not random noise. Uniform noise at the
+    same error count costs MiniLM 0.05 (AG News) and 0.28 (Banking77) of kappa against gold;
+    the teacher's labels cost 0.19 and 0.34, close to its confusion matrix dealt to random
+    inputs (0.20 and 0.37). But the teacher-trained student repeats more of the teacher's
+    held-out mistakes than the pair-trained one (77% vs 52%, 55% vs 39%), so part of the
+    noise is tied to the inputs, not only to the class pairs.
 
   The consequence for the product: a parity number against a fallible teacher can look good
   (0.847) while the student sits at the teacher's accuracy. The cascade then serves the
