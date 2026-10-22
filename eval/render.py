@@ -1270,9 +1270,228 @@ LEDGER_EVALS = (
     ("export-", "eval-export"),
     ("bench-", "bench"),
     ("noise-", "eval-noise"),
+    ("shift-", "eval-shift"),
     ("spike-onnx", "spike-onnx"),
 )
 """Directory-name prefixes and the `make` target that writes them."""
+
+
+_SCORE_NAMES = {
+    "max_softmax": "max softmax (served)",
+    "max_logit": "max logit",
+    "energy": "energy",
+    "knn": "k-NN cosine to training embeddings",
+    "mahalanobis": "Mahalanobis to class means",
+}
+
+
+def _pci(stats: Mapping[str, Any] | None) -> str:
+    """`41.2% [38.1%, 44.3%]` of an `{estimate, low, high}` rate."""
+    if not stats:
+        return "n/a"
+    return f"{_pct(stats['estimate'])} [{_pct(stats['low'])}, {_pct(stats['high'])}]"
+
+
+def _eci(stats: Mapping[str, Any] | None) -> str:
+    """`0.912 [0.897, 0.925]` of an `{estimate, low, high}` summary."""
+    if not stats:
+        return "n/a"
+    return f"{_f(stats['estimate'])} [{_f(stats['low'])}, {_f(stats['high'])}]"
+
+
+def _signed(stats: Mapping[str, Any] | None) -> str:
+    if not stats:
+        return "n/a"
+    return f"{stats['estimate']:+.3f} [{stats['low']:+.3f}, {stats['high']:+.3f}]"
+
+
+def _verdict(held: object) -> str:
+    return "**held**" if held is True else "**refuted**"
+
+
+def render_shift(runs: list[tuple[str, Report, Report]]) -> str:
+    """The served bundle off-distribution (`eval.shift`): coverage and kappa on the dataset's
+    own test split, how much of other datasets the student answers, and five scores for the
+    answer-or-escalate decision."""
+    if not runs:
+        return "No shift run yet: `make eval-shift`.\n"
+    out: list[str] = []
+    for name, r, meta in runs:
+        src, bundle, ref = r["source"], r["bundle"], r["reference"]
+        sets: Mapping[str, Any] = r["sets"]
+        ood = [n for n, s in sets.items() if s["role"] == "out_of_distribution"]
+        ref_set = sets[ref["set"]]
+        secs = float(meta.get("wall_seconds", 0))
+        out += [
+            f"#### {src['dataset']}, teacher `{src['teacher_model']}`, student"
+            f" `{_student_name(src['student_model'])}`: the served bundle off-distribution",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`, `scores.npz`"
+            " with every input's logits and distance scores)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; student run"
+            f" `{src['student_run']}` ({src['train_inputs']} training inputs); bundle"
+            f" `{bundle['variant']}` through `anvil/runtime.py` at temperature"
+            f" {_f(bundle['temperature'], 3)} and threshold {_f(bundle['threshold'], 4)};"
+            f" {meta.get('cpus')} CPUs; wall {_duration(secs)};"
+            f" spent ${float(meta.get('spent_usd', 0.0)):.2f}",
+            f"- Re-analysis from the committed scores, no model: `python -m eval.shift --scores"
+            f" eval/results/{name}/scores.npz`",
+            "",
+            "| Set | Role | Source (pinned) | Licence | Inputs | Answered by the student [95% CI]"
+            " | Mean confidence | Most frequent answers |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for set_name, s in sets.items():
+            source = s.get("source") or {}
+            where = (
+                f"`{source.get('repo')}`@`{str(source.get('revision'))[:7]}`"
+                f" {source.get('config') or ''}{'/' if source.get('config') else ''}"
+                f"{source.get('split')}"
+                + (f", label `{source['keep']}`" if source.get("keep") else "")
+            )
+            answers = ", ".join(f"`{a['label']}` {a['n']}" for a in s.get("top_answers", []))
+            out.append(
+                f"| {set_name} | {s['role'].replace('_', ' ')} | {where}"
+                f" | {source.get('license', 'n/a')} | {s['n']} | {_pci(s['answered'])}"
+                f" | {_f(s['mean_confidence'])} | {answers or '-'} |"
+            )
+        overlap = (r.get("overlap") or {}).get(ref["set"]) or {}
+        out += [
+            "",
+            f"In distribution: the threshold chosen on {ref['heldout_n']} held-out inputs, read"
+            f" on {ref_set['n']} {ref['set']} inputs (kappa and ECE against the gold labels).",
+            "",
+            "| | Held-out (threshold chosen here) | Test split |",
+            "|---|---|---|",
+            f"| Coverage | {_pct(ref['heldout_coverage'])} | {_pci(ref['coverage'])} |",
+            f"| Kappa on answered inputs [95% CI] | {_f(ref['heldout_kappa_answered'])}"
+            f" | {_eci(ref['kappa_answered'])} |",
+            f"| Accuracy on answered inputs | | {_pct(ref['accuracy_answered'])} |",
+            f"| Kappa on all inputs | | {_f(ref['kappa_all'])} |",
+            f"| ECE ({ref['ece_bins']} bins), T = 1 -> bundle temperature | |"
+            f" {_f(ref['ece_raw'])} -> {_f(ref['ece_calibrated'])} |",
+        ]
+        fresh = ref.get("fresh")
+        if fresh:
+            out += [
+                f"| Test inputs that are not near-copies of a training-sample text | |"
+                f" {fresh['n']}: coverage {_pct(fresh['coverage'])}, kappa on answered"
+                f" {_eci(fresh['kappa_answered'])} |",
+                f"| Test inputs that are near-copies | | {fresh['near_duplicates']}: coverage"
+                f" {_pct(fresh['near_duplicate_coverage'])} |",
+            ]
+        out.append("")
+        if overlap:
+            out += [
+                f"Test inputs identical to one of the {overlap['sample_size']} sampled training"
+                f" rows: {overlap['identical_to_sample']}; near-duplicates (word Jaccard >= 0.8):"
+                f" {overlap['near_duplicates_of_sample']}.",
+                "",
+            ]
+        bins = int(r["n_bins"])
+        out += [
+            "Served confidence (max softmax at the bundle temperature), share of each set per"
+            f" bin; the threshold is {_f(bundle['threshold'], 3)}:",
+            "",
+            "| Confidence | " + " | ".join(sets) + " |",
+            "|---" * (len(sets) + 1) + "|",
+        ]
+        for b in range(bins):
+            cells = [_pct(s["histogram"][b] / s["n"]) for s in sets.values()]
+            out.append(f"| {b / bins:.1f}-{(b + 1) / bins:.1f} | " + " | ".join(cells) + " |")
+        sep: Mapping[str, Any] = r["separation"]
+        out += [
+            "",
+            f"Separating {ref['set']} from each other set: AUROC (in-distribution inputs"
+            " scoring higher) with 95% bootstrap intervals, its paired difference from max"
+            " softmax, and the share of the other set at or above the score that keeps 95% of"
+            " the test split (FPR at 95% TPR):",
+            "",
+            "| Score | "
+            + " | ".join(f"{o}: AUROC | {o}: minus max softmax | {o}: FPR95" for o in ood)
+            + " |",
+            "|---" * (1 + 3 * len(ood)) + "|",
+        ]
+        for score in _SCORE_NAMES:
+            cells = []
+            for o in ood:
+                c = sep[o][score]
+                cells += [
+                    _eci(c["auroc"]),
+                    "-" if score == "max_softmax" else _signed(c["minus_max_softmax"]),
+                    _pct(c["fpr_at_95_tpr"]),
+                ]
+            out.append(f"| {_SCORE_NAMES[score]} | " + " | ".join(cells) + " |")
+        gates: Mapping[str, Any] = r["gates"]
+        cost = float(r["coverage_cost"])
+        out += [
+            "",
+            f"Each score as a second gate on top of the served threshold, its cut set to give"
+            f" up {cost:.0%} of the held-out inputs, then read on the test split and the other"
+            " sets:",
+            "",
+            "| Gate | Held-out coverage | Test coverage (cost) | Test kappa on answered | "
+            + " | ".join(f"{o} answered" for o in ood)
+            + " |",
+            "|---" * (4 + len(ood)) + "|",
+            f"| served threshold only | {_pct(ref['heldout_coverage'])}"
+            f" | {_pct(ref['coverage']['estimate'])} | {_f(ref['kappa_answered']['estimate'])} | "
+            + " | ".join(_pct(sets[o]["answered"]["estimate"]) for o in ood)
+            + " |",
+        ]
+        for score in _SCORE_NAMES:
+            g = gates[score]
+            out.append(
+                f"| + {_SCORE_NAMES[score]} | {_pct(g['heldout_coverage'])}"
+                f" | {_pct(g['coverage'])} ({100 * g['coverage_cost']:.1f} points)"
+                f" | {_f(g['kappa_answered'])} | "
+                + " | ".join(_pct(g["answered"][o]) for o in ood)
+                + " |"
+            )
+        for o in ood:
+            out += [
+                "",
+                f"The {o} inputs the student is surest of (each answered with a"
+                f" {src['dataset']} label):",
+                "",
+            ]
+            for ex in sets[o].get("most_confident", [])[:5]:
+                text = str(ex["text"]).replace("|", "/")
+                if len(text) > 110:
+                    text = text[:107] + "..."
+                out.append(f'- "{text}" -> `{ex["label"]}` ({_f(ex["confidence"])})')
+        h, crit = r["hypotheses"], r["criteria"]
+        out += [
+            "",
+            "Hypotheses (PLAN.md, M9), decided by the numbers above:",
+            "",
+            f"- H1 {_verdict(h['h1']['held'])}: on the test split coverage stays within"
+            f" {100 * crit['h1_coverage_points']:.0f} points of the held-out"
+            f" {_pct(ref['heldout_coverage'])} (moved {100 * h['h1']['coverage_change']:.1f}"
+            f" points) and kappa on the answered inputs stays at or above {crit['h1_kappa']}"
+            f" ({_f(h['h1']['kappa_answered'])}).",
+        ]
+        for o, v in h["h2"].items():
+            out.append(
+                f"- H2 {_verdict(v['held'])} for {o}: the student answers at least"
+                f" {crit['h2_answered']:.0%} above the served threshold ({_pct(v['answered'])})."
+            )
+        winners = ", ".join(_SCORE_NAMES[s] for s in h["h3"]["scores"]) or "none"
+        out += [
+            f"- H3 {_verdict(h['h3']['held'])}: a free score beats max softmax by at least"
+            f" {crit['h3_auroc_gain']} AUROC on every other set while its gate costs under"
+            f" {100 * cost:.0f} points of test coverage (scores that do: {winners}).",
+            "",
+        ]
+        diffs = (r.get("onnx_vs_torch") or {}).get("max_abs_prob_diff") or {}
+        if diffs:
+            worst = max(float(v) for v in diffs.values())
+            out += [
+                "The distance scores use the PyTorch student's embeddings; its probabilities"
+                f" differ from the ONNX bundle's by at most {_sci(worst)} on any input scored.",
+                "",
+            ]
+    return "\n".join(out)
 
 
 def _first(*values: object) -> object:
@@ -1354,6 +1573,7 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "export": render_export(load_runs(results_dir, prefix="export-")),
         "bench": render_bench(load_runs(results_dir, prefix="bench-")),
         "generate": render_generate(load_runs(results_dir, prefix="generate-")),
+        "shift": render_shift(load_runs(results_dir, prefix="shift-")),
     }
 
 

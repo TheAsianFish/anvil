@@ -1,0 +1,542 @@
+{
+  "source": {
+    "dataset": "banking77",
+    "sample_sha256": "2aeaf7290b43563fcc42a3f57b112d64b2511ccd434f16dc0d70ff34899fe0bb",
+    "teacher_kind": "gold",
+    "teacher_model": "gold",
+    "student_model": "answerdotai/ModernBERT-base",
+    "student_run": "20261022-083846-n2000",
+    "trained_here": false,
+    "train_inputs": 2000
+  },
+  "bundle": {
+    "path": "exports/20261022-083846-n2000",
+    "variant": "fp32",
+    "temperature": 1.281081487241835,
+    "threshold": 0.6906663361454456,
+    "heldout_coverage_at_export": 0.7862903225806451
+  },
+  "settings": {
+    "knn_k": 5,
+    "coverage_cost": 0.03,
+    "n_bins": 10,
+    "n_resamples": 1000,
+    "seed": 0
+  },
+  "overlap": {
+    "banking77_test": {
+      "identical_to_sample": 2,
+      "near_duplicates_of_sample": 182,
+      "sample_size": 2500
+    }
+  },
+  "onnx_vs_torch": {
+    "max_abs_prob_diff": {
+      "heldout": 3.7199601276571848e-06,
+      "banking77_test": 3.499394702916048e-05,
+      "clinc_oos": 8.867929605851921e-05,
+      "ag_news": 1.0153634580345461e-05
+    },
+    "note": "max |softmax(ONNX logits) - PyTorch softmax| per set, at T = 1"
+  },
+  "seconds": {
+    "student": 2.1,
+    "training_embeddings": 130.7,
+    "heldout": 57.5,
+    "banking77_test": 267.3,
+    "clinc_oos": 43.5,
+    "ag_news": 151.0
+  },
+  "labels": 77,
+  "temperature": 1.281081487241835,
+  "threshold": 0.6906663361454456,
+  "coverage_cost": 0.03,
+  "n_bins": 10,
+  "n_resamples": 1000,
+  "seed": 0,
+  "sets": {
+    "banking77_test": {
+      "role": "in_distribution",
+      "n": 3079,
+      "answered": {
+        "estimate": 0.7836960051964924,
+        "low": 0.7694056511854498,
+        "high": 0.7983111399805132
+      },
+      "answered_n": 2413,
+      "mean_confidence": 0.8392731643526727,
+      "histogram": [
+        1,
+        40,
+        80,
+        114,
+        146,
+        146,
+        151,
+        155,
+        322,
+        1924
+      ],
+      "source": {
+        "repo": "legacy-datasets/banking77",
+        "revision": "f54121560de48f2852f90be299010d1d6dc612ec",
+        "config": null,
+        "split": "test",
+        "keep": null,
+        "license": "CC-BY-4.0 (Casanueva et al., 2020, PolyAI)",
+        "description": "Banking77's test split, which no Anvil run has labelled or trained on",
+        "rows": 3079
+      }
+    },
+    "clinc_oos": {
+      "role": "out_of_distribution",
+      "n": 1000,
+      "answered": {
+        "estimate": 0.026,
+        "low": 0.016,
+        "high": 0.036
+      },
+      "answered_n": 26,
+      "mean_confidence": 0.22667149909023826,
+      "histogram": [
+        110,
+        469,
+        220,
+        97,
+        39,
+        28,
+        11,
+        12,
+        7,
+        7
+      ],
+      "top_answers": [
+        {
+          "label": "automatic_top_up",
+          "n": 4
+        },
+        {
+          "label": "age_limit",
+          "n": 4
+        },
+        {
+          "label": "refund_not_showing_up",
+          "n": 3
+        },
+        {
+          "label": "edit_personal_details",
+          "n": 2
+        },
+        {
+          "label": "card_payment_wrong_exchange_rate",
+          "n": 2
+        }
+      ],
+      "most_confident": [
+        {
+          "id": "clinc_oos-4562",
+          "text": "i need to update my address",
+          "label": "edit_personal_details",
+          "confidence": 0.9903852680703022
+        },
+        {
+          "id": "clinc_oos-4648",
+          "text": "is there a way to change your houses address",
+          "label": "edit_personal_details",
+          "confidence": 0.9893317083911368
+        },
+        {
+          "id": "clinc_oos-5159",
+          "text": "tell me where to go to get my son enrolled in public kindergarten",
+          "label": "age_limit",
+          "confidence": 0.9845610013092111
+        },
+        {
+          "id": "clinc_oos-4655",
+          "text": "how long do i have to wait to get my refund",
+          "label": "refund_not_showing_up",
+          "confidence": 0.9841936205386697
+        },
+        {
+          "id": "clinc_oos-4681",
+          "text": "how much of a refund will i get this year",
+          "label": "refund_not_showing_up",
+          "confidence": 0.972949942050078
+        },
+        {
+          "id": "clinc_oos-4526",
+          "text": "can you auto-pilot the car",
+          "label": "automatic_top_up",
+          "confidence": 0.9509713311464012
+        },
+        {
+          "id": "clinc_oos-5305",
+          "text": "check current prime mortgage rate",
+          "label": "card_payment_wrong_exchange_rate",
+          "confidence": 0.9156221339942655
+        },
+        {
+          "id": "clinc_oos-4852",
+          "text": "what's the safest pet to be around toddlers",
+          "label": "age_limit",
+          "confidence": 0.8946717605577106
+        }
+      ],
+      "source": {
+        "repo": "clinc/clinc_oos",
+        "revision": "155b9c710419136e17307b80d0a13e68cd46b4ec",
+        "config": "plus",
+        "split": "test",
+        "keep": "oos",
+        "license": "CC-BY-3.0 (Larson et al., 2019)",
+        "description": "CLINC150's out-of-scope test utterances (requests no CLINC intent covers)",
+        "rows": 1000
+      }
+    },
+    "ag_news": {
+      "role": "out_of_distribution",
+      "n": 1000,
+      "answered": {
+        "estimate": 0.007,
+        "low": 0.002,
+        "high": 0.013
+      },
+      "answered_n": 7,
+      "mean_confidence": 0.18855217267685237,
+      "histogram": [
+        171,
+        522,
+        178,
+        66,
+        32,
+        16,
+        8,
+        4,
+        3,
+        0
+      ],
+      "top_answers": [
+        {
+          "label": "card_payment_wrong_exchange_rate",
+          "n": 6
+        },
+        {
+          "label": "apple_pay_or_google_pay",
+          "n": 1
+        }
+      ],
+      "most_confident": [
+        {
+          "id": "ag_news-2156",
+          "text": "US rates seen headed up despite soft-spot worries Federal Reserve policy-makers were expected to raise US interest rates on Tuesday for a third time this year, continuing to lift borrowing costs from rock",
+          "label": "card_payment_wrong_exchange_rate",
+          "confidence": 0.8987538645518619
+        },
+        {
+          "id": "ag_news-5886",
+          "text": "Producer Price Surge Fuels Inflation Fears Producer prices surged 1.7 percent in October, their sharpest monthly increase in nearly 15 years.",
+          "label": "card_payment_wrong_exchange_rate",
+          "confidence": 0.8920310214615511
+        },
+        {
+          "id": "ag_news-4756",
+          "text": "New Zealand bank raises key interest rate WELLINGTON New Zealand #39;s central bank raised the benchmark interest rate by a quarter point on Thursday, to 6.5 percent, and said the sixth increase this year may be the last as economic growth slows.",
+          "label": "card_payment_wrong_exchange_rate",
+          "confidence": 0.8499523375602313
+        },
+        {
+          "id": "ag_news-2792",
+          "text": "Apple beefs up .Mac storage limits Customers of Apple #39;s .Mac Internet service can hit the delete button less often now that the company has boosted the amount of storage it gives subscribers.",
+          "label": "apple_pay_or_google_pay",
+          "confidence": 0.7768154746896967
+        },
+        {
+          "id": "ag_news-5404",
+          "text": "Crude oil prices fall to their lowest level in seven weeks Crude oil futures closed below 48 dollars a barrel Tuesday, the lowest level in seven weeks amid rising expectations about US oil supply for this winter.",
+          "label": "card_payment_wrong_exchange_rate",
+          "confidence": 0.7744348579484802
+        },
+        {
+          "id": "ag_news-3274",
+          "text": "Investors weigh effect of oil prices NEW YORK Another rise in oil prices is putting some pressure on stocks, which are mixed. The Dow Jones industrial average is down 12 points at ten-thousand-165.",
+          "label": "card_payment_wrong_exchange_rate",
+          "confidence": 0.7732690784250976
+        },
+        {
+          "id": "ag_news-7333",
+          "text": "Dollar's Gains Cut as Fed Raises Rates  NEW YORK (Reuters) - The dollar's gains were clipped  on  Tuesday as the Federal Reserve raised interest rates for the  fifth time this year, as expected, but quashed hopes for more  aggressive rate tightening.",
+          "label": "card_payment_wrong_exchange_rate",
+          "confidence": 0.7344756034348603
+        },
+        {
+          "id": "ag_news-1410",
+          "text": "Update 1: Philippine Shares End Up 0.7 Percent Philippine shares finished higher for the seventh straight session Thursday on follow-through buying anchored by improved investor sentiment, traders said.",
+          "label": "card_payment_wrong_exchange_rate",
+          "confidence": 0.6867720628878914
+        }
+      ],
+      "source": {
+        "repo": "fancyzhx/ag_news",
+        "revision": "eb185aade064a813bc0b7f42de02595523103ca4",
+        "config": null,
+        "split": "test",
+        "keep": null,
+        "license": "AG's corpus, used under its academic terms (http://groups.di.unipi.it/~gulli/AG_corpus_of_news_articles.html)",
+        "description": "AG News test items (headline and lead, cut at the student's 64 tokens as served)",
+        "rows": 1000
+      }
+    }
+  },
+  "reference": {
+    "set": "banking77_test",
+    "heldout_n": 496,
+    "heldout_coverage": 0.7862903225806451,
+    "heldout_kappa_answered": 0.9218128721406567,
+    "coverage": {
+      "estimate": 0.7836960051964924,
+      "low": 0.7694056511854498,
+      "high": 0.7983111399805132
+    },
+    "kappa_all": 0.8512674999072899,
+    "kappa_answered": {
+      "estimate": 0.9458114726615826,
+      "low": 0.9369635871971904,
+      "high": 0.9558681780483829
+    },
+    "accuracy_answered": 0.9465395772896809,
+    "ece_raw": 0.03841986751881334,
+    "ece_calibrated": 0.023269692306990032,
+    "ece_bins": 15,
+    "fresh": {
+      "n": 2897,
+      "coverage": 0.774249223334484,
+      "kappa_answered": {
+        "estimate": 0.9453168665178109,
+        "low": 0.9353438766035833,
+        "high": 0.9547870340774443
+      },
+      "near_duplicates": 182,
+      "near_duplicate_coverage": 0.9340659340659341
+    }
+  },
+  "separation": {
+    "clinc_oos": {
+      "max_softmax": {
+        "auroc": {
+          "estimate": 0.9686433907112699,
+          "low": 0.9635122279961027,
+          "high": 0.9737116271516726
+        },
+        "minus_max_softmax": {
+          "estimate": 0.0,
+          "low": 0.0,
+          "high": 0.0
+        },
+        "fpr_at_95_tpr": 0.156
+      },
+      "max_logit": {
+        "auroc": {
+          "estimate": 0.981865540759987,
+          "low": 0.9779345647937642,
+          "high": 0.9856933257551153
+        },
+        "minus_max_softmax": {
+          "estimate": 0.013222150048717074,
+          "low": 0.01121921078272172,
+          "high": 0.015290142903540102
+        },
+        "fpr_at_95_tpr": 0.08
+      },
+      "energy": {
+        "auroc": {
+          "estimate": 0.9846047417992855,
+          "low": 0.9806809191295875,
+          "high": 0.988149171809029
+        },
+        "minus_max_softmax": {
+          "estimate": 0.015961351088015552,
+          "low": 0.01333694381292635,
+          "high": 0.01882091588177979
+        },
+        "fpr_at_95_tpr": 0.055
+      },
+      "knn": {
+        "auroc": {
+          "estimate": 0.964178304644365,
+          "low": 0.9585985953231569,
+          "high": 0.9697888600194868
+        },
+        "minus_max_softmax": {
+          "estimate": -0.0044650860669048775,
+          "low": -0.009495477427736303,
+          "high": 0.0005744884702825739
+        },
+        "fpr_at_95_tpr": 0.197
+      },
+      "mahalanobis": {
+        "auroc": {
+          "estimate": 0.9741630399480351,
+          "low": 0.9693958996427412,
+          "high": 0.9787552046118869
+        },
+        "minus_max_softmax": {
+          "estimate": 0.005519649236765178,
+          "low": 0.00028002598246179295,
+          "high": 0.010667676193569339
+        },
+        "fpr_at_95_tpr": 0.126
+      }
+    },
+    "ag_news": {
+      "max_softmax": {
+        "auroc": {
+          "estimate": 0.9814280610587853,
+          "low": 0.9782317148424814,
+          "high": 0.9846272247482949
+        },
+        "minus_max_softmax": {
+          "estimate": 0.0,
+          "low": 0.0,
+          "high": 0.0
+        },
+        "fpr_at_95_tpr": 0.098
+      },
+      "max_logit": {
+        "auroc": {
+          "estimate": 0.9923075673920104,
+          "low": 0.9902803507632348,
+          "high": 0.99412680253329
+        },
+        "minus_max_softmax": {
+          "estimate": 0.010879506333225097,
+          "low": 0.009159694706073373,
+          "high": 0.012704262747645384
+        },
+        "fpr_at_95_tpr": 0.035
+      },
+      "energy": {
+        "auroc": {
+          "estimate": 0.9946498863267295,
+          "low": 0.992757007145177,
+          "high": 0.9961592237739526
+        },
+        "minus_max_softmax": {
+          "estimate": 0.013221825267944132,
+          "low": 0.010993894121468001,
+          "high": 0.015596354335823312
+        },
+        "fpr_at_95_tpr": 0.018
+      },
+      "knn": {
+        "auroc": {
+          "estimate": 0.9578184475479051,
+          "low": 0.9522803182851575,
+          "high": 0.9633670915881779
+        },
+        "minus_max_softmax": {
+          "estimate": -0.0236096135108802,
+          "low": -0.028856796037674572,
+          "high": -0.018011724585904533
+        },
+        "fpr_at_95_tpr": 0.31
+      },
+      "mahalanobis": {
+        "auroc": {
+          "estimate": 0.9412198765833063,
+          "low": 0.9348059678467036,
+          "high": 0.947815337772004
+        },
+        "minus_max_softmax": {
+          "estimate": -0.040208184475479025,
+          "low": -0.04624264371549202,
+          "high": -0.033143228320883324
+        },
+        "fpr_at_95_tpr": 0.408
+      }
+    }
+  },
+  "gates": {
+    "max_softmax": {
+      "cut": 0.7492901423328989,
+      "heldout_coverage": 0.7580645161290323,
+      "coverage": 0.7557648587203638,
+      "coverage_cost": 0.0279311464761286,
+      "kappa_answered": 0.9542592349225926,
+      "answered": {
+        "clinc_oos": 0.02,
+        "ag_news": 0.006
+      }
+    },
+    "max_logit": {
+      "cut": 8.976385116577148,
+      "heldout_coverage": 0.7580645161290323,
+      "coverage": 0.7625852549529067,
+      "coverage_cost": 0.021110750243585663,
+      "kappa_answered": 0.9494882930721905,
+      "answered": {
+        "clinc_oos": 0.013,
+        "ag_news": 0.003
+      }
+    },
+    "energy": {
+      "cut": 9.161605954545916,
+      "heldout_coverage": 0.7580645161290323,
+      "coverage": 0.7580383241312114,
+      "coverage_cost": 0.02565768106528099,
+      "kappa_answered": 0.9496192470464502,
+      "answered": {
+        "clinc_oos": 0.011,
+        "ag_news": 0.002
+      }
+    },
+    "knn": {
+      "cut": 0.6743932477089389,
+      "heldout_coverage": 0.7580645161290323,
+      "coverage": 0.7622604741799286,
+      "coverage_cost": 0.021435531016563814,
+      "kappa_answered": 0.9503302178804959,
+      "answered": {
+        "clinc_oos": 0.019,
+        "ag_news": 0.006
+      }
+    },
+    "mahalanobis": {
+      "cut": -1507.440043527894,
+      "heldout_coverage": 0.7580645161290323,
+      "coverage": 0.7525170509905813,
+      "coverage_cost": 0.031178954205911102,
+      "kappa_answered": 0.9514383619323977,
+      "answered": {
+        "clinc_oos": 0.012,
+        "ag_news": 0.005
+      }
+    }
+  },
+  "hypotheses": {
+    "h1": {
+      "coverage_change": 0.0025943173841527223,
+      "kappa_answered": 0.9458114726615826,
+      "held": true
+    },
+    "h2": {
+      "clinc_oos": {
+        "answered": 0.026,
+        "held": false
+      },
+      "ag_news": {
+        "answered": 0.007,
+        "held": false
+      }
+    },
+    "h3": {
+      "scores": [],
+      "held": false
+    }
+  },
+  "criteria": {
+    "h1_coverage_points": 0.03,
+    "h1_kappa": 0.9,
+    "h2_answered": 0.4,
+    "h3_auroc_gain": 0.05
+  }
+}

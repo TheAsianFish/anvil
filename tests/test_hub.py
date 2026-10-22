@@ -245,6 +245,7 @@ def test_bundle_card_carries_the_measured_numbers(bundle: Path, home: Path) -> N
         "| Escalation threshold | 0.4000",
         "85.7% of held-out inputs answered by the student, at kappa 0.941 (lower bound 0.903)",
         "the 95% bootstrap lower bound of kappa must reach it",
+        "Coverage was measured in distribution",
         "| Labels trained on | 200 (184 for gradient steps, 16 held back for early stopping) |",
         "| Epochs | 6 (best epoch 4, stopped early) |",
         f"| Prompt hash | `{PROMPT}` |",

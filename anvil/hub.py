@@ -242,6 +242,15 @@ def _parity(kind: ArtifactKind, facts: _Facts, report: Mapping[str, object] | No
     return [*out, ""]
 
 
+IN_DISTRIBUTION_NOTE = (
+    "Coverage was measured in distribution: on held-out inputs drawn from the same data as the"
+    " training labels. Inputs unlike that data can clear the threshold too (a confidence"
+    " threshold is no out-of-distribution detector), so on other traffic the student may answer"
+    " a different share, and answer inputs no label fits; measure it on your own traffic"
+    " before relying on the coverage figure."
+)
+
+
 def _calibration(meta: Mapping[str, object]) -> list[str]:
     out = ["## Calibration and the cascade", ""]
     calib = _dict(meta.get("calibration"))
@@ -291,6 +300,8 @@ def _calibration(meta: Mapping[str, object]) -> list[str]:
         f" of held-out inputs answered by the student, at kappa {_f(calib.get('kappa'))}"
         + (f" (lower bound {low:.3f})" if low is not None else "")
         + " |",
+        "",
+        IN_DISTRIBUTION_NOTE,
         "",
     ]
     return out

@@ -35,6 +35,8 @@ class DatasetRef:
     text_field: str = "text"
     label_field: str = "label"
     license: str = ""
+    config: str | None = None
+    """The dataset's configuration (`clinc/clinc_oos` has `small`, `plus` and `imbalanced`)."""
 
 
 @dataclass(frozen=True)
@@ -57,7 +59,7 @@ def load_rows(ref: DatasetRef) -> tuple[list[str], list[str]]:
     """All (text, gold label name) rows of the split, in dataset order."""
     from datasets import load_dataset
 
-    ds = load_dataset(ref.repo, revision=ref.revision, split=ref.split)
+    ds = load_dataset(ref.repo, ref.config, revision=ref.revision, split=ref.split)
     names = ds.features[ref.label_field].names
     texts = [str(t) for t in ds[ref.text_field]]
     labels = [label_name(names[int(k)]) for k in ds[ref.label_field]]
@@ -217,26 +219,34 @@ def _words(text: str) -> frozenset[str]:
     return frozenset(re.findall(r"[a-z0-9]+", text.lower()))
 
 
+def near_duplicate_mask(
+    texts: Sequence[str], pool: Sequence[str], threshold: float = NEAR_DUPLICATE_JACCARD
+) -> list[bool]:
+    """For each text, whether it shares at least `threshold` of its words (Jaccard over the
+    sets of lower-case alphanumeric tokens) with some pool text."""
+    pool_words = [w for w in (_words(t) for t in pool) if w]
+    out: list[bool] = []
+    for text in texts:
+        words = _words(text)
+        hit = False
+        for other in pool_words if words else []:
+            shared = len(words & other)
+            if shared and shared / (len(words) + len(other) - shared) >= threshold:
+                hit = True
+                break
+        out.append(hit)
+    return out
+
+
 def near_duplicates(
     heldout: Sequence[str], pool: Sequence[str], threshold: float = NEAR_DUPLICATE_JACCARD
 ) -> int:
-    """How many held-out texts share at least `threshold` of their words (Jaccard over the
-    sets of lower-case alphanumeric tokens) with some pool text.
+    """How many held-out texts share at least `threshold` of their words with some pool text
+    (`near_duplicate_mask`).
 
     The store's split hashes the exact text, so identical texts never straddle it, but a
     headline rewritten by a word or two can: this counts how many such near-copies the
     student may have seen during training, so a report can say so instead of claiming no
     leakage at all.
     """
-    pool_words = [w for w in (_words(t) for t in pool) if w]
-    count = 0
-    for text in heldout:
-        words = _words(text)
-        if not words:
-            continue
-        for other in pool_words:
-            shared = len(words & other)
-            if shared and shared / (len(words) + len(other) - shared) >= threshold:
-                count += 1
-                break
-    return count
+    return sum(near_duplicate_mask(heldout, pool, threshold))
