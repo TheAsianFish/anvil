@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import math
+import sys
+import types
 from pathlib import Path
 from typing import Any
 
@@ -627,7 +629,9 @@ def test_render_shift_states_every_hypothesis(tmp_path: Path) -> None:
 
 
 def test_load_rows_passes_the_dataset_configuration(monkeypatch: pytest.MonkeyPatch) -> None:
-    import datasets
+    # `datasets` is in the eval group, which CI does not install: stand in for the module.
+    datasets = types.ModuleType("datasets")
+    monkeypatch.setitem(sys.modules, "datasets", datasets)
 
     from eval.data import DatasetRef, load_rows
 
@@ -646,7 +650,7 @@ def test_load_rows_passes_the_dataset_configuration(monkeypatch: pytest.MonkeyPa
         seen.update(repo=repo, config=config, **kw)
         return Fake(text=["a", "b"], intent=[0, 1])
 
-    monkeypatch.setattr(datasets, "load_dataset", fake_load)
+    monkeypatch.setattr(datasets, "load_dataset", fake_load, raising=False)
     ref = DatasetRef(
         "clinc/clinc_oos", SHA, "test", text_field="text", label_field="intent", config="plus"
     )
