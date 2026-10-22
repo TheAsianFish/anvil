@@ -167,7 +167,7 @@ def test_render_calibration_of_a_report() -> None:
     )
     assert "banking77" in text
     assert "| Dataset | Teacher | Student |" in text
-    assert "95% lower bound, calibrated" in text
+    assert "95% percentile lower bound, calibrated" in text
     assert "The teacher here is the dataset's gold labels" in text
 
 
