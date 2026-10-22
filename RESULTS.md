@@ -195,17 +195,18 @@ Findings (each per-run block under the M2 table above holds the full detail):
 - **It copies the teacher's mistakes.** Of the teacher's held-out errors, the student repeats
   74 of 101 (73%) on AG News and 112 of 223 (50%) on Banking77; it recovers the gold label on
   18% and 17%. One confusion dominates AG News: the teacher labels 59 `sci_tech` stories
-  `business` (stories about technology companies), and the student makes that same error 55
-  times.
+  `business` (stories about technology companies), and the student says `business` on 47 of
+  those 59 (55 `sci_tech` stories in all).
 - **Parity stays under the ceiling, and far from the truth.** Student vs teacher on the
-  ceiling's 200 inputs: 0.861 against the teacher's self-agreement of 0.937 on AG News, 0.667
+  ceiling's 200 inputs (point estimates; on AG News the two intervals overlap): 0.861 against the teacher's self-agreement of 0.937 on AG News, 0.667
   against 0.831 on Banking77. The same ModernBERT trained on gold reaches 0.844 and 0.842
   against gold. Trained on this teacher it reaches 0.696 and 0.540: the teacher's error is
   inherited almost whole, and a parity number alone (0.847 on AG News) would hide that.
 - **Where the teacher repeats itself, the student follows it.** On Banking77 the student
   agrees with the teacher on 74.9% of the 167 ceiling inputs where the teacher gave the same
-  label under both prompts, and on 30.3% of the 33 where it did not. Disagreement there is
-  mostly the teacher's instability, not the student's error.
+  label under both prompts, and on 30.3% of the 33 where it did not. Disagreement is far more
+  likely where the teacher is unstable (70% against 25%), but those inputs are few: 42 of the
+  65 disagreements on the ceiling inputs are on inputs where the teacher repeated itself.
 - The control below tests whether the inherited errors come from the confusions themselves
   or from random noise.
 
@@ -714,8 +715,8 @@ against gold on 21% of AG News and 45% of Banking77 held-out inputs.
   self-agreement is 0.936 [0.872, 0.984], and the student's agreement with it is 0.952. The
   ceiling has to be read on the inputs the cascade answers, not on the whole split.
 - **The rule holds up less well against a noisier teacher.** At kappa 0.9, the lower-bound
-  threshold kept the target on the unseen half in 82.7% of splits on Banking77 (it found one
-  in 75.0% of them) and 81.0% on AG News, against 90.5% and 87.0% with gold. The
+  threshold kept the target on the unseen half in 82.7% of the splits where it found one on
+  Banking77 (it found one in 75.0% of the 200, so 62% of all splits) and 81.0% on AG News, against 90.5% and 87.0% with gold. The
   point-estimate threshold kept it in 39.7% and 42.0%.
 - **This is consistency with the teacher, not correctness.** Inputs that a confident student
   and a self-consistent teacher agree on can still be wrong in the same way, like AG News's
