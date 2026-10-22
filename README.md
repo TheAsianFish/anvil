@@ -544,6 +544,27 @@ costs more per input than batch 1 because of padding. The int8 layer probe
 pins its accuracy loss on the MLP down-projections, which stay fp32. Teacher
 latency and dollars per 1,000 inputs need a key and are under "To measure".
 
+**Off-distribution (M9).** The served Banking77 bundle, run through the same ONNX
+runtime as `anvil serve`, on Banking77's own test split and on inputs it was never
+meant to see (gold teacher, CPU; this bundle is a retrain with 78.6% held-out
+coverage, see RESULTS.md for why it differs from M5's):
+
+| Set | Answered by the student | Kappa with gold on answered |
+|---|---|---|
+| Banking77 test (3,079) | 78.4% [76.9%, 79.8%] | 0.946 [0.937, 0.956] |
+| CLINC150 out-of-scope (1,000) | 2.6% [1.6%, 3.6%] | wrong by construction |
+| AG News (1,000) | 0.7% [0.2%, 1.3%] | wrong by construction |
+
+The threshold picked on held-out transfers to fresh test inputs, and it escalates
+almost everything that is not banking. I expected the student to answer 40% of
+out-of-scope requests, and it answered 2.6%. With 77 intents an unfamiliar input
+spreads its probability mass, so it rarely clears the 0.69 threshold. What leaks is
+near-domain ("i need to update my address" goes to `edit_personal_details` at 0.99),
+not random. Energy, the logsumexp of the same logits, separates in from out
+slightly better than max softmax (AUROC 0.985 against 0.969 on CLINC), and
+distances to the training embeddings do worse. The model card now states that its
+coverage was measured in distribution.
+
 Text-to-SQL on WikiSQL (M6): Qwen2.5-0.5B-Instruct with a rank-16 LoRA
 adapter, 1,000 teacher queries, two epochs on CPU, 300 held-out questions
 scored by execution match in a sandboxed SQLite copy of each table. The
@@ -573,15 +594,16 @@ under "To measure" (about $0.11 with Haiku 5.5).
 - [x] M6: Qwen2.5-0.5B LoRA generation student, chat-template alignment, execution-match eval on WikiSQL, merged export, Colab notebook (Claude parity and the judge sample to measure)
 - [x] M7: release readiness: `anvil push` with a rendered model card, PyPI and GHCR release workflow, clean-venv wheel check, RELEASE.md, spend ledger in RESULTS.md
 
-Planned in PLAN.md, evolution round 1 (M8 built):
+Planned in PLAN.md, evolution round 1 (M8 and M9 built):
 
 - [x] M8: the first fallible teacher: `OllamaTeacher` (a local open model, `qwen2.5:3b` in the
   harness) so the parity table gets a teacher that can be wrong, with the paraphrase ceiling,
   teacher-vs-gold and student-vs-gold rows, and a matched synthetic-noise control (the
   student copies the teacher's confusions; see Results)
-- [ ] M9: the cascade off-distribution: the served bundle on Banking77's test split, CLINC150's
-  out-of-scope utterances and AG News sentences; max-softmax against max-logit, energy and
-  embedding distance as the escalation signal
+- [x] M9: the cascade off-distribution: the served bundle on Banking77's test split, CLINC150's
+  out-of-scope utterances and AG News; max softmax against max logit, energy and
+  embedding distance as the escalation signal (the threshold transfers; 2.6% of
+  out-of-scope requests get through; energy helps a little; see Results)
 - [ ] M10: does the interval cover? A coverage simulation of the percentile and BCa bootstrap
   bounds at the kappa, sample size and label count where the threshold rule applies them
 
