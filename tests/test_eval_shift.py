@@ -636,3 +636,35 @@ def test_load_rows_passes_the_dataset_configuration(monkeypatch: pytest.MonkeyPa
     )
     assert load_rows(ref) == (["a", "b"], ["out_of_scope", "balance"])
     assert seen == {"repo": "clinc/clinc_oos", "config": "plus", "revision": SHA, "split": "test"}
+
+
+def test_near_duplicates_get_their_own_reading_and_survive_the_npz(tmp_path: Path) -> None:
+    sets, heldout = make_study()
+    test = sets["test"]
+    near = np.zeros(len(test.ids), dtype=bool)
+    near[:40] = True
+    sets["test"] = Scored(
+        test.ids, test.texts, test.logits, test.knn, test.mahalanobis, test.gold, near
+    )
+    fresh = sub(sub(run_analysis(sets, heldout), "reference"), "fresh")
+    assert fresh["n"] == len(near) - 40
+    assert fresh["near_duplicates"] == 40
+    assert 0.0 <= fresh["coverage"] <= 1.0
+    assert set(fresh["kappa_answered"]) == {"estimate", "low", "high"}
+
+    path = tmp_path / "scores.npz"
+    save_scores(path, sets, heldout, make_context())
+    loaded, loaded_held, _ = load_scores(path)
+    assert loaded["test"].near_duplicate is not None
+    np.testing.assert_array_equal(loaded["test"].near_duplicate, near)
+    assert loaded_held.near_duplicate is None
+
+
+def test_near_duplicate_mask_matches_the_count() -> None:
+    from eval.data import near_duplicate_mask, near_duplicates
+
+    pool = ["how do i top up my card", "where is my new card"]
+    texts = ["how do i top up my card please", "what is the exchange rate", "", "where is my card"]
+    mask = near_duplicate_mask(texts, pool)
+    assert mask == [True, False, False, True]
+    assert near_duplicates(texts, pool) == sum(mask)

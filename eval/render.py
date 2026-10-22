@@ -1369,8 +1369,17 @@ def render_shift(runs: list[tuple[str, Report, Report]]) -> str:
             f"| Kappa on all inputs | | {_f(ref['kappa_all'])} |",
             f"| ECE ({ref['ece_bins']} bins), T = 1 -> bundle temperature | |"
             f" {_f(ref['ece_raw'])} -> {_f(ref['ece_calibrated'])} |",
-            "",
         ]
+        fresh = ref.get("fresh")
+        if fresh:
+            out += [
+                f"| Test inputs that are not near-copies of a training-sample text | |"
+                f" {fresh['n']}: coverage {_pct(fresh['coverage'])}, kappa on answered"
+                f" {_eci(fresh['kappa_answered'])} |",
+                f"| Test inputs that are near-copies | | {fresh['near_duplicates']}: coverage"
+                f" {_pct(fresh['near_duplicate_coverage'])} |",
+            ]
+        out.append("")
         if overlap:
             out += [
                 f"Test inputs identical to one of the {overlap['sample_size']} sampled training"

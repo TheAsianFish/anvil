@@ -57,7 +57,7 @@ from anvil.evaluate.generation import mean_ci
 from anvil.evaluate.metrics import cohen_kappa
 from anvil.settings import Settings
 from eval.classify import TeacherKind, file_safe, git_provenance
-from eval.data import DatasetRef, label_name, load_rows, near_duplicates
+from eval.data import DatasetRef, label_name, load_rows, near_duplicate_mask
 
 ROOT = Path(__file__).resolve().parent.parent
 RESULTS_DIR = ROOT / "eval" / "results"
@@ -329,6 +329,10 @@ class Scored:
     mahalanobis: FloatArray
     gold: IntArray | None = None
     """Gold label codes in the bundle's label order (in-distribution sets only)."""
+    near_duplicate: BoolArray | None = None
+    """Inputs whose words overlap a training-sample text by Jaccard >= 0.8 (in-distribution
+    sets only): Banking77 rewords the same requests, so its test split is partly the
+    training data with a word changed."""
 
     def scores(self, temperature: float) -> dict[str, FloatArray]:
         return {
@@ -461,6 +465,28 @@ def analyse(
         "ece_calibrated": ece(softmax(ref.logits, temperature), ref.gold, ECE_BINS),
         "ece_bins": ECE_BINS,
     }
+    if ref.near_duplicate is not None:
+        # The same reading on the test inputs that are not near-copies of a training-sample
+        # text: whether a gap between held-out and test comes from the student having seen them.
+        fresh = ~ref.near_duplicate
+        fresh_on = np.flatnonzero(mask & fresh)
+        reference["fresh"] = {
+            "n": int(fresh.sum()),
+            "coverage": float(mask[fresh].mean()),
+            "kappa_answered": _interval(
+                bootstrap_ci(
+                    [pred_ref[k] for k in fresh_on],
+                    [gold[k] for k in fresh_on],
+                    "kappa",
+                    n_resamples,
+                    seed=seed,
+                )
+            ),
+            "near_duplicates": int(ref.near_duplicate.sum()),
+            "near_duplicate_coverage": (
+                float(mask[ref.near_duplicate].mean()) if ref.near_duplicate.any() else None
+            ),
+        }
 
     # Every score as an extra gate on top of the served threshold, set on held-out.
     ood_names = [n for n, r in roles.items() if r == "out_of_distribution"]
@@ -551,6 +577,8 @@ def save_scores(
         arrays[f"{name}.mahalanobis"] = s.mahalanobis
         if s.gold is not None:
             arrays[f"{name}.gold"] = s.gold
+        if s.near_duplicate is not None:
+            arrays[f"{name}.near_duplicate"] = s.near_duplicate
     np.savez_compressed(path, **arrays)  # type: ignore[arg-type]
 
 
@@ -567,6 +595,11 @@ def load_scores(path: Path) -> tuple[dict[str, Scored], Scored, dict[str, object
                 knn=data[f"{name}.knn"].astype(np.float64),
                 mahalanobis=data[f"{name}.mahalanobis"].astype(np.float64),
                 gold=(data[f"{name}.gold"].astype(np.int64) if f"{name}.gold" in data else None),
+                near_duplicate=(
+                    data[f"{name}.near_duplicate"].astype(bool)
+                    if f"{name}.near_duplicate" in data
+                    else None
+                ),
             )
             for name in names
         }
@@ -655,7 +688,13 @@ def run(
 
     diffs: dict[str, float] = {}
 
-    def score(name: str, ids: list[str], texts: list[str], gold: IntArray | None) -> Scored:
+    def score(
+        name: str,
+        ids: list[str],
+        texts: list[str],
+        gold: IntArray | None,
+        near: BoolArray | None = None,
+    ) -> Scored:
         tick = time.perf_counter()
         logits = onnx.logits(texts).astype(np.float64)
         torch_probs, vectors = torch_student.predict_with_embeddings(texts)
@@ -669,6 +708,7 @@ def run(
             knn_similarity(train_vectors, vectors, config.knn_k),
             mahalanobis_score(gaussians, vectors),
             gold,
+            near,
         )
 
     held = score(
@@ -683,20 +723,21 @@ def run(
     sample_texts = [it.text for it in ts.data.items]
     for cfg in config.sets:
         ids, texts, gold_names = select_rows(cfg, *load_rows(cfg.ref()))
-        gold = None
+        gold = near = None
         if cfg.role == "in_distribution":
             unknown = sorted(set(gold_names) - set(index))
             if unknown:
                 raise ConfigError(f"{cfg.name} has labels the student lacks: {unknown[:5]}")
             gold = np.array([index[lab] for lab in gold_names], dtype=np.int64)
             in_sample = set(sample_texts)
+            near = np.array(near_duplicate_mask(texts, sample_texts), dtype=bool)
             overlap[cfg.name] = {
                 "identical_to_sample": sum(t in in_sample for t in texts),
-                "near_duplicates_of_sample": near_duplicates(texts, sample_texts),
+                "near_duplicates_of_sample": int(near.sum()),
                 "sample_size": len(sample_texts),
             }
         sources[cfg.name] = {**cfg.source(), "rows": len(ids)}
-        sets[cfg.name] = score(cfg.name, ids, texts, gold)
+        sets[cfg.name] = score(cfg.name, ids, texts, gold, near)
 
     calibration = meta.get("calibration")
     context: dict[str, object] = {
