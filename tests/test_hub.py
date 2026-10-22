@@ -453,3 +453,9 @@ def test_cli_dry_run(bundle: Path, home: Path, monkeypatch: pytest.MonkeyPatch) 
     result = runner.invoke(app, ["push", str(bundle), "--repo", "me/triage"])
     assert result.exit_code == 2
     assert "HF_TOKEN" in result.output
+
+
+def test_card_names_the_bca_rule(bundle: Path, home: Path) -> None:
+    meta = read_bundle_meta(bundle)
+    bca = {**meta, "calibration": {**CALIBRATION, "rule": "bca"}}
+    assert "the 95% BCa bootstrap lower bound of kappa must reach it" in render_card("bundle", bca)

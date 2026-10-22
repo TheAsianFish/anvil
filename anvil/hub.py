@@ -280,6 +280,7 @@ def _calibration(meta: Mapping[str, object]) -> list[str]:
     rule = _str(calib.get("rule"))
     rule_text = {
         "lower": "the 95% bootstrap lower bound of kappa must reach it",
+        "bca": "the 95% BCa bootstrap lower bound of kappa must reach it",
         "point": "the kappa estimate must reach it",
     }.get(rule or "", f"rule {_code(rule)}")
     out.append(f"| Target | kappa {_f(calib.get('target_kappa'), 'g')} ({rule_text}) |")
