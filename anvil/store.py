@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS labels (
     output_tokens INTEGER NOT NULL,
     cost_usd REAL NOT NULL,
     cached INTEGER NOT NULL,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    compute_seconds REAL
 );
 CREATE TABLE IF NOT EXISTS failures (
     seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -49,7 +50,8 @@ CREATE TABLE IF NOT EXISTS failures (
     input_tokens INTEGER NOT NULL,
     output_tokens INTEGER NOT NULL,
     cost_usd REAL NOT NULL,
-    created_at REAL NOT NULL
+    created_at REAL NOT NULL,
+    compute_seconds REAL
 );
 CREATE TABLE IF NOT EXISTS loops (
     loop_id TEXT PRIMARY KEY,
@@ -157,6 +159,16 @@ class Store:
         self._db = sqlite3.connect(path)
         self._db.execute("PRAGMA foreign_keys = ON")  # per connection; labels need their input
         self._db.executescript(SCHEMA)
+        self._migrate()
+
+    def _migrate(self) -> None:
+        """Bring a store made by an older version up to the current schema: `compute_seconds`
+        (a local teacher's seconds per call) is nullable, so old rows simply have none."""
+        with self._tx() as db:
+            for table in ("labels", "failures"):
+                columns = {row[1] for row in db.execute(f"PRAGMA table_info({table})")}
+                if "compute_seconds" not in columns:
+                    db.execute(f"ALTER TABLE {table} ADD COLUMN compute_seconds REAL")
 
     def close(self) -> None:
         self._db.close()
@@ -207,7 +219,8 @@ class Store:
         with self._tx() as db:
             db.executemany(
                 "INSERT INTO labels (input_id, label, teacher_model, prompt_hash, input_tokens,"
-                " output_tokens, cost_usd, cached, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                " output_tokens, cost_usd, cached, created_at, compute_seconds)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 [
                     (
                         lb.input_id,
@@ -219,6 +232,7 @@ class Store:
                         lb.cost_usd,
                         int(lb.cached),
                         now,
+                        lb.compute_seconds,
                     )
                     for lb in labels
                 ],
@@ -238,7 +252,8 @@ class Store:
         with self._tx() as db:
             db.executemany(
                 "INSERT INTO failures (input_id, reason, teacher_model, prompt_hash,"
-                " input_tokens, output_tokens, cost_usd, created_at) VALUES (?,?,?,?,?,?,?,?)",
+                " input_tokens, output_tokens, cost_usd, created_at, compute_seconds)"
+                " VALUES (?,?,?,?,?,?,?,?,?)",
                 [
                     (
                         f.input_id,
@@ -249,6 +264,7 @@ class Store:
                         f.output_tokens,
                         f.cost_usd,
                         now,
+                        f.compute_seconds,
                     )
                     for f in failures
                     if not f.cached
@@ -267,12 +283,13 @@ class Store:
     def label_records(self, teacher_model: str, prompt_hash: str) -> list[Label]:
         """The latest label per input under one key, with its tokens and cost (for export)."""
         rows = self._db.execute(
-            "SELECT input_id, label, input_tokens, output_tokens, cost_usd, cached FROM labels"
-            " WHERE teacher_model = ? AND prompt_hash = ? ORDER BY seq",
+            "SELECT input_id, label, input_tokens, output_tokens, cost_usd, cached,"
+            " compute_seconds FROM labels WHERE teacher_model = ? AND prompt_hash = ?"
+            " ORDER BY seq",
             (teacher_model, prompt_hash),
         ).fetchall()
         latest = {
-            r[0]: Label(r[0], r[1], teacher_model, prompt_hash, r[2], r[3], r[4], bool(r[5]))
+            r[0]: Label(r[0], r[1], teacher_model, prompt_hash, r[2], r[3], r[4], bool(r[5]), r[6])
             for r in rows
         }
         return [latest[k] for k in sorted(latest)]
@@ -362,10 +379,10 @@ class Store:
         """The latest failure per input under one key, for inputs that have no label under it
         (a later answer supersedes a refusal), sorted by input id (for export)."""
         rows = self._db.execute(
-            "SELECT input_id, reason, input_tokens, output_tokens, cost_usd FROM failures"
-            " WHERE teacher_model = ? AND prompt_hash = ? ORDER BY seq",
+            "SELECT input_id, reason, input_tokens, output_tokens, cost_usd, compute_seconds"
+            " FROM failures WHERE teacher_model = ? AND prompt_hash = ? ORDER BY seq",
             (teacher_model, prompt_hash),
         ).fetchall()
         labelled = self.labels(teacher_model, prompt_hash)
-        latest = {r[0]: Failure(r[0], r[1], r[2], r[3], r[4]) for r in rows}
+        latest = {r[0]: Failure(r[0], r[1], r[2], r[3], r[4], compute_seconds=r[5]) for r in rows}
         return [latest[k] for k in sorted(latest) if k not in labelled]

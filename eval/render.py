@@ -147,12 +147,15 @@ def _details(name: str, r: Report, meta: Report) -> list[str]:
             " row measures the harness and how well the student learns from"
             f" {t['pool_labels']:,} clean labels; it is not a parity-with-Claude number."
         )
+    out += _teacher_lines(t)
     gold = r.get("gold") or {}
     if "teacher_vs_gold" in gold:
         out.append(
             f"- Against gold: teacher {_ci(gold['teacher_vs_gold'])},"
             f" student {_ci(gold['student_vs_gold'])}"
         )
+    out += _error_lines(gold.get("errors"), ag["n"])
+    out += _same_items_lines((r.get("ceiling") or {}).get("on_same_items"), r.get("ceiling"))
     # Classes with a handful of held-out items have F1 of 0 or 1 by chance; rank the rest.
     worst = sorted(
         (c for c in ag.get("per_class", []) if c.get("support", 0) >= MIN_SUPPORT),
@@ -182,6 +185,130 @@ def _details(name: str, r: Report, meta: Report) -> list[str]:
             out.append(f"- Agreement by {title}: {cells}")
     out.append("")
     return out
+
+
+def _share(part: int, whole: int) -> str:
+    return f"{part} ({100 * part / whole:.0f}%)" if whole else f"{part}"
+
+
+def _teacher_lines(t: Mapping[str, Any]) -> list[str]:
+    """How a local teacher was run: the pinned weights and the time its labels took."""
+    if t.get("provider") != "ollama":
+        return []
+    seconds = t.get("compute_seconds") or {}
+    digest = str(t.get("digest") or "")
+    line = f"- Teacher: `{t['model']}` through Ollama"
+    if digest:
+        line += f", weights sha256 `{digest[:12]}` (pinned in the eval config)"
+    if seconds:
+        para = seconds.get("paraphrase_total")
+        line += (
+            f"; {seconds['labels']} labels took {_f(seconds['total'] / 3600, 2)} h of server"
+            f" time (median {_f(seconds['median_per_label'], 2)} s per label)"
+            + (f", the ceiling's second pass {_f(para / 60, 0)} min more" if para else "")
+            + ", $0"
+        )
+    return [line]
+
+
+def _error_lines(errors: Mapping[str, Any] | None, n: int) -> list[str]:
+    """What the student did with the teacher's mistakes (`classify.teacher_errors`)."""
+    if not errors:
+        return []
+    diff = errors["student_minus_teacher_vs_gold_kappa"]
+    acc = errors["student_minus_teacher_vs_gold_accuracy"]
+    wrong, right = errors["on_teacher_errors"], errors["on_teacher_correct"]
+    out = [
+        f"- Student minus teacher, agreement with gold on the same {n} inputs (paired"
+        f" bootstrap): kappa {_diff(diff)}, accuracy {_diff(acc)}",
+        f"- On the {wrong['n']} held-out inputs the teacher got wrong, the student gave the"
+        f" teacher's label on {_share(wrong['copied'], wrong['n'])}, the gold label on"
+        f" {_share(wrong['corrected'], wrong['n'])} and another on"
+        f" {_share(wrong['other'], wrong['n'])}; on the {right['n']} it got right, the student"
+        f" is wrong on {_share(right['broken'], right['n'])}",
+    ]
+    cells = errors["confusions"]["teacher"][:6]
+    if cells:
+        out.append(
+            "- The teacher's top confusions (gold -> teacher label: how often the teacher /"
+            " the student makes it): "
+            + ", ".join(
+                f"`{c['gold']}` -> `{c['label']}` {c['teacher']} / {c['student']}" for c in cells
+            )
+        )
+    return out
+
+
+def _same_items_lines(
+    same: Mapping[str, Any] | None, ceiling: Mapping[str, Any] | None
+) -> list[str]:
+    """Student-vs-teacher on the ceiling's own items, split by whether the teacher repeated
+    its label under the paraphrased prompt."""
+    if not same or not ceiling:
+        return []
+    stable, unstable = same["stable"], same["unstable"]
+
+    def rate(part: Mapping[str, Any]) -> str:
+        return f"{_pct(part['rate'])} of {part['n']}" if part["n"] else "none"
+
+    return [
+        f"- On the ceiling's {ceiling['n']} inputs: teacher vs itself {_ci(ceiling)}, student"
+        f" vs teacher {_ci(same['student_vs_teacher'])}; the student agrees with the teacher on"
+        f" {rate(stable)} inputs where the teacher repeated its label and on {rate(unstable)}"
+        " where it did not",
+    ]
+
+
+def render_fallible(runs: list[tuple[str, Report, Report]]) -> str:
+    """One row per classify run whose teacher is a model rather than gold: how the teacher,
+    its own repeat, and the student trained on it each agree with the dataset's gold labels."""
+    rows = [(name, r) for name, r, _ in runs if r["teacher"]["kind"] != "gold"]
+    if not rows:
+        return "No run with a model as the teacher yet: `make eval-classify TEACHER=ollama`.\n"
+    # The gold run's held-out ids too: its kappa is only comparable on the same inputs, which
+    # a teacher that failed some of them (they leave its held-out set) would break.
+    clean = {
+        r["dataset"]["name"]: (r["agreement"], _heldout_ids(r))
+        for _, r, _ in runs
+        if r["teacher"]["kind"] == "gold" and r["student"]["model"]
+    }
+    lines = [
+        "| Dataset | Teacher | Student | Teacher vs gold | Teacher vs itself (ceiling)"
+        " | Student vs teacher | Student vs teacher, ceiling inputs | Student vs gold"
+        " | Student minus teacher vs gold [95% paired CI] | Same student on gold labels |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for _, r in rows:
+        t, s, gold = r["teacher"], r["student"], r.get("gold") or {}
+        ceiling = r.get("ceiling") or {}
+        same = ceiling.get("on_same_items") or {}
+        errors = gold.get("errors") or {}
+        reference, ids = clean.get(r["dataset"]["name"], (None, None))
+        if reference is not None and ids != _heldout_ids(r):
+            reference = None
+        lines.append(
+            f"| {r['dataset']['name']} | {t['model']} | {_student_name(s['model'])}"
+            f" | {_ci(gold.get('teacher_vs_gold'))}"
+            f" | {_ci(ceiling) if 'kappa' in ceiling else 'n/a'}"
+            f" | {_ci(r['agreement'])} | {_ci(same.get('student_vs_teacher'))}"
+            f" | {_ci(gold.get('student_vs_gold'))}"
+            f" | {_diff(errors.get('student_minus_teacher_vs_gold_kappa'))}"
+            f" | {_ci(reference) if reference else 'n/a (other held-out inputs)'} |"
+        )
+    lines += [
+        "",
+        "All kappas are on the same held-out inputs (the ceiling and its column on the first"
+        f" {rows[0][1].get('ceiling', {}).get('n', 'n/a')} of them, which the teacher labelled"
+        ' under two prompts). "Same student on gold labels" is the gold-teacher run of the'
+        " table above: the same sample, split and student trained on clean labels.",
+        "",
+    ]
+    return "\n".join(lines)
+
+
+def _heldout_ids(report: Report) -> list[str] | None:
+    ids = (report.get("predictions") or {}).get("input_id")
+    return sorted(ids) if isinstance(ids, list) else None
 
 
 def _f1_ci(stats: Mapping[str, Any] | None, key: str = "entity_f1_ci") -> str:
@@ -764,6 +891,71 @@ def render_frontier(runs: list[tuple[str, Report, Report]]) -> str:
     return "\n".join(out)
 
 
+_CONDITION_NAMES = {
+    "gold": "gold labels",
+    "teacher": "the teacher's labels",
+    "uniform": "gold with uniform noise",
+    "pair": "gold with the teacher's confusions",
+}
+
+
+def _range(stats: Mapping[str, Any] | None, digits: int = 3) -> str:
+    """`mean (min-max)` over seeds."""
+    if not stats:
+        return "n/a"
+    return f"{_f(stats['mean'], digits)} ({_f(stats['min'], digits)}-{_f(stats['max'], digits)})"
+
+
+def render_noise(runs: list[tuple[str, Report, Report]]) -> str:
+    """The noise control: the same student trained on gold, on the teacher's labels and on
+    gold corrupted at the teacher's error rate in two ways (`eval.noise`)."""
+    if not runs:
+        return "No noise-control run yet: `make eval-noise`.\n"
+    out: list[str] = []
+    for name, r, meta in runs:
+        pool, held, summary = r["pool"], r["heldout"], r["summary"]
+        out += [
+            f"#### {r['dataset']['name']}, teacher `{r['teacher']['model']}`, student"
+            f" `{_student_name(r['student']['model'])}`",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json` with every run's held-out"
+            " predictions, `meta.json`)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; seeds"
+            f" {', '.join(str(x) for x in r['seeds'])}; {meta.get('cpus')} CPUs; wall"
+            f" {_duration(float(meta.get('wall_seconds', 0)))}; $0",
+            f"- Training labels: {pool['n']} pool inputs; the teacher got"
+            f" {_share(pool['teacher_wrong'], pool['n'])} wrong (kappa with gold"
+            f" {_ci(pool['teacher_vs_gold'])}), so each corrupted set has exactly that many"
+            " wrong labels",
+            f"- Scored on {held['n']} held-out inputs, where the teacher's own kappa with gold is"
+            f" {_ci(held['teacher_vs_gold'])}",
+            "",
+            "| Trained on | Student vs gold kappa, mean (range) | Student vs teacher kappa"
+            " | Teacher's held-out errors the student repeats |",
+            "|---|---|---|---|",
+        ]
+        for condition in r["conditions"]:
+            entry = summary.get(condition)
+            if not entry:
+                continue
+            out.append(
+                f"| {_CONDITION_NAMES.get(condition, condition)}"
+                f" | {_range(entry['kappa_vs_gold'])} | {_range(entry['kappa_vs_teacher'])}"
+                f" | {_range({k: 100 * v for k, v in entry['copied_rate'].items()}, 0)}% |"
+            )
+        paired = summary.get("paired_vs_gold") or {}
+        for key, cells in paired.items():
+            other = key.removeprefix("teacher_minus_")
+            out.append("")
+            out.append(
+                "- Kappa with gold, the student trained on the teacher's labels minus the one"
+                f" trained on {_CONDITION_NAMES.get(other, other)} (paired bootstrap, per"
+                " seed): " + ", ".join(f"seed {c['seed']} {_diff(c)}" for c in cells)
+            )
+        out.append("")
+    return "\n".join(out)
+
+
 def _q(stats: Mapping[str, Any] | None, digits: int = 3) -> str:
     """`median [p5, p95]` of a split-study quantile summary."""
     if not stats:
@@ -815,7 +1007,8 @@ def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
     for name, r, meta in runs:
         src, ss = r["source"], r["split_study"]
         out += [
-            f"#### {src['dataset']}: does the threshold hold on inputs it was not chosen on?",
+            f"#### {src['dataset']}, teacher `{src['teacher_model']}`: does the threshold hold"
+            " on inputs it was not chosen on?",
             "",
             f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`, `logits.npz`)",
             f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; student run"
@@ -850,6 +1043,7 @@ def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
                 f"| {_pct(p['coverage'])} | {_f(p['threshold'])} | {_f(p['kappa'])}"
                 f" | {_f(p['agreement'])} | {_f(p['system_kappa'])} |"
             )
+        out += _ceiling_lines(r.get("ceiling"))
         if src.get("teacher_kind") == "gold":
             out += [
                 "",
@@ -858,6 +1052,44 @@ def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
             ]
         out.append("")
     return "\n".join(out)
+
+
+def _kci(stats: Mapping[str, Any] | None) -> str:
+    """`kappa [low, high]` of a `{kappa, low, high}` summary."""
+    if not stats:
+        return "n/a"
+    return f"{_f(stats['kappa'])} [{_f(stats['low'])}, {_f(stats['high'])}]"
+
+
+def _ceiling_lines(ceiling: Mapping[str, Any] | None) -> list[str]:
+    """The teacher's self-agreement on the inputs a threshold accepts (`eval.calibration`)."""
+    if not ceiling:
+        return []
+    out = [
+        "",
+        f"The ceiling on the inputs the cascade answers: of the {ceiling['asked']} held-out"
+        " inputs the teacher labelled under both prompts, those whose calibrated confidence"
+        " clears each threshold, with the teacher's agreement with itself and the student's"
+        " agreement with the teacher on the same inputs:",
+        "",
+        "| Threshold | Coverage (all held-out) | Ceiling items | Teacher self-agreement kappa"
+        " [95% CI] | Student vs teacher kappa [95% CI] |",
+        "|---|---|---|---|---|",
+    ]
+    for row in ceiling["by_level"]:
+        out.append(
+            f"| top {_pct(row['level'])} | {_pct(row['coverage'])} | {row['n']}"
+            f" | {_kci(row.get('ceiling'))} | {_kci(row.get('student_vs_teacher'))} |"
+        )
+    for target, row in ceiling["served"].items():
+        if row is None:
+            out.append(f"| served at kappa {target} | no threshold found | | | |")
+        else:
+            out.append(
+                f"| served at kappa {target} | {_pct(row['coverage'])} | {row['n']}"
+                f" | {_kci(row.get('ceiling'))} | {_kci(row.get('student_vs_teacher'))} |"
+            )
+    return out
 
 
 def _sci(x: object) -> str:
@@ -1037,6 +1269,7 @@ LEDGER_EVALS = (
     ("calibration-", "eval-calibration"),
     ("export-", "eval-export"),
     ("bench-", "bench"),
+    ("noise-", "eval-noise"),
     ("spike-onnx", "spike-onnx"),
 )
 """Directory-name prefixes and the `make` target that writes them."""
@@ -1112,6 +1345,8 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "ledger": render_ledger(results_dir),
         "classify": render_classify(load_runs(results_dir)),
         "classify-seeds": render_seed_spread(load_runs(results_dir, seeds=True)),
+        "classify-teacher": render_fallible(load_runs(results_dir)),
+        "noise": render_noise(load_runs(results_dir, prefix="noise-")),
         "select": render_select(load_select(results_dir)),
         "frontier": render_frontier(load_frontiers(results_dir)),
         "extract": render_extract(load_runs(results_dir, prefix="extract-")),

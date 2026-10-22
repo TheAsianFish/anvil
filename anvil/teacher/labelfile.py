@@ -42,6 +42,8 @@ class RecordedLabel:
     output_tokens: int = 0
     cost_usd: float = 0.0
     reason: str | None = None
+    compute_seconds: float | None = None
+    """A local teacher's server seconds for this row; absent for Claude and gold rows."""
 
     def __post_init__(self) -> None:
         if (self.label is None) == (self.reason is None):
@@ -50,6 +52,11 @@ class RecordedLabel:
             value = getattr(self, name)
             if value is not None and not isinstance(value, str):
                 raise ValueError(f"{name} must be a string")
+        seconds = self.compute_seconds
+        if seconds is not None and (
+            not isinstance(seconds, int | float) or isinstance(seconds, bool) or seconds < 0
+        ):
+            raise ValueError("compute_seconds must be a non-negative number")
 
     @property
     def failed(self) -> bool:
@@ -78,6 +85,7 @@ def write_label_file(
             f.output_tokens,
             f.cost_usd,
             reason=f.reason,
+            compute_seconds=f.compute_seconds,
         )
     for lb in labels:
         rows[lb.input_id] = RecordedLabel(
@@ -88,13 +96,15 @@ def write_label_file(
             lb.input_tokens,
             lb.output_tokens,
             lb.cost_usd,
+            compute_seconds=lb.compute_seconds,
         )
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             for key in sorted(rows):
-                # The unset one of label/reason is left out, so label rows look as they always did.
+                # Unset fields (one of label/reason, the seconds of a remote teacher) are left
+                # out, so Claude and gold rows look as they always did.
                 obj = {k: v for k, v in asdict(rows[key]).items() if v is not None}
                 fh.write(json.dumps(obj, ensure_ascii=False, sort_keys=True) + "\n")
         os.replace(tmp, path)
@@ -177,6 +187,7 @@ class LabelFileTeacher:
                         row.output_tokens,
                         row.cost_usd,
                         cached=True,
+                        compute_seconds=row.compute_seconds,
                     )
                 )
                 continue
@@ -190,6 +201,7 @@ class LabelFileTeacher:
                     output_tokens=row.output_tokens,
                     cost_usd=row.cost_usd,
                     cached=True,
+                    compute_seconds=row.compute_seconds,
                 )
             )
         return batch

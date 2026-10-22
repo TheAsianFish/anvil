@@ -37,6 +37,8 @@ class Settings:
     log_level: str
     serve_threads: int | None = None
     """ONNX Runtime intra-op threads for `anvil serve`; None leaves ONNX Runtime's default."""
+    ollama_url: str = "http://127.0.0.1:11434"
+    """`ANVIL_OLLAMA_URL`: the Ollama server a `provider: ollama` teacher talks to."""
     hf_token: str | None = field(default=None, repr=False)
     """`HF_TOKEN`: write access to the Hugging Face Hub, for `anvil push`."""
 
@@ -55,5 +57,6 @@ class Settings:
             serve_threads=_int(e, "ANVIL_SERVE_THREADS", 1)
             if e.get("ANVIL_SERVE_THREADS")
             else None,
+            ollama_url=(e.get("ANVIL_OLLAMA_URL") or "http://127.0.0.1:11434").rstrip("/"),
             hf_token=e.get("HF_TOKEN") or None,
         )

@@ -11,6 +11,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 
+from anvil.calibrate import softmax
 from eval import calibration
 from eval.calibration import COVERAGE_GRID, METHODS, N_BINS, TARGETS, analyse, curve_at, main
 from eval.render import render_calibration
@@ -204,3 +205,83 @@ def test_find_student_refuses_two_students_without_recorded_settings(tmp_path: P
     save("20260103-new-seed1", student_spec=other)
     save("20260104-new-seed0", student_spec=spec.student.model_dump())
     assert find_student(ws, spec, "gold", 2) == ws.students / "20260104-new-seed0"
+
+
+def _repeat(y: npt.NDArray[np.int64], asked: int, flips: int) -> npt.NDArray[np.int64]:
+    """A second labelling of the first `asked` inputs with every `flips`-th one changed."""
+    repeat = np.full(y.size, -1, dtype=np.int64)
+    repeat[:asked] = y[:asked]
+    repeat[:asked:flips] = (y[:asked:flips] + 1) % K
+    return repeat
+
+
+def test_ceiling_on_accepted_inputs_matches_a_direct_count() -> None:
+    z, y = synthetic()
+    repeat = _repeat(y, 120, 4)
+    t = 1.5
+    out = calibration.ceiling_on_accepted(z, y, repeat, t, {"0.9": 0.6, "0.95": None}, 100, 0)
+    assert out["asked"] == 120
+    conf = softmax(z, t).max(axis=1)
+    by_level = out["by_level"]
+    assert isinstance(by_level, list)
+    assert [row["level"] for row in by_level] == list(COVERAGE_GRID)
+    full = by_level[0]  # level 1.0 accepts every input, so it covers the whole ceiling set
+    assert full["coverage"] == 1.0
+    assert full["n"] == 120
+    expected = calibration._kappa(y[:120], repeat[:120], K)
+    assert full["ceiling"]["kappa"] == pytest.approx(expected)
+    assert full["ceiling"]["low"] <= expected <= full["ceiling"]["high"]
+    for row in by_level:
+        if "ceiling" in row:
+            assert row["n"] >= calibration.MIN_CEILING_ITEMS
+    served = out["served"]
+    assert isinstance(served, dict)
+    assert served["0.95"] is None
+    accepted = conf >= 0.6
+    assert served["0.9"]["n"] == int(accepted[:120].sum())
+    assert served["0.9"]["coverage"] == pytest.approx(float(accepted.mean()))
+
+
+def test_analyse_reports_the_ceiling_only_with_a_second_labelling() -> None:
+    z, y = synthetic()
+    assert "ceiling" not in report()
+    with_repeat = analyse(z, y, 2, 50, seed=0, repeat=_repeat(y, 100, 5))
+    ceiling = section(with_repeat, "ceiling")
+    assert set(section(ceiling, "served")) == {str(t) for t in TARGETS}
+    nobody = analyse(z, y, 2, 50, seed=0, repeat=np.full(N, -1, dtype=np.int64))
+    assert "ceiling" not in nobody
+
+
+def test_render_calibration_shows_the_ceiling_on_accepted_inputs() -> None:
+    z, y = synthetic()
+    r = analyse(z, y, 2, 50, seed=0, repeat=_repeat(y, 100, 5))
+    source = {
+        "dataset": "banking77",
+        "teacher_model": "qwen2.5:3b",
+        "student_model": "tiny",
+        "student_run": "run-1",
+        "teacher_kind": "ollama",
+    }
+    text = render_calibration([("calibration-banking77-qwen2.5-3b", {"source": source, **r}, {})])
+    assert "teacher `qwen2.5:3b`" in text
+    assert "The ceiling on the inputs the cascade answers: of the 100 held-out" in text
+    assert "| top 100.0% | 100.0% | 100 |" in text
+    assert "served at kappa 0.9" in text
+    assert "gold labels" not in text
+
+
+def test_main_from_logits_replays_the_second_labelling(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = {"dataset": "banking77", "teacher_kind": "ollama", "teacher_model": "qwen2.5:3b"}
+    npz = write_logits(tmp_path / "in", source)
+    saved = dict(np.load(npz))
+    _, y = synthetic()
+    saved["repeat"] = _repeat(y, 100, 5)
+    saved["teacher_model"] = np.array("qwen2.5:3b")
+    np.savez_compressed(npz, **saved)
+    monkeypatch.setattr(calibration, "RESULTS_DIR", tmp_path / "results")
+    code = main(["banking77", "--logits", str(npz), "--splits", "2", "--resamples", "20"])
+    assert code == 0
+    out = tmp_path / "results" / "calibration-banking77-qwen2.5-3b-smoke" / "report.json"
+    assert json.loads(out.read_text(encoding="utf-8"))["ceiling"]["asked"] == 100

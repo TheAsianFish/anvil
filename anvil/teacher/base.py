@@ -31,6 +31,9 @@ class Label:
     """Price of producing this label, whether or not this run paid it (see `cached`)."""
     cached: bool = False
     """True when the label came from the disk cache, so this run spent nothing on it."""
+    compute_seconds: float | None = None
+    """Seconds a local teacher's server spent producing this label, whether or not this run
+    spent them; None for a remote teacher, whose compute is billed in dollars instead."""
 
 
 @dataclass(frozen=True)
@@ -48,6 +51,8 @@ class Failure:
     """Price of the failed call, whether or not this run paid it (see `cached`)."""
     cached: bool = False
     """True when the failure was replayed from a recording, so this run spent nothing on it."""
+    compute_seconds: float | None = None
+    """Seconds a local teacher's server spent on the failed call (None for a remote one)."""
 
 
 @dataclass
@@ -67,6 +72,13 @@ class LabelBatch:
         labels and failures were paid for when they were recorded, not now)."""
         return sum(lb.cost_usd for lb in self.labels if not lb.cached) + sum(
             f.cost_usd for f in self.failures if not f.cached
+        )
+
+    @property
+    def compute_seconds(self) -> float:
+        """Local teacher seconds actually spent by this call (replayed answers excluded)."""
+        return sum(lb.compute_seconds or 0.0 for lb in self.labels if not lb.cached) + sum(
+            f.compute_seconds or 0.0 for f in self.failures if not f.cached
         )
 
     @property

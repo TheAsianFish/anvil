@@ -40,9 +40,12 @@ from anvil.teacher.base import BatchAbortedError, Item, LabelBatch, Teacher
 
 log = get_logger(__name__)
 
-TeacherMode = Literal["auto", "claude", "fake", "none"]
+TeacherMode = Literal["auto", "claude", "ollama", "fake", "none"]
 Variant = Literal["fp32", "int8"]
 LATENCY_BUCKETS = (0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0)
+SERVE_TEACHER_TIMEOUT_S = 60.0
+"""How long a request waits on a local teacher before falling back to the student (the Claude
+transport's own timeout is also 60 s)."""
 _REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
 _MAX_ERROR_CHARS = 200
 
@@ -431,6 +434,17 @@ def _teacher_for(
         return FakeTeacher(spec)  # ConfigError without a `fake:` section
     if mode == "claude":
         return build_teacher(spec, settings, provider="claude")
+    if mode == "ollama" or spec.teacher.provider == "ollama":
+        # A student distilled from a local model escalates to that model (`auto` included):
+        # its threshold was calibrated against that teacher's labels, not Claude's.
+        # A request waits on its escalation, so it gets a minute and no retries, not the
+        # labelling defaults (600 s, two retries); a timeout falls back to the student.
+        from anvil.teacher.ollama import HttpOllamaTransport
+
+        transport = HttpOllamaTransport(
+            settings.ollama_url, timeout_s=SERVE_TEACHER_TIMEOUT_S, retries=0
+        )
+        return build_teacher(spec, settings, provider="ollama", ollama=transport)
     try:
         return build_teacher(spec, settings, provider="claude")
     except ConfigError:
@@ -448,8 +462,9 @@ def load_app(
     threads: int | None = None,
     loader: Loader = _load_onnx,
 ) -> FastAPI:
-    """Load an export bundle and serve it. `teacher="auto"` escalates to Claude when
-    credentials are available and disables escalation otherwise. `loader` exists for tests."""
+    """Load an export bundle and serve it. `teacher="auto"` escalates to the bundle's local
+    teacher when its spec names one (`provider: ollama`), else to Claude when credentials are
+    available, and disables escalation otherwise. `loader` exists for tests."""
     if not bundle.is_dir():
         raise ConfigError(f"bundle {bundle} is not a directory; create one with `anvil export`")
     settings = settings or Settings.from_env()

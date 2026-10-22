@@ -137,6 +137,9 @@ uv run anvil loop --budgets 100,200,400 --max-usd 1.00 --strategy random --id fi
 # The parity eval on AG News and Banking77 (downloads the datasets and ModernBERT-base):
 make eval-classify                    # with a key: labels with Claude Haiku once, replays after
 make eval-classify TEACHER=gold       # no key: dataset gold labels as the teacher
+make eval-classify TEACHER=ollama     # no key: qwen2.5:3b as a fallible teacher (replays eval/labels/;
+                                      # labelling anew needs `ollama serve`, ~1.5 h per dataset on CPU)
+make eval-noise                       # the control: the same student on matched synthetic noise (~2 h)
 make eval-frontier TEACHER=gold       # kappa vs labels, 3 seeds x 5 budgets per strategy (CPU, ~2.5 h)
 make eval-select                      # the strategies on synthetic blobs (seconds)
 make eval-extract TEACHER=gold        # span extraction on MIT Restaurant (ModernBERT-base tagger, CPU)
@@ -217,7 +220,7 @@ docker run --rm -p 8000:8000 -v "$PWD/.anvil/ticket-triage/exports/<run>:/model:
 flowchart LR
     I[inputs.jsonl] --> ST[(store.sqlite<br/>inputs, append-only labels,<br/>hash splits)]
     SPEC[anvil.yaml] --> T
-    ST -->|unlabelled batch| T[Teacher<br/>Claude structured outputs<br/>disk cache + cost]
+    ST -->|unlabelled batch| T[Teacher<br/>Claude or a local model via Ollama<br/>structured outputs, disk cache, cost]
     T -->|labels + tokens + $| ST
     ST -->|labelled pool, classify| TR[train/loop.py<br/>AMP, accumulation, warmup,<br/>early stopping, exact resume]
     ST -->|labelled pool, extract| AL[align.py<br/>spans verified vs text,<br/>snapped to tokens, 5% gate]
@@ -245,7 +248,7 @@ flowchart LR
 | Module | Role |
 |---|---|
 | `anvil/spec.py` | Pydantic task spec; the prompt hash keys every label |
-| `anvil/teacher/` | `Teacher` protocol; `ClaudeTeacher` (one structured-output request per input, enum-constrained label, content-addressed disk cache, token and dollar accounting); transports for the live API, recording and replay; `FakeTeacher` for offline runs |
+| `anvil/teacher/` | `Teacher` protocol; `RequestTeacher` (one structured-output request per input, duplicates sent once, content-addressed disk cache, answers decoded against the task's schema) behind `ClaudeTeacher` (token and dollar accounting) and `OllamaTeacher` (a local open model with the same prompt and schema, $0 with the server's seconds recorded, the weights pinned by digest); transports for the live API, recording and replay; `FakeTeacher` for offline runs |
 | `anvil/store.py` | SQLite store: inputs, append-only labels (triggers reject UPDATE and DELETE), held-out membership from a seeded hash of the input text; failed teacher calls kept with their cost |
 | `anvil/students/encoder.py` | Any Hugging Face encoder with a classification head; `tiny` builds a random-init ModernBERT for tests and the demo |
 | `anvil/train/loop.py` | One generic PyTorch loop: seeded batches, gradient accumulation, AMP, warmup + linear decay, clipping, early stopping, per-epoch checkpoints that resume bit for bit |
@@ -255,7 +258,8 @@ flowchart LR
 | `anvil/students/tagger.py`, `anvil/train/tagger.py` | `EncoderTagger`: any encoder with a fast tokenizer and a token-classification head, trained by the same loop with early stopping on validation entity F1 |
 | `eval/extract.py` | `make eval-extract` on MIT Restaurant: gazetteer baseline, ceiling, gold comparison and the alignment stress study |
 | `anvil/teacher/labelfile.py` | Replays recorded labels (or a dataset's gold labels, as model `gold`) offline |
-| `eval/classify.py`, `eval/render.py` | `make eval-classify` and the RESULTS.md renderer |
+| `eval/classify.py`, `eval/render.py` | `make eval-classify` (with `TEACHER=ollama`, a fallible teacher: teacher vs gold, the paired student-minus-teacher interval against gold, what the student does with the teacher's errors) and the RESULTS.md renderer |
+| `eval/noise.py` | `make eval-noise`: the same student on gold, on the local teacher's labels and on gold corrupted at the teacher's error rate (uniformly, or through the teacher's own confusion matrix on random inputs) |
 | `anvil/select.py` | `select_batch(pool, k, strategy, seed)`: `random` (the reference curve); `uncertainty`, `margin` and `diverse` are declared with a contract test suite and not written yet |
 | `anvil/loop.py` | `anvil loop`: rounds of select, label, retrain from scratch, score; label, dollar and target-kappa stops; picks stored before labelling so an interrupted loop resumes to the same rows |
 | `eval/frontier.py`, `eval/select_study.py` | `make eval-frontier` (3 seeds x 5 budgets per strategy) and `make eval-select` (synthetic blobs, logistic student) |
@@ -474,6 +478,30 @@ active-selection and cascade milestones build on. Parity with Claude and the
 teacher's self-agreement ceiling are listed under "To measure" with their
 commands and cost (about $0.35 with Haiku 5.5).
 
+**A fallible teacher (M8).** The same harness, sample and student with a teacher
+that can be wrong: `qwen2.5:3b` served by Ollama on the same CPU (weights pinned
+by digest, labels committed under `eval/labels/` so every later run replays them
+for $0 with no server):
+
+| Dataset | Teacher vs gold | Teacher vs itself (paraphrased prompt) | Student vs teacher | Student vs gold | Student minus teacher vs gold [95% paired CI] |
+|---|---|---|---|---|---|
+| AG News | 0.719 | 0.937 | 0.847 | 0.696 | -0.023 [-0.059, 0.013] |
+| Banking77 | 0.544 | 0.831 | 0.687 | 0.540 | -0.004 [-0.037, 0.030] |
+
+The student does not average its teacher's mistakes away; it learns them.
+It repeats 73% (AG News) and 50% (Banking77) of the teacher's held-out
+errors, and it ends up no closer to gold than the teacher. A parity of 0.847
+looks good, but its student is at 0.696 against the truth, where the same
+student trained on gold labels reaches 0.844. The control shows why. Take gold labels and corrupt them at the teacher's
+exact error count. Spread uniformly, the noise costs a MiniLM student less
+(kappa vs gold 0.811 on AG News, 0.567 on Banking77, against 0.863 and 0.842
+on gold). The teacher's own confusion matrix costs more (0.666, 0.476), and
+the real teacher's labels land with it (0.676, 0.503). The student trained on
+the teacher's labels also repeats more of the teacher's specific held-out
+mistakes than one trained on its confusions placed at random (77% vs 52% on
+AG News), so part of the noise follows the inputs. The teacher's errors are
+systematic, so more labels from it would not fix them (RESULTS.md, M8).
+
 Span extraction on MIT Restaurant (8 slot types, ~9-word queries), the same
 setup with a ModernBERT-base BIO tagger on 1,442 gold-teacher labels, scored
 on 500 held-out sentences with intervals that resample sentences:
@@ -545,11 +573,12 @@ under "To measure" (about $0.11 with Haiku 5.5).
 - [x] M6: Qwen2.5-0.5B LoRA generation student, chat-template alignment, execution-match eval on WikiSQL, merged export, Colab notebook (Claude parity and the judge sample to measure)
 - [x] M7: release readiness: `anvil push` with a rendered model card, PyPI and GHCR release workflow, clean-venv wheel check, RELEASE.md, spend ledger in RESULTS.md
 
-Next, in order of what each would teach (M8-M10 are planned in PLAN.md, evolution round 1):
+Planned in PLAN.md, evolution round 1 (M8 built):
 
-- [ ] M8: the first fallible teacher: `OllamaTeacher` (a local open model, `qwen2.5:3b` in the
+- [x] M8: the first fallible teacher: `OllamaTeacher` (a local open model, `qwen2.5:3b` in the
   harness) so the parity table gets a teacher that can be wrong, with the paraphrase ceiling,
-  teacher-vs-gold and student-vs-gold rows, and a matched synthetic-noise control
+  teacher-vs-gold and student-vs-gold rows, and a matched synthetic-noise control (the
+  student copies the teacher's confusions; see Results)
 - [ ] M9: the cascade off-distribution: the served bundle on Banking77's test split, CLINC150's
   out-of-scope utterances and AG News sentences; max-softmax against max-logit, energy and
   embedding distance as the escalation signal

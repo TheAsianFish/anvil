@@ -10,6 +10,9 @@ sample:
   pool_labels: 2000
   heldout_labels: 500
   seed: 0
+ollama:  # `--teacher ollama`: the local teacher, pinned to the weights it labelled with
+  model: qwen2.5:3b
+  digest: 357c53fb659c5076de1d65ccb0b397446227b71a42be9d1603d46168015c9e4b
 ceiling:
   n: 200
   instructions: |

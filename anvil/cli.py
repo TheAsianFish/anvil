@@ -31,6 +31,7 @@ app = typer.Typer(
 
 class TeacherChoice(StrEnum):
     claude = "claude"
+    ollama = "ollama"
     fake = "fake"
 
 
@@ -422,6 +423,7 @@ def export_cmd(
 class ServeTeacher(StrEnum):
     auto = "auto"
     claude = "claude"
+    ollama = "ollama"
     fake = "fake"
     none = "none"
 
@@ -443,7 +445,10 @@ def serve_cmd(
     ] = None,
     teacher: Annotated[
         ServeTeacher,
-        typer.Option(help="Escalation teacher; auto uses Claude when credentials exist."),
+        typer.Option(
+            help="Escalation teacher; auto uses the spec's local model when it names one,"
+            " else Claude when credentials exist."
+        ),
     ] = ServeTeacher.auto,
 ) -> None:
     """Serve a student over HTTP, escalating inputs it is unsure of to the teacher."""

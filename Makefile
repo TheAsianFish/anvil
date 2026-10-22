@@ -1,5 +1,5 @@
 .PHONY: help sync check fmt lint typecheck test test-live record demo wheel-check docker spike-onnx \
-	eval-classify eval-extract eval-generate eval-select eval-frontier eval-calibration eval-export bench \
+	eval-classify eval-extract eval-generate eval-select eval-frontier eval-calibration eval-export eval-noise bench \
 	results clean
 
 UV ?= uv
@@ -45,7 +45,7 @@ docker: ## build the CLI image and the torch-free serving image
 	docker build --target serve -t anvil-serve:dev .
 
 TEACHER ?= auto
-eval-classify: ## M2 parity on AG News and Banking77 (TEACHER=auto|claude|replay|gold), then RESULTS.md
+eval-classify: ## M2/M8 parity on AG News and Banking77 (TEACHER=auto|claude|ollama|replay|gold), then RESULTS.md
 	$(RUN) --group eval python -m eval.classify ag_news banking77 --teacher $(TEACHER)
 	$(RUN) python -m eval.render
 
@@ -65,12 +65,16 @@ eval-frontier: ## M3 kappa vs teacher labels per strategy, 3 seeds x 5 budgets (
 	$(RUN) --group eval python -m eval.frontier --teacher $(TEACHER)
 	$(RUN) python -m eval.render
 
-eval-calibration: ## M5 temperature, ECE and coverage at target kappa on the M2 students (TEACHER=...), then RESULTS.md
+eval-calibration: ## M5 temperature, ECE and coverage at target kappa on the eval-classify students (TEACHER=...), then RESULTS.md
 	$(RUN) --group eval python -m eval.calibration --teacher $(TEACHER)
 	$(RUN) python -m eval.render
 
 eval-export: ## M5 ONNX fp32/int8 parity and the int8 layer probe on the M2 students, then RESULTS.md
 	$(RUN) --group eval python -m eval.export --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+eval-noise: ## M8 control: MiniLM on gold, on the local teacher's labels and on matched synthetic noise (3 seeds), then RESULTS.md
+	$(RUN) --group eval python -m eval.noise
 	$(RUN) python -m eval.render
 
 bench: ## M5 latency, throughput and $ per 1k: PyTorch vs ONNX vs the HTTP server (after eval-export)

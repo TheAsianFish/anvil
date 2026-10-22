@@ -2,10 +2,12 @@
 
 Every number here was produced by a command in CONTRIBUTING.md and its raw output is committed
 under `eval/results/`. Anything not yet run is listed under "To measure" with its command and a
-cost estimate. No evaluation so far has called a real teacher: there is no API key in the build
-environment yet, so the M2 classification runs use each dataset's gold labels as the teacher
-(model id `gold`). They measure the training loop, the student and the statistics on real data;
-they are not parity-with-Claude numbers, which are listed under "To measure".
+cost estimate. No evaluation so far has called Claude: there is no API key in the build
+environment yet. Most runs use each dataset's gold labels as the teacher (model id `gold`); they
+measure the training loop, the student and the statistics on real data, not parity with Claude,
+which is listed under "To measure". The M8 runs (model id `qwen2.5:3b`) use a real but fallible
+teacher, a 3B open model served by Ollama on the same CPU, whose labels are committed under
+`eval/labels/` and replay for free.
 
 ## Spend
 
@@ -17,20 +19,26 @@ directory under `eval/results/`.
 |---|---|---|---|---|---|---|
 | `bench-banking77-gold` | bench | gold | `python -m eval.bench --teacher gold` | `d0cfa4c` | 19m 27s | $0.00 |
 | `calibration-ag_news-gold` | eval-calibration | gold | `python -m eval.calibration --teacher gold` | `b127db2` | 2m 02s | $0.00 |
+| `calibration-ag_news-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration --teacher ollama` | `ef873d0` | 1m 45s | $0.00 |
 | `calibration-banking77-gold` | eval-calibration | gold | `python -m eval.calibration --teacher gold` | `b127db2` | 0m 58s | $0.00 |
+| `calibration-banking77-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration --teacher ollama` | `ef873d0` | 0m 58s | $0.00 |
 | `classify-ag_news-gold` | eval-classify | gold | `python -m eval.classify ag_news banking77 --teacher gold` | `74cca5e` | 36m 10s | $0.00 |
 | `classify-ag_news-gold-seed1` | eval-classify | gold | `python -m eval.classify ag_news --teacher gold --seed 1` | `1c900f7` | 47m 59s | $0.00 |
+| `classify-ag_news-qwen2.5-3b` | eval-classify | qwen2.5:3b | `python -m eval.classify ag_news banking77 --teacher ollama` | `e25575f` | 41m 06s | $0.00 |
 | `classify-banking77-gold` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold` | `d4f4016` | 56m 31s | $0.00 |
 | `classify-banking77-gold-seed1` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold --seed 1` | `7c205b0` | 45m 20s | $0.00 |
+| `classify-banking77-qwen2.5-3b` | eval-classify | qwen2.5:3b | `python -m eval.classify ag_news banking77 --teacher ollama` | `e25575f` | 1h 07m 55s | $0.00 |
 | `export-ag_news-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 47m 30s | $0.00 |
 | `export-banking77-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 1h 03m 02s | $0.00 |
 | `extract-mit_restaurant-gold` | eval-extract | gold | `python -m eval.extract mit_restaurant --teacher gold` | `7dace8b` (uncommitted changes) | 15m 01s | $0.00 |
 | `frontier-ag_news-gold` | eval-frontier | gold | `python -m eval.frontier --teacher gold` | `f929d74` | 1h 27m 18s | $0.00 |
 | `frontier-banking77-gold` | eval-frontier | gold | `python -m eval.frontier banking77 --teacher gold` | `278462c` | 27m 58s | $0.00 |
 | `generate-wikisql-gold` | eval-generate | gold | `python -m eval.generate wikisql --teacher gold` | `795cc7d` | 1h 43m 21s | $0.00 |
+| `noise-ag_news-qwen2.5-3b` | eval-noise | qwen2.5:3b | `python -m eval.noise ` | `e25575f` | 1h 17m 14s | $0.00 |
+| `noise-banking77-qwen2.5-3b` | eval-noise | qwen2.5:3b | `python -m eval.noise ` | `e25575f` | 1h 11m 30s | $0.00 |
 | `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
 | `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
-| **Total (15 runs)** | | | | | 9h 18m 10s | $0.00 |
+| **Total (21 runs)** | | | | | 13h 38m 36s | $0.00 |
 
 Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
 <!-- END generated:ledger -->
@@ -85,7 +93,9 @@ Findings so far (from the table below):
 | Dataset | Teacher | Student | Teacher labels | Held-out | Student kappa [95% CI] | Accuracy | Macro F1 | Majority acc. | TF-IDF kappa [95% CI] | Student minus TF-IDF kappa [95% paired CI] | Teacher ceiling kappa | Label cost | Wall time |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|---|
 | ag_news | gold | ModernBERT-base | 2000 | 477 | 0.844 [0.805, 0.882] | 0.883 | 0.882 | 0.260 | 0.835 [0.795, 0.873] | +0.009 [-0.033, 0.054] | n/a | $0.00 | 36 min |
+| ag_news | qwen2.5:3b | ModernBERT-base | 2000 | 477 | 0.847 [0.808, 0.884] | 0.889 | 0.871 | 0.319 | 0.732 [0.684, 0.781] | +0.115 [0.067, 0.166] | 0.937 [0.895, 0.978] | $0.00 | 41 min |
 | banking77 | gold | ModernBERT-base | 2000 | 496 | 0.842 [0.807, 0.873] | 0.845 | 0.814 | 0.024 | 0.662 [0.621, 0.702] | +0.180 [0.141, 0.223] | n/a | $0.00 | 57 min |
+| banking77 | qwen2.5:3b | ModernBERT-base | 2000 | 496 | 0.687 [0.641, 0.726] | 0.694 | 0.614 | 0.036 | 0.499 [0.454, 0.544] | +0.188 [0.145, 0.229] | 0.831 [0.779, 0.882] | $0.00 | 68 min |
 
 #### ag_news, teacher `gold`, student `ModernBERT-base`
 
@@ -100,6 +110,24 @@ Findings so far (from the table below):
 - Agreement by confidence: 0.34-0.67: 0.54 (n=48), 0.68-0.84: 0.75 (n=48), 0.85-0.93: 0.90 (n=48), 0.93-0.96: 0.90 (n=48), 0.96-0.98: 0.88 (n=48), 0.98-0.99: 0.94 (n=48), 0.99-0.99: 0.98 (n=48), 0.99-1.00: 0.96 (n=47), 1.00-1.00: 1.00 (n=47), 1.00-1.00: 1.00 (n=47)
 - Agreement by length (words): 14-31: 0.85 (n=120), 32-37: 0.89 (n=119), 37-43: 0.92 (n=119), 43-107: 0.87 (n=119)
 
+#### ag_news, teacher `qwen2.5:3b`, student `ModernBERT-base`
+
+- Raw output: `eval/results/classify-ag_news-qwen2.5-3b/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
+- Command: `python -m eval.classify ag_news banking77 --teacher ollama` at `e25575f`; seed 0, 1000 bootstrap resamples; 4 CPUs; wall 2466 s; spent $0.0000
+- Data: fancyzhx/ag_news@eb185aa (AG's corpus, used under its academic terms (http://groups.di.unipi.it/~gulli/AG_corpus_of_news_articles.html)), 2500 inputs sampled (seed 0, sha256 3cf708037e01)
+- Training: 1806 examples and 194 held back to pick the epoch, out of 2000 teacher labels; 3 epochs, 339 steps, best epoch 1, 2319 s
+- Near-duplicates: 3 of 477 held-out inputs share at least 80% of their words with a labelled pool input (identical texts never straddle the split; these are the ones a hash cannot catch)
+- Teacher: `qwen2.5:3b` through Ollama, weights sha256 `357c53fb659c` (pinned in the eval config); 2477 labels took 1.81 h of server time (median 2.58 s per label), the ceiling's second pass 9 min more, $0
+- Against gold: teacher 0.719 [0.672, 0.764], student 0.696 [0.645, 0.743]
+- Student minus teacher, agreement with gold on the same 477 inputs (paired bootstrap): kappa -0.023 [-0.059, 0.013], accuracy -0.017 [-0.044, 0.010]
+- On the 101 held-out inputs the teacher got wrong, the student gave the teacher's label on 74 (73%), the gold label on 18 (18%) and another on 9 (9%); on the 376 it got right, the student is wrong on 26 (7%)
+- The teacher's top confusions (gold -> teacher label: how often the teacher / the student makes it): `sci_tech` -> `business` 59 / 55, `business` -> `world` 12 / 21, `sci_tech` -> `world` 9 / 16, `world` -> `sports` 6 / 5, `business` -> `sci_tech` 4 / 2, `sci_tech` -> `sports` 4 / 3
+- On the ceiling's 200 inputs: teacher vs itself 0.937 [0.895, 0.978], student vs teacher 0.861 [0.799, 0.916]; the student agrees with the teacher on 90.6% of 191 inputs where the teacher repeated its label and on 77.8% of 9 where it did not
+- Weakest classes with at least 5 held-out items (F1 vs teacher, support): `sci_tech` 0.75 (59), `business` 0.88 (152), `world` 0.89 (138), `sports` 0.96 (128)
+- Top confusions (teacher -> student): `business` -> `world` 15, `sci_tech` -> `business` 8, `business` -> `sci_tech` 7, `sci_tech` -> `world` 7, `sports` -> `world` 5
+- Agreement by confidence: 0.31-0.58: 0.52 (n=48), 0.58-0.77: 0.71 (n=48), 0.77-0.90: 0.79 (n=48), 0.90-0.97: 0.92 (n=48), 0.97-0.99: 0.98 (n=48), 0.99-1.00: 0.98 (n=48), 1.00-1.00: 1.00 (n=48), 1.00-1.00: 1.00 (n=47), 1.00-1.00: 1.00 (n=47), 1.00-1.00: 1.00 (n=47)
+- Agreement by length (words): 14-31: 0.87 (n=120), 32-37: 0.86 (n=119), 37-43: 0.91 (n=119), 43-107: 0.92 (n=119)
+
 #### banking77, teacher `gold`, student `ModernBERT-base`
 
 - Raw output: `eval/results/classify-banking77-gold/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
@@ -112,6 +140,24 @@ Findings so far (from the table below):
 - Top confusions (teacher -> student): `card_not_working` -> `declined_card_payment` 3, `transfer_timing` -> `pending_transfer` 3, `card_delivery_estimate` -> `card_arrival` 2, `card_swallowed` -> `lost_or_stolen_card` 2, `compromised_card` -> `card_payment_not_recognised` 2
 - Agreement by confidence: 0.19-0.56: 0.40 (n=50), 0.57-0.78: 0.60 (n=50), 0.78-0.93: 0.64 (n=50), 0.93-0.98: 0.88 (n=50), 0.98-0.99: 0.98 (n=50), 0.99-1.00: 0.98 (n=50), 1.00-1.00: 0.98 (n=49), 1.00-1.00: 1.00 (n=49), 1.00-1.00: 1.00 (n=49), 1.00-1.00: 1.00 (n=49)
 - Agreement by length (words): 4-7: 0.86 (n=124), 7-10: 0.89 (n=124), 10-13: 0.78 (n=124), 13-53: 0.85 (n=124)
+
+#### banking77, teacher `qwen2.5:3b`, student `ModernBERT-base`
+
+- Raw output: `eval/results/classify-banking77-qwen2.5-3b/` (`report.json`, `meta.json`, `train-metrics.jsonl`)
+- Command: `python -m eval.classify ag_news banking77 --teacher ollama` at `e25575f`; seed 0, 1000 bootstrap resamples; 4 CPUs; wall 4075 s; spent $0.0000
+- Data: legacy-datasets/banking77@f541215 (CC-BY-4.0 (Casanueva et al., 2020, PolyAI)), 2500 inputs sampled (seed 0, sha256 2aeaf7290b43)
+- Training: 1809 examples and 191 held back to pick the epoch, out of 2000 teacher labels; 9 epochs, 1026 steps, best epoch 7, 3990 s
+- Near-duplicates: 17 of 496 held-out inputs share at least 80% of their words with a labelled pool input (identical texts never straddle the split; these are the ones a hash cannot catch)
+- Teacher: `qwen2.5:3b` through Ollama, weights sha256 `357c53fb659c` (pinned in the eval config); 2496 labels took 1.26 h of server time (median 1.70 s per label), the ceiling's second pass 6 min more, $0
+- Against gold: teacher 0.544 [0.501, 0.586], student 0.540 [0.497, 0.586]
+- Student minus teacher, agreement with gold on the same 496 inputs (paired bootstrap): kappa -0.004 [-0.037, 0.030], accuracy -0.004 [-0.036, 0.030]
+- On the 223 held-out inputs the teacher got wrong, the student gave the teacher's label on 112 (50%), the gold label on 39 (17%) and another on 72 (32%); on the 273 it got right, the student is wrong on 41 (15%)
+- The teacher's top confusions (gold -> teacher label: how often the teacher / the student makes it): `card_payment_wrong_exchange_rate` -> `wrong_exchange_rate_for_cash_withdrawal` 9 / 10, `card_payment_fee_charged` -> `extra_charge_on_statement` 6 / 3, `get_physical_card` -> `passcode_forgotten` 6 / 4, `order_physical_card` -> `get_physical_card` 6 / 6, `balance_not_updated_after_bank_transfer` -> `transfer_not_received_by_recipient` 5 / 4, `card_arrival` -> `card_delivery_estimate` 5 / 5
+- On the ceiling's 200 inputs: teacher vs itself 0.831 [0.779, 0.882], student vs teacher 0.667 [0.600, 0.733]; the student agrees with the teacher on 74.9% of 167 inputs where the teacher repeated its label and on 30.3% of 33 where it did not
+- Weakest classes with at least 5 held-out items (F1 vs teacher, support): `card_acceptance` 0.22 (5), `refund_not_showing_up` 0.36 (7), `supported_cards_and_currencies` 0.38 (9), `reverted_card_payment` 0.40 (5), `pending_transfer` 0.45 (10)
+- Top confusions (teacher -> student): `card_not_working` -> `card_delivery_estimate` 3, `extra_charge_on_statement` -> `top_up_by_card_charge` 3, `get_disposable_virtual_card` -> `get_physical_card` 3, `apple_pay_or_google_pay` -> `top_up_by_card_charge` 2, `card_arrival` -> `card_about_to_expire` 2
+- Agreement by confidence: 0.16-0.49: 0.24 (n=50), 0.49-0.69: 0.48 (n=50), 0.70-0.80: 0.62 (n=50), 0.81-0.91: 0.50 (n=50), 0.91-0.97: 0.68 (n=50), 0.97-0.99: 0.84 (n=50), 0.99-1.00: 0.78 (n=49), 1.00-1.00: 0.92 (n=49), 1.00-1.00: 0.90 (n=49), 1.00-1.00: 1.00 (n=49)
+- Agreement by length (words): 4-7: 0.72 (n=124), 7-10: 0.70 (n=124), 10-13: 0.71 (n=124), 13-53: 0.65 (n=124)
 <!-- END generated:classify -->
 
 Training-seed spread (only the student seed changes: weight init, data order, validation slice):
@@ -122,6 +168,126 @@ Training-seed spread (only the student seed changes: weight init, data order, va
 | ag_news | gold | ModernBERT-base | 2 | 0: 0.844, 1: 0.896 | 0.870 | 0.053 | 0.073 |
 | banking77 | gold | ModernBERT-base | 2 | 0: 0.842, 1: 0.842 | 0.842 | 0.000 | 0.067 |
 <!-- END generated:classify-seeds -->
+
+### The first fallible teacher: a local model on AG News and Banking77 (M8)
+
+The same harness, sample, split and ModernBERT-base student as the table above, with the
+teacher swapped for `qwen2.5:3b` served by Ollama on the same CPU (`make eval-classify
+TEACHER=ollama`). Unlike gold, this teacher can be wrong, so each row puts the student's
+agreement with it next to the teacher's own agreement with gold and with itself.
+
+<!-- BEGIN generated:classify-teacher -->
+| Dataset | Teacher | Student | Teacher vs gold | Teacher vs itself (ceiling) | Student vs teacher | Student vs teacher, ceiling inputs | Student vs gold | Student minus teacher vs gold [95% paired CI] | Same student on gold labels |
+|---|---|---|---|---|---|---|---|---|---|
+| ag_news | qwen2.5:3b | ModernBERT-base | 0.719 [0.672, 0.764] | 0.937 [0.895, 0.978] | 0.847 [0.808, 0.884] | 0.861 [0.799, 0.916] | 0.696 [0.645, 0.743] | -0.023 [-0.059, 0.013] | 0.844 [0.805, 0.882] |
+| banking77 | qwen2.5:3b | ModernBERT-base | 0.544 [0.501, 0.586] | 0.831 [0.779, 0.882] | 0.687 [0.641, 0.726] | 0.667 [0.600, 0.733] | 0.540 [0.497, 0.586] | -0.004 [-0.037, 0.030] | 0.842 [0.807, 0.873] |
+
+All kappas are on the same held-out inputs (the ceiling and its column on the first 200 of them, which the teacher labelled under two prompts). "Same student on gold labels" is the gold-teacher run of the table above: the same sample, split and student trained on clean labels.
+<!-- END generated:classify-teacher -->
+
+Findings (each per-run block under the M2 table above holds the full detail):
+
+- **The student did not beat its teacher.** The question was whether training averages a
+  fallible teacher's mistakes away, as it would random label noise. It did not on either
+  dataset. Student minus teacher, kappa with gold on the same inputs (paired bootstrap):
+  -0.023 [-0.059, 0.013] on AG News and -0.004 [-0.037, 0.030] on Banking77. The plan
+  expected at least +0.05 on AG News; that is refuted.
+- **It copies the teacher's mistakes.** Of the teacher's held-out errors, the student repeats
+  74 of 101 (73%) on AG News and 112 of 223 (50%) on Banking77; it recovers the gold label on
+  18% and 17%. One confusion dominates AG News: the teacher labels 59 `sci_tech` stories
+  `business` (stories about technology companies), and the student says `business` on 47 of
+  those 59 (55 `sci_tech` stories in all).
+- **Parity stays under the ceiling, and far from the truth.** Student vs teacher on the
+  ceiling's 200 inputs (point estimates; on AG News the two intervals overlap): 0.861 against the teacher's self-agreement of 0.937 on AG News, 0.667
+  against 0.831 on Banking77. The same ModernBERT trained on gold reaches 0.844 and 0.842
+  against gold. Trained on this teacher it reaches 0.696 and 0.540: the teacher's error is
+  inherited almost whole, and a parity number alone (0.847 on AG News) would hide that.
+- **Where the teacher repeats itself, the student follows it.** On Banking77 the student
+  agrees with the teacher on 74.9% of the 167 ceiling inputs where the teacher gave the same
+  label under both prompts, and on 30.3% of the 33 where it did not. Disagreement is far more
+  likely where the teacher is unstable (70% against 25%), but those inputs are few: 42 of the
+  65 disagreements on the ceiling inputs are on inputs where the teacher repeated itself.
+- The control below tests whether the inherited errors come from the confusions themselves
+  or from random noise.
+
+### Noise control: what kind of noise is the local teacher's? (M8)
+
+`make eval-noise`: the frontier's MiniLM-L6 student trained on the same 2,000 pool inputs
+four ways per seed (gold; the teacher's labels; gold with as many labels wrong as the teacher
+got wrong, moved uniformly; gold with the teacher's own confusion matrix dealt to random
+inputs of each class), each scored against gold on the same held-out inputs.
+
+<!-- BEGIN generated:noise -->
+#### ag_news, teacher `qwen2.5:3b`, student `all-MiniLM-L6-v2`
+
+- Raw output: `eval/results/noise-ag_news-qwen2.5-3b/` (`report.json` with every run's held-out predictions, `meta.json`)
+- Command: `python -m eval.noise ` at `e25575f`; seeds 0, 1, 2; 4 CPUs; wall 1h 17m 14s; $0
+- Training labels: 2000 pool inputs; the teacher got 476 (24%) wrong (kappa with gold 0.683 [0.660, 0.706]), so each corrupted set has exactly that many wrong labels
+- Scored on 477 held-out inputs, where the teacher's own kappa with gold is 0.719 [0.672, 0.764]
+
+| Trained on | Student vs gold kappa, mean (range) | Student vs teacher kappa | Teacher's held-out errors the student repeats |
+|---|---|---|---|
+| gold labels | 0.863 (0.857-0.869) | 0.722 (0.715-0.730) | 22 (19-25)% |
+| the teacher's labels | 0.676 (0.655-0.688) | 0.839 (0.820-0.858) | 77 (75-79)% |
+| gold with uniform noise | 0.811 (0.785-0.826) | 0.685 (0.659-0.703) | 23 (20-25)% |
+| gold with the teacher's confusions | 0.666 (0.644-0.678) | 0.700 (0.674-0.718) | 52 (50-54)% |
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold with uniform noise (paired bootstrap, per seed): seed 0 -0.130 [-0.190, -0.070], seed 1 -0.141 [-0.192, -0.087], seed 2 -0.133 [-0.182, -0.082]
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold with the teacher's confusions (paired bootstrap, per seed): seed 0 -0.023 [-0.072, 0.024], seed 1 +0.010 [-0.034, 0.057], seed 2 +0.044 [-0.006, 0.102]
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold labels (paired bootstrap, per seed): seed 0 -0.208 [-0.263, -0.155], seed 1 -0.183 [-0.232, -0.134], seed 2 -0.169 [-0.216, -0.121]
+
+#### banking77, teacher `qwen2.5:3b`, student `all-MiniLM-L6-v2`
+
+- Raw output: `eval/results/noise-banking77-qwen2.5-3b/` (`report.json` with every run's held-out predictions, `meta.json`)
+- Command: `python -m eval.noise ` at `e25575f`; seeds 0, 1, 2; 4 CPUs; wall 1h 11m 30s; $0
+- Training labels: 2000 pool inputs; the teacher got 868 (43%) wrong (kappa with gold 0.560 [0.539, 0.582]), so each corrupted set has exactly that many wrong labels
+- Scored on 496 held-out inputs, where the teacher's own kappa with gold is 0.544 [0.501, 0.586]
+
+| Trained on | Student vs gold kappa, mean (range) | Student vs teacher kappa | Teacher's held-out errors the student repeats |
+|---|---|---|---|
+| gold labels | 0.842 (0.830-0.848) | 0.498 (0.485-0.505) | 3 (3-4)% |
+| the teacher's labels | 0.503 (0.501-0.509) | 0.684 (0.680-0.687) | 55 (54-55)% |
+| gold with uniform noise | 0.567 (0.554-0.576) | 0.388 (0.371-0.406) | 9 (7-11)% |
+| gold with the teacher's confusions | 0.476 (0.468-0.484) | 0.561 (0.540-0.579) | 39 (35-44)% |
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold with uniform noise (paired bootstrap, per seed): seed 0 -0.070 [-0.125, -0.015], seed 1 -0.076 [-0.129, -0.022], seed 2 -0.045 [-0.101, 0.009]
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold with the teacher's confusions (paired bootstrap, per seed): seed 0 +0.016 [-0.015, 0.049], seed 1 +0.033 [-0.002, 0.072], seed 2 +0.033 [-0.000, 0.067]
+
+- Kappa with gold, the student trained on the teacher's labels minus the one trained on gold labels (paired bootstrap, per seed): seed 0 -0.346 [-0.391, -0.299], seed 1 -0.348 [-0.395, -0.299], seed 2 -0.321 [-0.370, -0.274]
+<!-- END generated:noise -->
+
+Findings:
+
+- **The local teacher's noise costs what its confusions cost, not what random noise costs.**
+  At the teacher's exact error count, uniform noise costs the student little on AG News
+  (0.811 against 0.863 for gold, 24% of labels wrong) and 0.28 of kappa on Banking77 (0.567
+  against 0.842, 43% wrong). The teacher's own labels cost more: 0.676 and 0.503. Teacher
+  minus uniform is negative on all six seeds, and its paired interval excludes 0 on five of
+  them (-0.130 to -0.141 on AG News).
+- **On kappa with gold, the teacher's labels and its confusion matrix cannot be told apart.**
+  The same confusions dealt to random inputs of each class score 0.666 and 0.476, within a
+  few hundredths of the real teacher's labels. Teacher minus pair ranges from -0.023 to
+  +0.044, and every paired interval includes 0 (Banking77's seed 2 only just). That is
+  consistent with the confusion matrix carrying the cost, not proof of it. Keeping each
+  class's error count also means the pair condition puts many of its errors where the teacher
+  put its own, which pulls the two together.
+- **But part of the teacher's noise is tied to the inputs.** The student trained on the
+  teacher's labels repeats 77% (AG News) and 55% (Banking77) of the teacher's held-out
+  mistakes, against 52% and 39% for the one trained on the same confusions placed at random,
+  with no overlap between the seed ranges. A class-level confusion cannot teach a student
+  which unseen inputs to get wrong; the teacher's own labels do, because it mislabels the same
+  kind of input the same way (AG News's stories about technology companies filed as
+  `business`). The ModernBERT student above copying 73% of the errors is consistent with this,
+  though the control ran on MiniLM.
+- **Some of the teacher's errors are not clear-cut.** On AG News, the student trained on
+  *gold* still makes the teacher's mistake on 22% of the teacher's held-out errors (3% on
+  Banking77). Those inputs sit near a class boundary, where the teacher and the student
+  trained on gold disagree with the gold label in the same way.
+- The control's wall times include contention: it shared the 4 cores with the ModernBERT
+  training of the table above.
 
 ### Label-count frontier: AG News and Banking77 (M3)
 
@@ -391,9 +557,11 @@ Findings:
 | Dataset | Teacher | Student | Held-out | Kappa (all inputs) | Temperature | ECE before -> after (all) | ECE before -> after (unseen half, median) | Coverage at kappa 0.9 | Coverage at kappa 0.95 |
 |---|---|---|---|---|---|---|---|---|---|
 | ag_news | gold | ModernBERT-base | 477 | 0.844 | 1.22 | 0.035 -> 0.031 | 0.051 -> 0.047 | 75.7% | 41.9% |
+| ag_news | qwen2.5:3b | ModernBERT-base | 477 | 0.847 | 1.01 | 0.038 -> 0.040 | 0.046 -> 0.048 | 84.5% | 74.6% |
 | banking77 | gold | ModernBERT-base | 496 | 0.842 | 1.24 | 0.062 -> 0.043 | 0.070 -> 0.054 | 82.3% | 70.8% |
+| banking77 | qwen2.5:3b | ModernBERT-base | 496 | 0.687 | 1.60 | 0.160 -> 0.079 | 0.165 -> 0.091 | 31.9% | 13.3% |
 
-#### ag_news: does the threshold hold on inputs it was not chosen on?
+#### ag_news, teacher `gold`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-ag_news-gold/` (`report.json`, `meta.json`, `logits.npz`)
 - Command: `python -m eval.calibration --teacher gold` at `b127db2`; student run `20261020-012041-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 122 s; spent $0.00
@@ -424,7 +592,52 @@ Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the casc
 
 The teacher here is the dataset's gold labels (no API key in this run): this measures the student's confidence against clean labels, not against Claude.
 
-#### banking77: does the threshold hold on inputs it was not chosen on?
+#### ag_news, teacher `qwen2.5:3b`: does the threshold hold on inputs it was not chosen on?
+
+- Raw output: `eval/results/calibration-ag_news-qwen2.5-3b/` (`report.json`, `meta.json`, `logits.npz`)
+- Command: `python -m eval.calibration --teacher ollama` at `ef873d0`; student run `20261022-000137-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 105 s; spent $0.00
+- Fitted temperature over the splits: 0.99 [0.87, 1.10]
+
+| Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
+|---|---|---|---|---|---|---|
+| 0.9 | point estimate, calibrated | 100.0% | 42.0% | 91.6% [84.9%, 96.7%] | 0.893 [0.846, 0.945] | 0.903 [0.854, 0.954] |
+| 0.9 | 95% lower bound, calibrated | 100.0% | 81.0% | 81.2% [74.5%, 90.0%] | 0.933 [0.880, 0.976] | 0.948 [0.896, 0.983] |
+| 0.9 | point estimate, uncalibrated | 100.0% | 42.0% | 91.6% [84.5%, 96.7%] | 0.893 [0.851, 0.945] | 0.903 [0.857, 0.954] |
+| 0.95 | point estimate, calibrated | 100.0% | 49.0% | 77.8% [72.8%, 85.8%] | 0.946 [0.895, 0.984] | 0.960 [0.914, 0.988] |
+| 0.95 | 95% lower bound, calibrated | 100.0% | 80.0% | 69.5% [60.2%, 78.2%] | 0.973 [0.929, 1.000] | 0.983 [0.948, 1.000] |
+| 0.95 | point estimate, uncalibrated | 100.0% | 47.0% | 77.8% [73.2%, 85.4%] | 0.946 [0.896, 0.984] | 0.960 [0.914, 0.988] |
+
+Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
+
+| Coverage | Threshold | Kappa on answered | Agreement on answered | Cascade kappa |
+|---|---|---|---|---|
+| 100.0% | 0.313 | 0.847 | 0.889 | 0.847 |
+| 95.0% | 0.500 | 0.881 | 0.914 | 0.888 |
+| 89.9% | 0.581 | 0.903 | 0.930 | 0.914 |
+| 84.9% | 0.676 | 0.923 | 0.946 | 0.937 |
+| 79.9% | 0.769 | 0.939 | 0.958 | 0.954 |
+| 74.8% | 0.837 | 0.968 | 0.978 | 0.977 |
+| 69.8% | 0.897 | 0.974 | 0.982 | 0.983 |
+| 60.0% | 0.965 | 0.989 | 0.993 | 0.994 |
+| 49.9% | 0.990 | 0.993 | 0.996 | 0.997 |
+
+The ceiling on the inputs the cascade answers: of the 200 held-out inputs the teacher labelled under both prompts, those whose calibrated confidence clears each threshold, with the teacher's agreement with itself and the student's agreement with the teacher on the same inputs:
+
+| Threshold | Coverage (all held-out) | Ceiling items | Teacher self-agreement kappa [95% CI] | Student vs teacher kappa [95% CI] |
+|---|---|---|---|---|
+| top 100.0% | 100.0% | 200 | 0.937 [0.894, 0.972] | 0.861 [0.803, 0.917] |
+| top 95.0% | 95.0% | 187 | 0.940 [0.898, 0.977] | 0.903 [0.851, 0.948] |
+| top 90.0% | 89.9% | 178 | 0.952 [0.910, 0.984] | 0.913 [0.864, 0.960] |
+| top 85.0% | 84.9% | 169 | 0.966 [0.931, 0.992] | 0.932 [0.888, 0.974] |
+| top 80.0% | 80.1% | 163 | 0.965 [0.923, 0.991] | 0.947 [0.903, 0.982] |
+| top 75.0% | 75.1% | 154 | 0.972 [0.935, 1.000] | 0.962 [0.924, 0.991] |
+| top 70.0% | 70.0% | 147 | 0.970 [0.938, 1.000] | 0.970 [0.931, 1.000] |
+| top 60.0% | 60.0% | 124 | 0.988 [0.962, 1.000] | 0.988 [0.962, 1.000] |
+| top 50.0% | 49.9% | 101 | 0.984 [0.949, 1.000] | 0.984 [0.949, 1.000] |
+| served at kappa 0.9 | 84.5% | 168 | 0.966 [0.930, 0.992] | 0.940 [0.891, 0.982] |
+| served at kappa 0.95 | 74.6% | 154 | 0.972 [0.935, 1.000] | 0.962 [0.924, 0.991] |
+
+#### banking77, teacher `gold`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-banking77-gold/` (`report.json`, `meta.json`, `logits.npz`)
 - Command: `python -m eval.calibration --teacher gold` at `b127db2`; student run `20261020-001737-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 58 s; spent $0.00
@@ -454,7 +667,72 @@ Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the casc
 | 50.0% | 0.976 | 0.992 | 0.992 | 0.996 |
 
 The teacher here is the dataset's gold labels (no API key in this run): this measures the student's confidence against clean labels, not against Claude.
+
+#### banking77, teacher `qwen2.5:3b`: does the threshold hold on inputs it was not chosen on?
+
+- Raw output: `eval/results/calibration-banking77-qwen2.5-3b/` (`report.json`, `meta.json`, `logits.npz`)
+- Command: `python -m eval.calibration --teacher ollama` at `ef873d0`; student run `20261022-004245-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 58 s; spent $0.00
+- Fitted temperature over the splits: 1.61 [1.53, 1.67]
+
+| Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
+|---|---|---|---|---|---|---|
+| 0.9 | point estimate, calibrated | 99.5% | 39.7% | 39.5% [30.2%, 56.6%] | 0.894 [0.834, 0.960] | 0.959 [0.905, 0.988] |
+| 0.9 | 95% lower bound, calibrated | 75.0% | 82.7% | 29.8% [11.1%, 36.7%] | 0.926 [0.855, 1.000] | 0.979 [0.950, 1.000] |
+| 0.9 | point estimate, uncalibrated | 100.0% | 42.0% | 40.1% [29.8%, 57.7%] | 0.893 [0.824, 0.960] | 0.959 [0.905, 0.988] |
+| 0.95 | point estimate, calibrated | 91.5% | 38.8% | 18.5% [11.3%, 34.6%] | 0.932 [0.893, 1.000] | 0.988 [0.963, 1.000] |
+| 0.95 | 95% lower bound, calibrated | 45.5% | 53.8% | 12.9% [8.1%, 21.0%] | 0.959 [0.891, 1.000] | 0.996 [0.979, 1.000] |
+| 0.95 | point estimate, uncalibrated | 98.0% | 40.3% | 22.6% [13.7%, 34.3%] | 0.942 [0.879, 1.000] | 0.988 [0.962, 1.000] |
+
+Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
+
+| Coverage | Threshold | Kappa on answered | Agreement on answered | Cascade kappa |
+|---|---|---|---|---|
+| 100.0% | 0.085 | 0.687 | 0.694 | 0.687 |
+| 95.0% | 0.202 | 0.718 | 0.724 | 0.732 |
+| 89.9% | 0.282 | 0.739 | 0.744 | 0.765 |
+| 84.9% | 0.371 | 0.757 | 0.762 | 0.794 |
+| 79.8% | 0.433 | 0.765 | 0.770 | 0.813 |
+| 75.0% | 0.484 | 0.783 | 0.788 | 0.837 |
+| 70.0% | 0.533 | 0.799 | 0.804 | 0.860 |
+| 59.9% | 0.664 | 0.851 | 0.855 | 0.911 |
+| 50.0% | 0.768 | 0.876 | 0.879 | 0.938 |
+
+The ceiling on the inputs the cascade answers: of the 200 held-out inputs the teacher labelled under both prompts, those whose calibrated confidence clears each threshold, with the teacher's agreement with itself and the student's agreement with the teacher on the same inputs:
+
+| Threshold | Coverage (all held-out) | Ceiling items | Teacher self-agreement kappa [95% CI] | Student vs teacher kappa [95% CI] |
+|---|---|---|---|---|
+| top 100.0% | 100.0% | 200 | 0.831 [0.774, 0.882] | 0.667 [0.604, 0.732] |
+| top 95.0% | 95.0% | 192 | 0.840 [0.786, 0.887] | 0.696 [0.626, 0.758] |
+| top 90.0% | 89.9% | 180 | 0.863 [0.811, 0.914] | 0.721 [0.652, 0.783] |
+| top 85.0% | 85.1% | 169 | 0.860 [0.805, 0.908] | 0.745 [0.676, 0.811] |
+| top 80.0% | 80.0% | 157 | 0.869 [0.815, 0.921] | 0.758 [0.685, 0.822] |
+| top 75.0% | 75.0% | 144 | 0.879 [0.821, 0.928] | 0.786 [0.713, 0.849] |
+| top 70.0% | 70.0% | 133 | 0.892 [0.836, 0.945] | 0.799 [0.720, 0.868] |
+| top 60.0% | 60.1% | 117 | 0.885 [0.823, 0.938] | 0.868 [0.804, 0.929] |
+| top 50.0% | 50.0% | 101 | 0.898 [0.826, 0.948] | 0.908 [0.836, 0.959] |
+| served at kappa 0.9 | 31.9% | 66 | 0.936 [0.872, 0.984] | 0.952 [0.889, 1.000] |
+| served at kappa 0.95 | 13.3% | 32 | 0.966 [0.894, 1.000] | 0.966 [0.894, 1.000] |
 <!-- END generated:calibration -->
+
+With the local teacher (M8, `make eval-calibration TEACHER=ollama`, on the students of the
+fallible-teacher table): "correct" now means "agrees with `qwen2.5:3b`", which is wrong
+against gold on 21% of AG News and 45% of Banking77 held-out inputs.
+
+- **The plan's prediction failed: a kappa-0.9 threshold exists on Banking77.** The plan
+  expected none, since the teacher's self-agreement over all 200 ceiling inputs is 0.831. The
+  lower-bound rule finds one at 31.9% coverage, because the teacher is more consistent on the
+  inputs the student is sure of. On the 66 ceiling inputs above the served threshold, its
+  self-agreement is 0.936 [0.872, 0.984], and the student's agreement with it is 0.952. The
+  ceiling has to be read on the inputs the cascade answers, not on the whole split.
+- **The rule holds up less well against a noisier teacher.** At kappa 0.9, the lower-bound
+  threshold kept the target on the unseen half in 82.7% of the splits where it found one on
+  Banking77 (it found one in 75.0% of the 200, so 62% of all splits) and 81.0% on AG News, against 90.5% and 87.0% with gold. The
+  point-estimate threshold kept it in 39.7% and 42.0%.
+- **This is consistency with the teacher, not correctness.** Inputs that a confident student
+  and a self-consistent teacher agree on can still be wrong in the same way, like AG News's
+  `sci_tech` stories labelled `business`. A cascade calibrated against a fallible teacher
+  serves the teacher's systematic errors at full confidence. Telling them apart needs gold
+  labels or a better teacher.
 
 ### ONNX export: fp32 and int8 parity on the trained students (M5)
 

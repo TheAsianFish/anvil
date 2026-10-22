@@ -279,7 +279,7 @@ def test_paraphrase_labels_missing_the_subset_are_a_config_error(
     )
     write_label_file(classify.label_file("toy", model, para.prompt_hash), [])
     out = tmp_path / "results" / "classify-toy-haiku"
-    with pytest.raises(ConfigError, match="re-label with --teacher claude"):
+    with pytest.raises(ConfigError, match="re-label with the live teacher"):
         classify.run(config, data, "replay", out, _settings(tmp_path), n_resamples=50)
 
 
@@ -325,7 +325,9 @@ def test_main_sends_override_runs_to_a_smoke_directory(
     calls: list[tuple[Path, object]] = []
     seen: list[EvalConfig] = []
 
-    def fake_run(*args: object, provenance: object = None) -> dict[str, object]:
+    def fake_run(
+        *args: object, provenance: object = None, label_only: bool = False
+    ) -> dict[str, object]:
         out = args[3]
         assert isinstance(out, Path)
         assert isinstance(args[0], EvalConfig)
