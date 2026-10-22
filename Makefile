@@ -1,5 +1,5 @@
 .PHONY: help sync check fmt lint typecheck test test-live record demo wheel-check docker spike-onnx \
-	eval-classify eval-extract eval-generate eval-select eval-frontier eval-calibration eval-export eval-noise eval-shift bench \
+	eval-classify eval-extract eval-generate eval-select eval-frontier eval-calibration eval-export eval-noise eval-shift eval-coverage bench \
 	results clean
 
 UV ?= uv
@@ -79,6 +79,10 @@ eval-noise: ## M8 control: MiniLM on gold, on the local teacher's labels and on 
 
 eval-shift: ## M9 the served Banking77 bundle on its test split, CLINC150 out-of-scope and AG News (TEACHER=gold|auto|...; exports the bundle if missing), then RESULTS.md
 	$(RUN) --group eval python -m eval.shift --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+eval-coverage: ## M10 coverage of the percentile and BCa bounds and of the threshold search (simulation, offline, under a minute), then RESULTS.md
+	$(RUN) python -m eval.coverage
 	$(RUN) python -m eval.render
 
 bench: ## M5 latency, throughput and $ per 1k: PyTorch vs ONNX vs the HTTP server (after eval-export)

@@ -975,9 +975,17 @@ def _commit(meta: Mapping[str, Any]) -> str:
     return f"`{sha}`" + (" (uncommitted changes)" if meta.get("git_dirty") else "") if sha else "?"
 
 
+_RULE_NAMES = {
+    "point": "point estimate",
+    "lower": "95% percentile lower bound",
+    "bca": "95% BCa lower bound",
+}
+
+
 _METHOD_NAMES = {
     "point": "point estimate, calibrated",
-    "lower": "95% lower bound, calibrated",
+    "lower": "95% percentile lower bound, calibrated",
+    "bca": "95% BCa lower bound, calibrated",
     "point-raw": "point estimate, uncalibrated",
 }
 
@@ -1030,6 +1038,24 @@ def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
                     f" | {_pct(m.get('met'))} | {_qpct(m.get('coverage'))} | {_q(m.get('kappa'))}"
                     f" | {_q(m.get('system_kappa'))} |"
                 )
+        if r.get("by_rule"):
+            out += [
+                "",
+                "Threshold each rule serves on all held-out inputs:",
+                "",
+                "| Target kappa | Rule | Threshold | Coverage | Kappa on answered | Lower bound |",
+                "|---|---|---|---|---|---|",
+            ]
+            for rule, rule_name in _RULE_NAMES.items():
+                for target, row in (r["by_rule"].get(rule) or {}).items():
+                    row = row or {}
+                    threshold = row.get("threshold")
+                    out.append(
+                        f"| {target} | {rule_name}"
+                        f" | {'none' if threshold is None else _f(threshold)}"
+                        f" | {_pct(row.get('coverage'))} | {_f(row.get('kappa'))}"
+                        f" | {_f(row.get('kappa_low'))} |"
+                    )
         out += [
             "",
             "Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade"
@@ -1051,6 +1077,94 @@ def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
                 " measures the student's confidence against clean labels, not against Claude.",
             ]
         out.append("")
+    return "\n".join(out)
+
+
+def _rate(count: int, total: int) -> str:
+    return f"{100 * count / total:.1f}%" if total else "n/a"
+
+
+def _met(cell: Mapping[str, Any]) -> str:
+    return f"{cell['met']}/{cell['found']} ({_rate(cell['met'], cell['found'])})"
+
+
+def render_coverage(report: Report, meta: Report) -> str:
+    """The coverage simulation (`eval.coverage`): does the one-sided 95% lower bound cover the
+    population kappa, and does the threshold search keep its target on the population?"""
+    cfg, fixed, search = report["config"], report["fixed"], report["search"]
+    fixed = sorted(fixed, key=lambda c: (c["labels"], c["n"], c["kappa"]))
+    search = sorted(search, key=lambda c: (c["labels"], c["n"], c["target"]))
+    pop = cfg["search_population"]
+    at = ", ".join(f"{_pct(float(u))} -> {_f(k)}" for u, k in pop["kappa_at_coverage"].items())
+    out = [
+        "- Raw output: `eval/results/coverage-simulation/` (`report.json`, `meta.json`)",
+        f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; {cfg['fixed_reps']}"
+        f" replications per fixed-sample cell, {cfg['search_reps']} per threshold-search cell;"
+        f" {cfg['n_resamples']} bootstrap resamples; {meta.get('workers', '?')} workers; wall"
+        f" {_f(meta.get('wall_seconds'), 0)} s; spent $0.00",
+        f"- Search population: agreement probability 1 - {pop['beta']} * (1 - c) ** {pop['gamma']}"
+        f" for confidence c uniform on [0, 1]; population kappa at coverage ({at})",
+        "",
+        "#### Fixed sample: does the one-sided 95% lower bound cover the population kappa?",
+        "",
+        "| Labels | Items | Kappa | Percentile bound covers | BCa bound covers"
+        " | BCa level for the 5% bound (mean) | Two-sided 95%: percentile / BCa"
+        " | Bias of the estimate (± s.e.) | SD of the estimate / bootstrap SD |",
+        "|---|---|---|---|---|---|---|---|---|",
+    ]
+    for c in fixed:
+        reps, lo, iv = c["reps"], c["lower_covered"], c["interval_covered"]
+        out.append(
+            f"| {c['labels']} | {c['n']} | {c['kappa']} | {_rate(lo['percentile'], reps)}"
+            f" | {_rate(lo['bca'], reps)} | {_pct(c['mean_bca_level'])}"
+            f" | {_rate(iv['percentile'], reps)} / {_rate(iv['bca'], reps)}"
+            f" | {c['bias']:+.4f} ± {c['bias_se']:.4f}"
+            f" | {_f(c['sd_estimate'], 4)} / {_f(c['mean_bootstrap_sd'], 4)} |"
+        )
+    total = sum(c["reps"] for c in fixed)
+    pooled = ", ".join(
+        f"{name} {_rate(sum(c['lower_covered'][m] for c in fixed), total)}"
+        for m, name in (("percentile", "percentile"), ("bca", "BCa"))
+    )
+    out += [
+        "",
+        f"Pooled over all {len(fixed)} cells ({total} replications), the one-sided bound"
+        f" covers: {pooled}.",
+        "",
+        "#### Threshold search: how often does the chosen threshold truly keep the target?",
+        "",
+        "| Labels | Items | Target | Oracle coverage | Point: met | Percentile: met | BCa: met"
+        " | Point: true coverage | Percentile: true coverage | BCa: true coverage |",
+        "|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    rules = ("point", "lower", "bca")
+    for c in search:
+        out.append(
+            f"| {c['labels']} | {c['n']} | {c['target']} | {_pct(c['oracle_coverage'])}"
+            + "".join(f" | {_met(c[r])}" for r in rules)
+            + "".join(f" | {_pct(c[r].get('mean_true_coverage'))}" for r in rules)
+            + " |"
+        )
+    pooled_rules = []
+    for rule in rules:
+        found = sum(c[rule]["found"] for c in search)
+        met = sum(c[rule]["met"] for c in search)
+        given = [
+            (c[rule]["found"], c[rule]["mean_coverage_given_up"])
+            for c in search
+            if c[rule].get("mean_coverage_given_up") is not None
+        ]
+        weight = sum(w for w, _ in given)
+        up = _pct(sum(w * g for w, g in given) / weight) if weight else "n/a"
+        pooled_rules.append(
+            f"{_RULE_NAMES[rule]} met {met}/{found} ({_rate(met, found)}), coverage given up"
+            f" versus the oracle {up}"
+        )
+    out += [
+        "",
+        f"Pooled over all {len(search)} cells: " + "; ".join(pooled_rules) + ".",
+        "",
+    ]
     return "\n".join(out)
 
 
@@ -1270,6 +1384,7 @@ LEDGER_EVALS = (
     ("export-", "eval-export"),
     ("bench-", "bench"),
     ("noise-", "eval-noise"),
+    ("coverage-", "eval-coverage"),
     ("shift-", "eval-shift"),
     ("spike-onnx", "spike-onnx"),
 )
@@ -1559,7 +1674,18 @@ def render_ledger(results_dir: Path) -> str:
     return "\n".join(lines)
 
 
+def load_coverage(results_dir: Path) -> tuple[Report, Report] | None:
+    folder = results_dir / "coverage-simulation"
+    if not (folder / "report.json").exists():
+        return None
+    return (
+        json.loads((folder / "report.json").read_text(encoding="utf-8")),
+        json.loads((folder / "meta.json").read_text(encoding="utf-8")),
+    )
+
+
 def blocks_for(results_dir: Path) -> dict[str, str]:
+    coverage = load_coverage(results_dir)
     return {
         "ledger": render_ledger(results_dir),
         "classify": render_classify(load_runs(results_dir)),
@@ -1570,6 +1696,11 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "frontier": render_frontier(load_frontiers(results_dir)),
         "extract": render_extract(load_runs(results_dir, prefix="extract-")),
         "calibration": render_calibration(load_runs(results_dir, prefix="calibration-")),
+        "coverage": (
+            render_coverage(*coverage)
+            if coverage
+            else "No coverage simulation yet: `make eval-coverage`.\n"
+        ),
         "export": render_export(load_runs(results_dir, prefix="export-")),
         "bench": render_bench(load_runs(results_dir, prefix="bench-")),
         "generate": render_generate(load_runs(results_dir, prefix="generate-")),

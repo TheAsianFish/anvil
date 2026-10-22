@@ -66,6 +66,19 @@ jobs:
       - name: make demo (must finish in under two minutes)
         run: timeout 120 make demo
 
+  coverage:
+    name: coverage simulation
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv sync --all-extras --locked
+      - name: make eval-coverage reproduces the committed counts (must finish in under a minute)
+        run: timeout 60 uv run python -m eval.coverage --check
+
   docker:
     name: docker build
     runs-on: ubuntu-latest

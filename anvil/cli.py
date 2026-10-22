@@ -293,6 +293,7 @@ def loop_cmd(
 
 class Rule(StrEnum):
     lower_bound = "lower"  # not `lower`: that would shadow str.lower
+    bca = "bca"
     point = "point"
 
 
@@ -309,8 +310,8 @@ def calibrate_cmd(
     rule: Annotated[
         Rule,
         typer.Option(
-            help="lower: the 95% bootstrap lower bound must reach the target; point:"
-            " the estimate must."
+            help="lower: the 95% percentile-bootstrap lower bound must reach the target; bca:"
+            " the 95% BCa lower bound must; point: the estimate must."
         ),
     ] = Rule.lower_bound,
 ) -> None:

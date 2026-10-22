@@ -1,0 +1,16 @@
+{
+  "command": "python -m eval.coverage",
+  "git_sha": "1eb2e258543c3d9a6848c5f597481fd93cd549a3",
+  "git_dirty": false,
+  "anvil": "0.1.0",
+  "python": "3.12.3",
+  "numpy": "2.5.4",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "cpus": 4,
+  "workers": 4,
+  "seed": 0,
+  "teacher_model": "n/a",
+  "wall_seconds": 27.4,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-22T17:40:25Z"
+}

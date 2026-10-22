@@ -32,6 +32,7 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make eval-frontier` / `eval-select` / `eval-calibration` / `eval-export` | the frontier, selection (M3), calibration and export (M5) studies; `eval-calibration TEACHER=ollama` calibrates the M8 student and reports the teacher's ceiling on the inputs the cascade accepts |
 | `make eval-noise` | the M8 control: the frontier's MiniLM student on gold, on the local teacher's labels, and on gold corrupted at the teacher's error rate (uniform and the teacher's own confusions), 3 seeds; replays `eval/labels/`, about 2 h of CPU |
 | `make eval-shift` | M9: the served Banking77 bundle off-distribution (its test split, CLINC150's out-of-scope utterances, AG News; max softmax against max logit, energy, k-NN and Mahalanobis scores). Datasets pinned in `eval/shift.yaml`; exports the bundle when `make eval-export` has not; about 20 min of CPU once the student exists. `python -m eval.shift --scores eval/results/shift-banking77-gold/scores.npz` re-runs the analysis from the committed scores without a model |
+| `make eval-coverage` | M10: a seeded simulation of how often the one-sided percentile and BCa bootstrap bounds cover the population kappa (kappa {0.85, 0.9, 0.95} x items {100, 250, 500} x labels {4, 77}) and how often the threshold search's chosen threshold truly keeps its target; offline, about 30 s on two cores. `python -m eval.coverage --check` re-runs it and compares the counts with the committed report (CI does, under a 60 s timeout) |
 | `make bench` | latency, throughput and cost table (M5) |
 | `make docker` | build the CLI image and the torch-free serving image (`--target serve`) |
 | `anvil push <export> --repo ns/name [--dry-run]` | write the model card (`README.md`) into an export and upload it to the Hugging Face Hub; needs `HF_TOKEN` unless `--dry-run` |
@@ -78,7 +79,8 @@ tests/            unit + integration; tests/recordings/ holds real Claude
                   responses replayed offline (empty until `make record`)
 eval/             classify.py, extract.py and generate.py (the parity harnesses; wikisql.py
                   loads WikiSQL), calibration.py,
-                  export.py and bench.py (M5, on the student student.py finds), shift.py
+                  export.py and bench.py (M5, on the student student.py finds), coverage.py
+                  (M10, the bound and threshold-search simulation), shift.py
                   and shift.yaml (M9, the bundle off-distribution), data.py
                   (pinned dataset loaders), render.py (RESULTS.md tables),
                   classify/*.yaml, extract/*.yaml and generate/*.yaml (dataset, sample, ceiling

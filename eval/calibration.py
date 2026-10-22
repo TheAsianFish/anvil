@@ -12,10 +12,13 @@ study re-runs from the raw output in seconds with `--logits`:
 2. The out-of-sample check (`splits`): the held-out split is cut in half at random many times;
    the temperature and the threshold are fitted on one half and the other half says whether
    the cascade really keeps the target kappa on the inputs it answers, and at what coverage.
-   Three ways to pick the threshold are compared: `point` (the kappa estimate reaches the
-   target), `lower` (its one-sided 95% bootstrap lower bound does) and `point-raw` (point
-   rule on uncalibrated confidences), so the effect of the bound and of the temperature are
-   each visible.
+   Four ways to pick the threshold are compared: `point` (the kappa estimate reaches the
+   target), `lower` (its one-sided 95% percentile-bootstrap lower bound does), `bca` (its
+   one-sided 95% BCa lower bound does) and `point-raw` (point rule on uncalibrated
+   confidences), so the effect of the bound, of its method and of the temperature are each
+   visible.
+3. The coverage cost of each rule on the whole held-out split (`by_rule`): the threshold,
+   coverage and lower bound every rule would serve at each target, from the same logits.
 
 Raw output: `eval/results/calibration-<dataset>-<teacher>/` (`report.json`, `meta.json`,
 `logits.npz`). It also writes `calibration.json` into the student's directory (target 0.9,
@@ -63,6 +66,7 @@ DATASETS = ("banking77", "ag_news")
 TARGETS = (0.9, 0.95)
 SERVED_TARGET = 0.9
 SERVED_RULE: Rule = "lower"
+RULES: tuple[Rule, ...] = ("point", "lower", "bca")
 COVERAGE_GRID = (1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.5)
 N_BINS = 15
 MIN_ACCEPTED = 30
@@ -71,6 +75,7 @@ DEFAULT_RESAMPLES = 1000
 METHODS: tuple[tuple[str, Rule, bool], ...] = (
     ("point", "point", True),
     ("lower", "lower", True),
+    ("bca", "bca", True),
     ("point-raw", "point", False),
 )
 """(name, threshold rule, temperature-scaled confidences) for the split study."""
@@ -270,6 +275,23 @@ def analyse(
         ).as_dict()
         for t in TARGETS
     }
+    by_rule: dict[str, dict[str, dict[str, object]]] = {}
+    for rule in RULES:
+        by_rule[rule] = {}
+        for target in TARGETS:
+            chosen = calibrate(
+                z,
+                y,
+                target_kappa=target,
+                rule=rule,
+                n_bins=N_BINS,
+                min_accepted=MIN_ACCEPTED,
+                n_resamples=n_resamples,
+                seed=seed,
+            ).as_dict()
+            by_rule[rule][str(target)] = {
+                key: chosen[key] for key in ("threshold", "coverage", "kappa", "kappa_low")
+            }
     temperature = calibrate(z, y, target_kappa=None).temperature
     extra: dict[str, object] = {}
     if repeat is not None and (repeat >= 0).any():
@@ -285,6 +307,7 @@ def analyse(
         "labels": int(z.shape[1]),
         "kappa": _kappa(y, z.argmax(axis=1).astype(np.int64), z.shape[1]),
         "full": full,
+        "by_rule": by_rule,
         "reliability": {
             "before": [asdict(b) for b in reliability(softmax(z), y, N_BINS)],
             "after": [asdict(b) for b in reliability(softmax(z, temperature), y, N_BINS)],

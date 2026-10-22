@@ -1,6 +1,6 @@
 {
-  "command": "python -m eval.calibration --teacher ollama",
-  "git_sha": "ef873d0166fcca132f3fa58a677494ba461e00fb",
+  "command": "python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz",
+  "git_sha": "ec18671195d2a1343693364a5b204b74efbd564e",
   "git_dirty": false,
   "anvil": "0.1.0",
   "python": "3.12.3",
@@ -10,7 +10,8 @@
   "splits": 200,
   "n_resamples": 1000,
   "teacher_model": "qwen2.5:3b",
-  "wall_seconds": 57.6,
+  "wall_seconds": 46.8,
   "spent_usd": 0.0,
-  "finished_at": "2026-10-22T01:58:05Z"
+  "finished_at": "2026-10-22T17:43:38Z",
+  "from_logits": "eval/results/calibration-banking77-qwen2.5-3b/logits.npz"
 }

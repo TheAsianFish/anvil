@@ -18,16 +18,17 @@ directory under `eval/results/`.
 | Run | Eval | Teacher | Command | Commit | Wall time | Teacher $ |
 |---|---|---|---|---|---|---|
 | `bench-banking77-gold` | bench | gold | `python -m eval.bench --teacher gold` | `d0cfa4c` | 19m 27s | $0.00 |
-| `calibration-ag_news-gold` | eval-calibration | gold | `python -m eval.calibration --teacher gold` | `b127db2` | 2m 02s | $0.00 |
-| `calibration-ag_news-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration --teacher ollama` | `ef873d0` | 1m 45s | $0.00 |
-| `calibration-banking77-gold` | eval-calibration | gold | `python -m eval.calibration --teacher gold` | `b127db2` | 0m 58s | $0.00 |
-| `calibration-banking77-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration --teacher ollama` | `ef873d0` | 0m 58s | $0.00 |
+| `calibration-ag_news-gold` | eval-calibration | gold | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-gold/logits.npz` | `ec18671` | 1m 35s | $0.00 |
+| `calibration-ag_news-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` | `ec18671` | 1m 06s | $0.00 |
+| `calibration-banking77-gold` | eval-calibration | gold | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-gold/logits.npz` | `ec18671` | 0m 59s | $0.00 |
+| `calibration-banking77-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` | `ec18671` | 0m 47s | $0.00 |
 | `classify-ag_news-gold` | eval-classify | gold | `python -m eval.classify ag_news banking77 --teacher gold` | `74cca5e` | 36m 10s | $0.00 |
 | `classify-ag_news-gold-seed1` | eval-classify | gold | `python -m eval.classify ag_news --teacher gold --seed 1` | `1c900f7` | 47m 59s | $0.00 |
 | `classify-ag_news-qwen2.5-3b` | eval-classify | qwen2.5:3b | `python -m eval.classify ag_news banking77 --teacher ollama` | `e25575f` | 41m 06s | $0.00 |
 | `classify-banking77-gold` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold` | `d4f4016` | 56m 31s | $0.00 |
 | `classify-banking77-gold-seed1` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold --seed 1` | `7c205b0` | 45m 20s | $0.00 |
 | `classify-banking77-qwen2.5-3b` | eval-classify | qwen2.5:3b | `python -m eval.classify ag_news banking77 --teacher ollama` | `e25575f` | 1h 07m 55s | $0.00 |
+| `coverage-simulation` | eval-coverage | n/a | `python -m eval.coverage` | `1eb2e25` | 0m 27s | $0.00 |
 | `export-ag_news-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 47m 30s | $0.00 |
 | `export-banking77-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 1h 03m 02s | $0.00 |
 | `extract-mit_restaurant-gold` | eval-extract | gold | `python -m eval.extract mit_restaurant --teacher gold` | `7dace8b` (uncommitted changes) | 15m 01s | $0.00 |
@@ -39,7 +40,7 @@ directory under `eval/results/`.
 | `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
 | `shift-banking77-gold` | eval-shift | gold | `python -m eval.shift --teacher gold` | `773e679` | 10m 59s | $0.00 |
 | `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
-| **Total (22 runs)** | | | | | 13h 49m 35s | $0.00 |
+| **Total (23 runs)** | | | | | 13h 48m 47s | $0.00 |
 
 Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
 <!-- END generated:ledger -->
@@ -535,8 +536,11 @@ Findings:
   and the gap is mostly in what the study scores: whether the kappa realised on about 240
   fresh inputs clears the target, a statement about one noisy sample rather than the
   population statement a lower confidence bound makes, so a threshold whose true kappa sits
-  just above 0.9 misses on some fresh halves. The percentile bootstrap's known optimism for a
-  statistic bounded at 1 takes the last point or two. The shares also move by a few points
+  just above 0.9 misses on some fresh halves. The bound itself also falls short: M10's
+  simulation (below) measures the one-sided percentile bound covering 93% rather than 95% at
+  these sizes, and the search over thresholds holding its target 91% of the time against the
+  population. The BCa rows (M10) were added by re-running the analysis from the committed
+  `logits.npz`; every other row is unchanged. The shares also move by a few points
   with the study seed (`--seed`), so read them as about nine in ten against about one in two.
 - **Temperature scaling makes the confidences honest but buys no coverage.** Both students
   are slightly overconfident (T 1.24 and 1.22); on the unseen halves scaling cut the median ECE
@@ -565,17 +569,30 @@ Findings:
 #### ag_news, teacher `gold`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-ag_news-gold/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration --teacher gold` at `b127db2`; student run `20261020-012041-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 122 s; spent $0.00
+- Command: `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-gold/logits.npz` at `ec18671`; student run `20261020-012041-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 95 s; spent $0.00
 - Fitted temperature over the splits: 1.22 [1.10, 1.34]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
 |---|---|---|---|---|---|---|
 | 0.9 | point estimate, calibrated | 100.0% | 46.0% | 88.3% [75.7%, 95.4%] | 0.897 [0.847, 0.948] | 0.911 [0.855, 0.961] |
-| 0.9 | 95% lower bound, calibrated | 100.0% | 87.0% | 65.1% [46.4%, 85.5%] | 0.932 [0.873, 0.988] | 0.961 [0.889, 0.994] |
+| 0.9 | 95% percentile lower bound, calibrated | 100.0% | 87.0% | 65.1% [46.4%, 85.5%] | 0.932 [0.873, 0.988] | 0.961 [0.889, 0.994] |
+| 0.9 | 95% BCa lower bound, calibrated | 100.0% | 87.5% | 58.6% [43.9%, 85.4%] | 0.933 [0.883, 1.000] | 0.961 [0.904, 1.000] |
 | 0.9 | point estimate, uncalibrated | 100.0% | 50.0% | 88.3% [76.6%, 95.4%] | 0.900 [0.847, 0.948] | 0.913 [0.855, 0.961] |
 | 0.95 | point estimate, calibrated | 100.0% | 50.5% | 54.0% [43.9%, 77.0%] | 0.951 [0.901, 0.987] | 0.977 [0.927, 0.994] |
-| 0.95 | 95% lower bound, calibrated | 100.0% | 82.0% | 36.6% [17.2%, 55.6%] | 0.970 [0.926, 1.000] | 0.992 [0.966, 1.000] |
+| 0.95 | 95% percentile lower bound, calibrated | 100.0% | 82.0% | 36.6% [17.2%, 55.6%] | 0.970 [0.926, 1.000] | 0.992 [0.966, 1.000] |
+| 0.95 | 95% BCa lower bound, calibrated | 100.0% | 85.5% | 23.8% [16.7%, 52.7%] | 0.969 [0.930, 1.000] | 0.994 [0.966, 1.000] |
 | 0.95 | point estimate, uncalibrated | 100.0% | 50.5% | 54.8% [44.3%, 77.1%] | 0.952 [0.901, 0.987] | 0.977 [0.927, 0.994] |
+
+Threshold each rule serves on all held-out inputs:
+
+| Target kappa | Rule | Threshold | Coverage | Kappa on answered | Lower bound |
+|---|---|---|---|---|---|
+| 0.9 | point estimate | 0.656 | 88.3% | 0.901 | n/a |
+| 0.95 | point estimate | 0.947 | 54.7% | 0.950 | n/a |
+| 0.9 | 95% percentile lower bound | 0.834 | 75.7% | 0.928 | 0.901 |
+| 0.95 | 95% percentile lower bound | 0.964 | 41.9% | 0.978 | 0.955 |
+| 0.9 | 95% BCa lower bound | 0.836 | 75.5% | 0.928 | 0.900 |
+| 0.95 | 95% BCa lower bound | 0.966 | 40.9% | 0.977 | 0.954 |
 
 Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
 
@@ -596,17 +613,30 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 #### ag_news, teacher `qwen2.5:3b`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-ag_news-qwen2.5-3b/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration --teacher ollama` at `ef873d0`; student run `20261022-000137-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 105 s; spent $0.00
+- Command: `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` at `ec18671`; student run `20261022-000137-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 66 s; spent $0.00
 - Fitted temperature over the splits: 0.99 [0.87, 1.10]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
 |---|---|---|---|---|---|---|
 | 0.9 | point estimate, calibrated | 100.0% | 42.0% | 91.6% [84.9%, 96.7%] | 0.893 [0.846, 0.945] | 0.903 [0.854, 0.954] |
-| 0.9 | 95% lower bound, calibrated | 100.0% | 81.0% | 81.2% [74.5%, 90.0%] | 0.933 [0.880, 0.976] | 0.948 [0.896, 0.983] |
+| 0.9 | 95% percentile lower bound, calibrated | 100.0% | 81.0% | 81.2% [74.5%, 90.0%] | 0.933 [0.880, 0.976] | 0.948 [0.896, 0.983] |
+| 0.9 | 95% BCa lower bound, calibrated | 100.0% | 84.5% | 80.8% [74.5%, 89.1%] | 0.935 [0.880, 0.977] | 0.948 [0.896, 0.983] |
 | 0.9 | point estimate, uncalibrated | 100.0% | 42.0% | 91.6% [84.5%, 96.7%] | 0.893 [0.851, 0.945] | 0.903 [0.857, 0.954] |
 | 0.95 | point estimate, calibrated | 100.0% | 49.0% | 77.8% [72.8%, 85.8%] | 0.946 [0.895, 0.984] | 0.960 [0.914, 0.988] |
-| 0.95 | 95% lower bound, calibrated | 100.0% | 80.0% | 69.5% [60.2%, 78.2%] | 0.973 [0.929, 1.000] | 0.983 [0.948, 1.000] |
+| 0.95 | 95% percentile lower bound, calibrated | 100.0% | 80.0% | 69.5% [60.2%, 78.2%] | 0.973 [0.929, 1.000] | 0.983 [0.948, 1.000] |
+| 0.95 | 95% BCa lower bound, calibrated | 100.0% | 87.0% | 68.4% [53.1%, 77.4%] | 0.974 [0.936, 1.000] | 0.983 [0.954, 1.000] |
 | 0.95 | point estimate, uncalibrated | 100.0% | 47.0% | 77.8% [73.2%, 85.4%] | 0.946 [0.896, 0.984] | 0.960 [0.914, 0.988] |
+
+Threshold each rule serves on all held-out inputs:
+
+| Target kappa | Rule | Threshold | Coverage | Kappa on answered | Lower bound |
+|---|---|---|---|---|---|
+| 0.9 | point estimate | 0.563 | 91.0% | 0.901 | n/a |
+| 0.95 | point estimate | 0.807 | 76.9% | 0.953 | n/a |
+| 0.9 | 95% percentile lower bound | 0.680 | 84.5% | 0.926 | 0.902 |
+| 0.95 | 95% percentile lower bound | 0.844 | 74.6% | 0.967 | 0.950 |
+| 0.9 | 95% BCa lower bound | 0.698 | 82.8% | 0.928 | 0.902 |
+| 0.95 | 95% BCa lower bound | 0.865 | 73.0% | 0.971 | 0.950 |
 
 Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
 
@@ -641,17 +671,30 @@ The ceiling on the inputs the cascade answers: of the 200 held-out inputs the te
 #### banking77, teacher `gold`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-banking77-gold/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration --teacher gold` at `b127db2`; student run `20261020-001737-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 58 s; spent $0.00
+- Command: `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-gold/logits.npz` at `ec18671`; student run `20261020-001737-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 59 s; spent $0.00
 - Fitted temperature over the splits: 1.24 [1.15, 1.31]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
 |---|---|---|---|---|---|---|
 | 0.9 | point estimate, calibrated | 100.0% | 55.5% | 87.1% [81.0%, 92.8%] | 0.905 [0.857, 0.942] | 0.918 [0.869, 0.955] |
-| 0.9 | 95% lower bound, calibrated | 100.0% | 90.5% | 80.2% [75.8%, 85.9%] | 0.933 [0.887, 0.968] | 0.947 [0.905, 0.976] |
+| 0.9 | 95% percentile lower bound, calibrated | 100.0% | 90.5% | 80.2% [75.8%, 85.9%] | 0.933 [0.887, 0.968] | 0.947 [0.905, 0.976] |
+| 0.9 | 95% BCa lower bound, calibrated | 100.0% | 88.0% | 81.0% [75.8%, 85.9%] | 0.930 [0.887, 0.963] | 0.945 [0.905, 0.971] |
 | 0.9 | point estimate, uncalibrated | 100.0% | 53.0% | 87.9% [81.0%, 92.7%] | 0.901 [0.856, 0.943] | 0.914 [0.868, 0.955] |
 | 0.95 | point estimate, calibrated | 100.0% | 56.5% | 76.6% [69.4%, 81.5%] | 0.952 [0.918, 0.982] | 0.963 [0.934, 0.988] |
-| 0.95 | 95% lower bound, calibrated | 100.0% | 89.5% | 69.0% [64.1%, 75.8%] | 0.975 [0.940, 0.994] | 0.984 [0.955, 0.996] |
+| 0.95 | 95% percentile lower bound, calibrated | 100.0% | 89.5% | 69.0% [64.1%, 75.8%] | 0.975 [0.940, 0.994] | 0.984 [0.955, 0.996] |
+| 0.95 | 95% BCa lower bound, calibrated | 100.0% | 85.5% | 69.8% [64.9%, 76.6%] | 0.970 [0.940, 0.994] | 0.979 [0.955, 0.996] |
 | 0.95 | point estimate, uncalibrated | 100.0% | 50.0% | 75.4% [71.0%, 81.0%] | 0.950 [0.917, 0.978] | 0.963 [0.934, 0.984] |
+
+Threshold each rule serves on all held-out inputs:
+
+| Target kappa | Rule | Threshold | Coverage | Kappa on answered | Lower bound |
+|---|---|---|---|---|---|
+| 0.9 | point estimate | 0.542 | 87.5% | 0.902 | n/a |
+| 0.95 | point estimate | 0.730 | 76.6% | 0.952 | n/a |
+| 0.9 | 95% percentile lower bound | 0.639 | 82.3% | 0.923 | 0.900 |
+| 0.95 | 95% percentile lower bound | 0.832 | 70.8% | 0.965 | 0.950 |
+| 0.9 | 95% BCa lower bound | 0.639 | 82.3% | 0.923 | 0.903 |
+| 0.95 | 95% BCa lower bound | 0.830 | 71.4% | 0.966 | 0.951 |
 
 Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
 
@@ -672,17 +715,30 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 #### banking77, teacher `qwen2.5:3b`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-banking77-qwen2.5-3b/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration --teacher ollama` at `ef873d0`; student run `20261022-004245-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 58 s; spent $0.00
+- Command: `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` at `ec18671`; student run `20261022-004245-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 47 s; spent $0.00
 - Fitted temperature over the splits: 1.61 [1.53, 1.67]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
 |---|---|---|---|---|---|---|
 | 0.9 | point estimate, calibrated | 99.5% | 39.7% | 39.5% [30.2%, 56.6%] | 0.894 [0.834, 0.960] | 0.959 [0.905, 0.988] |
-| 0.9 | 95% lower bound, calibrated | 75.0% | 82.7% | 29.8% [11.1%, 36.7%] | 0.926 [0.855, 1.000] | 0.979 [0.950, 1.000] |
+| 0.9 | 95% percentile lower bound, calibrated | 75.0% | 82.7% | 29.8% [11.1%, 36.7%] | 0.926 [0.855, 1.000] | 0.979 [0.950, 1.000] |
+| 0.9 | 95% BCa lower bound, calibrated | 92.5% | 83.2% | 29.0% [11.7%, 37.0%] | 0.932 [0.857, 1.000] | 0.979 [0.950, 1.000] |
 | 0.9 | point estimate, uncalibrated | 100.0% | 42.0% | 40.1% [29.8%, 57.7%] | 0.893 [0.824, 0.960] | 0.959 [0.905, 0.988] |
 | 0.95 | point estimate, calibrated | 91.5% | 38.8% | 18.5% [11.3%, 34.6%] | 0.932 [0.893, 1.000] | 0.988 [0.963, 1.000] |
-| 0.95 | 95% lower bound, calibrated | 45.5% | 53.8% | 12.9% [8.1%, 21.0%] | 0.959 [0.891, 1.000] | 0.996 [0.979, 1.000] |
+| 0.95 | 95% percentile lower bound, calibrated | 45.5% | 53.8% | 12.9% [8.1%, 21.0%] | 0.959 [0.891, 1.000] | 0.996 [0.979, 1.000] |
+| 0.95 | 95% BCa lower bound, calibrated | 46.5% | 50.5% | 13.3% [8.1%, 24.6%] | 0.955 [0.896, 1.000] | 0.996 [0.975, 1.000] |
 | 0.95 | point estimate, uncalibrated | 98.0% | 40.3% | 22.6% [13.7%, 34.3%] | 0.942 [0.879, 1.000] | 0.988 [0.962, 1.000] |
+
+Threshold each rule serves on all held-out inputs:
+
+| Target kappa | Rule | Threshold | Coverage | Kappa on answered | Lower bound |
+|---|---|---|---|---|---|
+| 0.9 | point estimate | 0.903 | 34.7% | 0.904 | n/a |
+| 0.95 | point estimate | 0.970 | 14.3% | 0.955 | n/a |
+| 0.9 | 95% percentile lower bound | 0.918 | 31.9% | 0.934 | 0.901 |
+| 0.95 | 95% percentile lower bound | 0.973 | 13.3% | 0.984 | 0.951 |
+| 0.9 | 95% BCa lower bound | 0.918 | 31.9% | 0.934 | 0.902 |
+| 0.95 | 95% BCa lower bound | 0.973 | 13.3% | 0.984 | 0.951 |
 
 Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
 
@@ -734,6 +790,137 @@ against gold on 21% of AG News and 45% of Banking77 held-out inputs.
   `sci_tech` stories labelled `business`. A cascade calibrated against a fallible teacher
   serves the teacher's systematic errors at full confidence. Telling them apart needs gold
   labels or a better teacher.
+
+### Does the interval cover? The bound behind the threshold rule (M10)
+
+The cascade's threshold rule serves the largest coverage whose one-sided 95% bootstrap lower
+bound of kappa clears the target, so the rule is only as honest as that bound. M10 asks whether
+the bound covers, and whether BCa (bias-corrected and accelerated) would do better than the
+percentile method at the sizes the rule actually meets.
+
+- Command: `make eval-coverage` (`python -m eval.coverage`, then `python -m eval.render`). It is
+  a seeded simulation, offline and free. It runs in about 30 s on two cores, and CI re-runs it
+  with `--check`, under a 60 s timeout, against the committed counts.
+- Method, fixed sample: a population with known kappa (the student copies the teacher's
+  uniformly drawn label with probability kappa, else draws its own, so the population kappa is
+  exactly that probability). For each cell of kappa {0.85, 0.9, 0.95} x items {100, 250, 500}
+  x labels {4, 77}, there are 500 replications, each with the 1,000 resamples
+  `choose_threshold` draws. "Covers" means the bound is at or below the population kappa. The
+  Monte Carlo standard error of a coverage near 93% is about 1.1 points per cell.
+- Method, threshold search: inputs with a confidence c uniform on [0, 1] and an agreement
+  probability of 1 - 0.8 (1 - c)^4. Its kappa on the top u of inputs is 1 - 0.16 u^4, which
+  tracks the Banking77 gold student's committed curve within 0.011 at every grid
+  coverage (0.84 on everything, 0.934 at 80% against 0.936, 0.990 at 50% against 0.992).
+  Each replication runs the whole search for every rule on one sample, then reads the
+  population kappa at the chosen threshold. The search cells are 30 replications each, so
+  read them pooled (about 360 per rule). Target 0.85 is left out, because there the oracle
+  threshold already answers 98%.
+- The coverage cost on real data comes from re-running `make eval-calibration`'s analysis
+  from the four committed `logits.npz` files (`python -m eval.calibration <dataset> --logits
+  ...`). Those tables are in the calibration section above: the BCa rows of the split study
+  and "Threshold each rule serves".
+
+Findings, against the plan's hypotheses:
+
+- **Neither bound reaches 95%, and the shortfall is small.** Pooled over 9,000 replications,
+  the one-sided percentile bound covers 93.1% and BCa 93.0%. The worst percentile cells are
+  4 labels at kappa 0.9-0.95 (89.4% at 100 items, 89.6% at 250). The plan's 88-92% for the
+  percentile bound at kappa 0.95 and 250 items holds for 4 labels (89.6%) but not for 77
+  (94.6%).
+- **BCa is not the upgrade the plan expected (hypothesis: 93-96%).** It helps where the
+  percentile bound is weakest: 4 labels pooled, 92.9% against 92.1%, with 92.8% against 89.4%
+  at 100 items and kappa 0.9. It hurts with 77 labels: pooled 93.0% against 94.2%, and 88.6%
+  against 92.4% at 100 items and kappa 0.95. The cause is visible in the "BCa level" column.
+  Near kappa 1 the statistic is nearly a function of the disagreement count, which is
+  discrete. With 77 labels, each resample's chance term comes out slightly above the
+  sample's, because duplicated items inflate the product of the marginals. So the replicates
+  that tie the sample on disagreements all land just below the estimate. BCa reads that as
+  bias (z0 > 0) and moves the 5% endpoint up to the 5.7-7.0% level, a less conservative
+  bound.
+  With 4 labels the effect reverses (4.0-4.9%).
+- **The estimator is not biased (hypothesis refuted).** The plan expected a bias at 77 labels
+  and 100 items that no interval fixes. The measured bias is +0.0000 ± 0.0010 there, and
+  at most 0.002 in every cell. The bootstrap's spread matches the estimate's true spread to
+  within about 5%. What under-covers is not a shifted centre but the discrete tail. A sample with
+  only one or two disagreements in 100 items yields a bound above the truth however it is
+  read; I found that in an exploratory run, and it is not in the committed report.
+- **The threshold search costs about two points (hypothesis confirmed, small).** Picking the
+  best of many thresholds, the percentile rule's choice truly kept the target in 325 of 358
+  searches that found one (90.8%), and BCa's in 324 of 359 (90.3%). The 2 and 1 searches
+  that found none escalate everything, which keeps the target trivially. That compares with 93% for one bound at a
+  fixed size. The point-estimate rule kept it in 179 of 360 (49.7%), the coin flip the M5
+  split study saw on real data. For that, the bound rules answer about 10 points fewer inputs
+  than the oracle threshold (percentile 10.8, BCa 9.8), while the point rule gives up 0.2.
+- **On the committed logits BCa's cost depends on the dataset.** On the whole held-out
+  split, the threshold `anvil calibrate` would serve moves by at most 1.7 points, inside the
+  plan's "at most 3 points". Banking77 (gold) is the same at 0.9 (82.3%) and BCa is 0.6
+  points higher at 0.95; AG News (`qwen2.5:3b`) is 1.7 points lower at 0.9. On the unseen
+  halves the picture splits by dataset. On Banking77 (gold), BCa kept 0.9 in 88.0% of splits
+  against 90.5%, and 0.95 in 85.5% against 89.5%, which matches the 77-label simulation.
+  With the `qwen2.5:3b` teacher on Banking77 it is mixed (0.9: 83.2% against 82.7%; 0.95:
+  50.5% against 53.8%). On AG News (gold, 4 labels) BCa kept the target more often (87.5%
+  against 87.0%; 85.5% against 82.0%), but paid in coverage: median 58.6% against 65.1% at
+  0.9, and 23.8% against 36.6% at 0.95.
+
+**The default stays the percentile bound (`rule: lower`).** Pooled, the table shows no
+coverage gain from BCa (93.0% against 93.1%) and no gain in the search (90.3% against 90.8%).
+In the regime the served Banking77 cascade lives in (77 labels, kappa 0.9-0.95), BCa is the
+worse bound in the simulation and on the gold Banking77 splits. Its advantage is confined to
+4-label tasks, and there it pays heavily in coverage on the unseen AG News halves. BCa stays available as `anvil calibrate --rule bca`,
+and `eval.calibration` keeps reporting it. Neither method fixes the remaining 2-point
+shortfall, which comes from the discreteness at few disagreements. A bound built on the
+disagreement count itself, such as an exact binomial bound on 1 - agreement, is the next
+thing to try.
+
+<!-- BEGIN generated:coverage -->
+- Raw output: `eval/results/coverage-simulation/` (`report.json`, `meta.json`)
+- Command: `python -m eval.coverage` at `1eb2e25`; 500 replications per fixed-sample cell, 30 per threshold-search cell; 1000 bootstrap resamples; 4 workers; wall 27 s; spent $0.00
+- Search population: agreement probability 1 - 0.8 * (1 - c) ** 4.0 for confidence c uniform on [0, 1]; population kappa at coverage (100.0% -> 0.840, 90.0% -> 0.895, 80.0% -> 0.934, 70.0% -> 0.962, 60.0% -> 0.979, 50.0% -> 0.990)
+
+#### Fixed sample: does the one-sided 95% lower bound cover the population kappa?
+
+| Labels | Items | Kappa | Percentile bound covers | BCa bound covers | BCa level for the 5% bound (mean) | Two-sided 95%: percentile / BCa | Bias of the estimate (± s.e.) | SD of the estimate / bootstrap SD |
+|---|---|---|---|---|---|---|---|---|
+| 4 | 100 | 0.85 | 93.6% | 93.4% | 4.7% | 94.4% / 95.8% | -0.0016 ± 0.0019 | 0.0428 / 0.0422 |
+| 4 | 100 | 0.9 | 89.4% | 92.8% | 4.5% | 92.6% / 93.8% | -0.0009 ± 0.0016 | 0.0365 / 0.0349 |
+| 4 | 100 | 0.95 | 90.6% | 92.8% | 4.0% | 89.4% / 95.6% | -0.0020 ± 0.0012 | 0.0260 / 0.0251 |
+| 4 | 250 | 0.85 | 93.6% | 93.6% | 4.8% | 93.0% / 93.4% | -0.0004 ± 0.0012 | 0.0277 / 0.0266 |
+| 4 | 250 | 0.9 | 93.0% | 93.4% | 4.7% | 94.4% / 94.2% | +0.0006 ± 0.0010 | 0.0229 / 0.0221 |
+| 4 | 250 | 0.95 | 89.6% | 90.6% | 4.4% | 93.4% / 93.6% | +0.0004 ± 0.0007 | 0.0161 / 0.0158 |
+| 4 | 500 | 0.85 | 93.8% | 94.2% | 4.9% | 94.4% / 94.8% | -0.0002 ± 0.0009 | 0.0193 / 0.0189 |
+| 4 | 500 | 0.9 | 92.4% | 92.6% | 4.8% | 93.0% / 93.2% | +0.0003 ± 0.0007 | 0.0161 / 0.0156 |
+| 4 | 500 | 0.95 | 92.6% | 93.0% | 4.6% | 92.8% / 93.0% | +0.0002 ± 0.0005 | 0.0117 / 0.0112 |
+| 77 | 100 | 0.85 | 94.2% | 93.6% | 6.7% | 96.8% / 95.4% | -0.0004 ± 0.0015 | 0.0342 / 0.0359 |
+| 77 | 100 | 0.9 | 93.4% | 91.6% | 6.7% | 93.8% / 93.0% | +0.0013 ± 0.0013 | 0.0301 / 0.0299 |
+| 77 | 100 | 0.95 | 92.4% | 88.6% | 7.0% | 94.4% / 94.6% | +0.0000 ± 0.0010 | 0.0217 / 0.0216 |
+| 77 | 250 | 0.85 | 94.6% | 94.4% | 6.0% | 94.4% / 95.2% | -0.0004 ± 0.0010 | 0.0231 / 0.0228 |
+| 77 | 250 | 0.9 | 95.6% | 94.4% | 6.0% | 96.6% / 96.6% | -0.0005 ± 0.0008 | 0.0189 / 0.0191 |
+| 77 | 250 | 0.95 | 94.6% | 93.0% | 6.1% | 95.0% / 94.6% | -0.0017 ± 0.0006 | 0.0135 / 0.0140 |
+| 77 | 500 | 0.85 | 96.4% | 96.2% | 5.7% | 95.0% / 95.4% | -0.0007 ± 0.0007 | 0.0157 / 0.0161 |
+| 77 | 500 | 0.9 | 92.8% | 92.4% | 5.7% | 95.2% / 95.0% | +0.0009 ± 0.0006 | 0.0131 / 0.0134 |
+| 77 | 500 | 0.95 | 93.6% | 92.6% | 5.7% | 92.8% / 92.6% | -0.0001 ± 0.0004 | 0.0101 / 0.0098 |
+
+Pooled over all 18 cells (9000 replications), the one-sided bound covers: percentile 93.1%, BCa 93.0%.
+
+#### Threshold search: how often does the chosen threshold truly keep the target?
+
+| Labels | Items | Target | Oracle coverage | Point: met | Percentile: met | BCa: met | Point: true coverage | Percentile: true coverage | BCa: true coverage |
+|---|---|---|---|---|---|---|---|---|---|
+| 4 | 100 | 0.9 | 88.9% | 15/30 (50.0%) | 27/30 (90.0%) | 26/30 (86.7%) | 89.1% | 74.9% | 76.6% |
+| 4 | 100 | 0.95 | 74.8% | 14/30 (46.7%) | 25/28 (89.3%) | 26/29 (89.7%) | 74.9% | 58.2% | 58.8% |
+| 4 | 250 | 0.9 | 88.9% | 17/30 (56.7%) | 27/30 (90.0%) | 28/30 (93.3%) | 87.8% | 78.2% | 78.0% |
+| 4 | 250 | 0.95 | 74.8% | 14/30 (46.7%) | 27/30 (90.0%) | 28/30 (93.3%) | 74.8% | 64.3% | 63.6% |
+| 4 | 500 | 0.9 | 88.9% | 14/30 (46.7%) | 28/30 (93.3%) | 28/30 (93.3%) | 88.8% | 82.2% | 82.2% |
+| 4 | 500 | 0.95 | 74.8% | 14/30 (46.7%) | 27/30 (90.0%) | 27/30 (90.0%) | 75.2% | 68.2% | 67.8% |
+| 77 | 100 | 0.9 | 88.9% | 13/30 (43.3%) | 28/30 (93.3%) | 27/30 (90.0%) | 88.0% | 76.5% | 77.7% |
+| 77 | 100 | 0.95 | 74.8% | 14/30 (46.7%) | 27/30 (90.0%) | 27/30 (90.0%) | 74.6% | 53.1% | 60.4% |
+| 77 | 250 | 0.9 | 88.9% | 18/30 (60.0%) | 27/30 (90.0%) | 27/30 (90.0%) | 88.5% | 79.8% | 80.5% |
+| 77 | 250 | 0.95 | 74.8% | 15/30 (50.0%) | 27/30 (90.0%) | 25/30 (83.3%) | 74.9% | 65.4% | 66.9% |
+| 77 | 500 | 0.9 | 88.9% | 16/30 (53.3%) | 28/30 (93.3%) | 28/30 (93.3%) | 88.9% | 83.5% | 83.8% |
+| 77 | 500 | 0.95 | 74.8% | 15/30 (50.0%) | 27/30 (90.0%) | 27/30 (90.0%) | 74.7% | 67.4% | 68.2% |
+
+Pooled over all 12 cells: point estimate met 179/360 (49.7%), coverage given up versus the oracle 0.2%; 95% percentile lower bound met 325/358 (90.8%), coverage given up versus the oracle 10.8%; 95% BCa lower bound met 324/359 (90.3%), coverage given up versus the oracle 9.8%.
+<!-- END generated:coverage -->
 
 ### ONNX export: fp32 and int8 parity on the trained students (M5)
 

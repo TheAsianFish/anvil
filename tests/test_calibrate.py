@@ -23,7 +23,7 @@ from anvil.calibrate import (
     serving_temperature,
     softmax,
 )
-from anvil.evaluate.bootstrap import kappa_replicates, resample_indices
+from anvil.evaluate.bootstrap import kappa_replicates, lower_bounds, resample_indices
 from anvil.evaluate.metrics import cohen_kappa
 
 FloatArray = npt.NDArray[np.float64]
@@ -317,6 +317,41 @@ def test_lower_bound_is_the_fifth_percentile_of_the_bootstrap_on_the_accepted_in
     replicates = kappa_replicates(t_acc, s_acc, 3, idx)
     assert choice.kappa_low == float(np.percentile(replicates, 5))
     assert choice.kappa_low < choice.kappa < float(np.percentile(replicates, 95))
+
+
+def test_bca_rule_takes_the_first_point_whose_bca_bound_clears_the_target() -> None:
+    # Oracle: walk the curve from the largest coverage down and read the BCa bound of every
+    # eligible point directly; the first that clears the target is the answer.
+    for seed in range(3):
+        confidence, teacher, student = tied_case(20 + seed, 300, 4)
+        order = np.argsort(-confidence, kind="stable")
+        t_sorted, s_sorted = teacher[order], student[order]
+        for target in (0.5, 0.7):
+            expected = None
+            for point in reversed(coverage_curve(confidence, teacher, student, 4)):
+                if point.accepted < 30 or point.kappa < target:
+                    continue
+                k = point.accepted
+                idx = resample_indices(k, 200, seed)
+                low = lower_bounds(t_sorted[:k], s_sorted[:k], 4, idx, 0.95, ("bca",))["bca"]
+                if low >= target:
+                    expected = (point.threshold, low)
+                    break
+            choice = choose_threshold(
+                confidence, teacher, student, 4, target, rule="bca", n_resamples=200, seed=seed
+            )
+            if expected is None:
+                assert choice is None
+            else:
+                assert choice is not None
+                assert (choice.threshold, choice.kappa_low) == expected
+                assert choice.rule == "bca"
+
+
+def test_bca_rule_needs_two_answered_inputs() -> None:
+    with pytest.raises(ValueError, match="min_accepted >= 2"):
+        choose_threshold([0.9, 0.5], [0, 1], [0, 0], 2, 0.5, rule="bca", min_accepted=1)
+    assert choose_threshold([0.9, 0.5], [0, 1], [0, 0], 2, 0.5, rule="lower", min_accepted=1)
 
 
 def test_lower_rule_gives_up_coverage_the_point_rule_keeps() -> None:

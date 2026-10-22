@@ -13,8 +13,8 @@ Three steps, all numpy (this module is imported on the torch-free serving image)
 2. `reliability` and `ece` measure how far confidence is from agreement, before and after.
 3. `coverage_curve` and `choose_threshold` trade coverage (share the student answers) against
    kappa on the answered inputs, and pick the threshold that keeps a target kappa at the
-   largest coverage, optionally on a one-sided bootstrap lower bound so the target holds with
-   stated confidence rather than only on this sample.
+   largest coverage, optionally on a one-sided bootstrap lower bound (percentile or BCa) so
+   the target holds with stated confidence rather than only on this sample.
 """
 
 from __future__ import annotations
@@ -26,13 +26,17 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
-from anvil.evaluate.bootstrap import kappa_replicates, resample_indices
+from anvil.evaluate.bootstrap import Method, lower_bounds, resample_indices
 
 FloatArray = npt.NDArray[np.float64]
 IntArray = npt.NDArray[np.int64]
 ArrayLike2D = npt.ArrayLike
 """Anything np.asarray turns into a (n, n_labels) float array: an ndarray or nested lists."""
-Rule = Literal["point", "lower"]
+Rule = Literal["point", "lower", "bca"]
+"""How `choose_threshold` decides that a threshold keeps the target: "point", the kappa estimate
+reaches it; "lower", its one-sided percentile-bootstrap lower bound does; "bca", its one-sided
+BCa lower bound does."""
+BOUND_METHOD: dict[Rule, Method] = {"lower": "percentile", "bca": "bca"}
 
 _BISECTION_STEPS = 60
 TEMPERATURE_BOUNDS = (0.05, 20.0)
@@ -312,7 +316,7 @@ class ThresholdChoice:
     coverage: float
     kappa: float
     kappa_low: float | None
-    """One-sided bootstrap lower bound of kappa on the accepted inputs (rule "lower" only)."""
+    """One-sided bootstrap lower bound of kappa on the accepted inputs (None for rule "point")."""
     system_kappa: float
 
 
@@ -334,7 +338,8 @@ def choose_threshold(
     Only points accepting at least `min_accepted` inputs are eligible. Rule "point" requires
     the kappa on the accepted inputs to reach the target; rule "lower" requires its one-sided
     percentile-bootstrap lower bound, the (1 - confidence_level) quantile of `n_resamples`
-    kappa replicates over the accepted inputs (the 5th percentile for 0.95), to reach it.
+    kappa replicates over the accepted inputs (the 5th percentile for 0.95), to reach it; rule
+    "bca" reads the same replicates at the BCa-adjusted level (`bootstrap.bca_levels`).
 
     Kappa is not monotone in coverage (it can dip and recover as the threshold falls), so the
     scan does not stop at the first failure: it walks from the largest coverage down and
@@ -346,12 +351,14 @@ def choose_threshold(
     to serve. Each candidate's resamples come from `resample_indices(accepted, n_resamples,
     seed)`, so the choice is a pure function of the inputs and the seed.
     """
-    if rule not in ("point", "lower"):
-        raise ValueError(f"unknown rule {rule!r}; use 'point' or 'lower'")
+    if rule not in ("point", "lower", "bca"):
+        raise ValueError(f"unknown rule {rule!r}; use 'point', 'lower' or 'bca'")
     if not math.isfinite(target_kappa):
         raise ValueError(f"target_kappa must be finite, got {target_kappa}")
     if min_accepted < 1:
         raise ValueError(f"min_accepted must be positive, got {min_accepted}")
+    if rule == "bca" and min_accepted < 2:
+        raise ValueError("rule 'bca' needs min_accepted >= 2: its jackknife leaves one item out")
     if not 0.0 < confidence_level < 1.0:
         raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
     _, t, s, order = _cascade_inputs(confidence, teacher, student, n_labels)
@@ -361,11 +368,13 @@ def choose_threshold(
         if point.accepted < min_accepted or point.kappa < target_kappa:
             continue
         low: float | None = None
-        if rule == "lower":
+        if rule != "point":
             k = point.accepted
+            method = BOUND_METHOD[rule]
             idx = resample_indices(k, n_resamples, seed)
-            values = kappa_replicates(t_sorted[:k], s_sorted[:k], n_labels, idx)
-            low = float(np.percentile(values, 100 * (1 - confidence_level)))
+            low = lower_bounds(
+                t_sorted[:k], s_sorted[:k], n_labels, idx, confidence_level, (method,)
+            )[method]
             if low < target_kappa:
                 continue
         return ThresholdChoice(

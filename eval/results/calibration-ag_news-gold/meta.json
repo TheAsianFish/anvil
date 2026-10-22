@@ -1,8 +1,8 @@
 {
-  "command": "python -m eval.calibration --teacher gold",
-  "git_sha": "b127db249b4b5e1e424414043f822ac98ec18adb",
+  "command": "python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-gold/logits.npz",
+  "git_sha": "ec18671195d2a1343693364a5b204b74efbd564e",
   "git_dirty": false,
-  "anvil": "0.1.0.dev0",
+  "anvil": "0.1.0",
   "python": "3.12.3",
   "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
   "cpus": 4,
@@ -10,7 +10,8 @@
   "splits": 200,
   "n_resamples": 1000,
   "teacher_model": "gold",
-  "wall_seconds": 121.6,
+  "wall_seconds": 94.7,
   "spent_usd": 0.0,
-  "finished_at": "2026-10-20T02:27:41Z"
+  "finished_at": "2026-10-22T17:44:26Z",
+  "from_logits": "eval/results/calibration-ag_news-gold/logits.npz"
 }
