@@ -1,0 +1,37 @@
+# `make eval-shift`: the served Banking77 bundle on inputs it was and was not trained for.
+# Every set is read at a pinned revision; `keep` keeps only rows with that gold label and
+# `size` draws a seeded sample of distinct texts (all distinct texts when it is absent).
+dataset: banking77   # the eval-classify student and the bundle eval-export built from it
+sets:
+  - name: banking77_test
+    role: in_distribution
+    description: Banking77's test split, which no Anvil run has labelled or trained on
+    repo: legacy-datasets/banking77
+    revision: f54121560de48f2852f90be299010d1d6dc612ec
+    split: test
+    license: CC-BY-4.0 (Casanueva et al., 2020, PolyAI)
+  - name: clinc_oos
+    role: out_of_distribution
+    description: CLINC150's out-of-scope test utterances (requests no CLINC intent covers)
+    repo: clinc/clinc_oos
+    revision: 155b9c710419136e17307b80d0a13e68cd46b4ec
+    config: plus
+    split: test
+    text_field: text
+    label_field: intent
+    keep: oos
+    license: CC-BY-3.0 (Larson et al., 2019)
+  - name: ag_news
+    role: out_of_distribution
+    description: AG News test items (headline and lead, cut at the student's 64 tokens as served)
+    repo: fancyzhx/ag_news
+    revision: eb185aade064a813bc0b7f42de02595523103ca4
+    split: test
+    size: 1000
+    seed: 0
+    license: "AG's corpus, used under its academic terms (http://groups.di.unipi.it/~gulli/AG_corpus_of_news_articles.html)"
+knn_k: 5            # k-th nearest training embedding (cosine), fixed before the first run
+coverage_cost: 0.03  # in-distribution coverage each extra gate may spend, set on held-out
+n_bins: 10
+n_resamples: 1000
+seed: 0

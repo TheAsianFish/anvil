@@ -875,6 +875,15 @@ The CPU price is an assumption (`--vcpu-hour-usd`), not a measurement; the CPU s
 At the bundle's threshold (0.6395, target kappa 0.9, rule `lower`) the student answers 82.3% of held-out inputs, so the cascade calls the teacher for 17.7% of traffic.
 <!-- END generated:bench -->
 
+### The cascade off-distribution: Banking77 (M9)
+
+- Command: `make eval-shift TEACHER=gold` (`python -m eval.shift --teacher gold`, then
+  `python -m eval.render`).
+
+<!-- BEGIN generated:shift -->
+No shift run yet: `make eval-shift`.
+<!-- END generated:shift -->
+
 ### Generation parity: WikiSQL text-to-SQL (M6)
 
 - Command: `make eval-generate TEACHER=gold` (`python -m eval.generate wikisql --teacher gold`,
