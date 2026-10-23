@@ -44,9 +44,9 @@ DEFAULT_RULE: Rule = "exact"
 """The default since M11, from `make eval-coverage` (RESULTS.md, "Does the interval cover?"):
 the bootstrap bounds cover about 93% where they claim 95%; the exact bound covers the agreement
 rate at least 95% at every rate by construction (Wilson dips to 92.5%) and, through the plug-in
-chance term, kappa in every simulated cell. It costs the most served coverage where the
-kappa-vs-coverage curve is flat near the target; "wilson" is the cheaper rule for a user who
-accepts its pointwise dips."""
+chance term, kappa within Monte Carlo error of 95% in every simulated cell. Its cost in
+served coverage is largest on AG News (8.8 points at kappa 0.9); "wilson" is the cheaper rule
+for a user who accepts its pointwise dips."""
 BOUND_METHOD: dict[Rule, Method] = {"lower": "percentile", "bca": "bca"}
 """The bootstrap rules and the method that reads their replicates."""
 COUNT_METHOD: dict[Rule, CountMethod] = {"exact": "exact", "wilson": "wilson"}

@@ -1010,18 +1010,22 @@ Findings, against the plan's hypotheses:
 - **Both count bounds reach 95% (hypothesis confirmed).** Pooled over the 18 fixed-sample cells
   (9,000 replications), the exact bound covers 96.5% and Wilson 96.2%, against 93.1% for the
   percentile bound on the same samples. No cell is under 93%: the worst is 94.4% for both
-  (exact at 4 labels, 500 items, kappa 0.9; Wilson at 4 labels, 100 items, kappa 0.9), less
-  than one Monte Carlo standard error (1.0 point per cell) under 95%. The price is a bound
-  0.002-0.004 (500 items) to 0.010-0.020 (100 items) of kappa below the percentile one on
-  average.
+  (exact at 4 labels, 500 items, kappa 0.9; Wilson tied between that cell and 4 labels, 100
+  items, kappa 0.9). Two exact cells sit under 95% (94.6% and 94.4%), both less than one Monte
+  Carlo standard error (1.0 point per cell) away, so the claim is "within Monte Carlo error of
+  95% in every cell", not "at least 95%". The price is a bound below the percentile one on
+  average by 0.002-0.004 (exact) or 0.001-0.003 (Wilson) of kappa at 500 items, and by
+  0.010-0.020 (exact) or 0.007-0.016 (Wilson) at 100 items.
 - **The 4-label, 100-item cells over-cover, as predicted, but only with exact.** Exact covers
   96.8%, 98.2% and 98.6% there (kappa 0.85, 0.9, 0.95), above the plan's 96.5%. Wilson covers
   96.2%, 94.4% and 98.6%, so the prediction holds for it in one cell of three. The percentile
   bound covers 93.6%, 89.4% and 90.6%, under the plan's 92% in two of the three.
-- **The plug-in chance term costs no visible coverage.** If ignoring the chance term's
-  sampling error mattered, it would show where p_e is largest and noisiest, at 4 labels and
-  100 items. Those are the cells where exact over-covers most. The pilot saw no
-  under-coverage either.
+- **The plug-in chance term costs no coverage that this simulation can see.** If ignoring the
+  chance term's sampling error mattered, it would show where p_e is largest and noisiest, at 4
+  labels and 100 items, and exact covers 96.8-98.6% there. That evidence is weaker than it
+  looks: Clopper-Pearson's own conservatism could hide a plug-in cost, and Wilson, closer to
+  nominal, covers 94.4% in one of those cells. The simulated raters also have balanced
+  marginals, where p_e varies least; skewed label distributions are untested.
 - **Wilson is not exact, and the pointwise table shows where.** Clopper-Pearson's worst
   coverage of p_o is 95.00% at every size. Wilson's dips to 92.50% (30 inputs) to 93.59%
   (500), and it is under 95% at 19-26% of the agreement rates. Its worst rates move toward 1
@@ -1031,38 +1035,46 @@ Findings, against the plan's hypotheses:
   kept the target in 293 of 303 searches with exact (96.7%) and 303 of 316 with Wilson
   (95.9%), against 325 of 358 (90.8%) for the percentile rule. The count rules find no
   threshold more often (57 and 44 of 360 searches, against 2), mostly at 100 items and target
-  0.95, where 30-100 accepted inputs cannot support a lower bound of 0.95. At 4 balanced
-  labels the exact rule needs at least 79 of 79 agreements before kappa's bound reaches 0.95. Counting those searches as answering nothing, the
+  0.95 (51 of the 57). At 4 labels with p_e exactly 0.25, the exact bound on kappa first
+  reaches 0.95 at 79 accepted inputs that all agree; any disagreement or skewed marginals need
+  more, so a 100-item sample rarely has such a prefix. At 77 labels p_e is near 0.013 and 100
+  agreeing inputs give about 0.970. Counting the searches with no threshold as answering
+  nothing, the
   expected served coverage at 4 labels is 56.6% (exact), 59.6% (Wilson) and 70.4%
   (percentile). At 77 labels it is 62.5%, 64.4% and 71.0%, against an oracle 81.8% for both.
-- **The served coverage cost depends on the curve's slope near the target, not on the label
-  count.** At 0.9, the exact threshold answers 80.8% of Banking77 (gold), against 82.3% for
+- **The served coverage cost does not follow the label count; it looks like the curve's shape
+  near the target.** At 0.9, the exact threshold answers 80.8% of Banking77 (gold), against 82.3% for
   the percentile rule, 1.4 points less (hypothesis: at most 2). On AG News (gold) it answers
   66.9% against 75.7%, 8.8 points less (hypothesis: at least 5); Wilson is 72.7%. At 0.95 on
   AG News neither count rule finds any threshold, where the percentile rule serves 41.9%
-  (hypothesis confirmed). The `qwen2.5:3b` students separate slope from labels. Banking77
+  (hypothesis confirmed). The `qwen2.5:3b` students break the label-count reading: Banking77
   with that teacher loses 18.1 points at 0.9 (31.9% to 13.7%, both count rules) and finds
-  nothing at 0.95. AG News with that teacher loses only 2.1 at 0.9 (84.5% to 82.4%). Where the
-  kappa-vs-coverage curve is flat near the target, a bound 0.01 lower moves the threshold a
-  long way. That is AG News (gold) at 0.9 (agreement on its most confident half is 0.971) and
-  Banking77 (`qwen2.5:3b`). Where it is steep, the honest bound is nearly free.
+  nothing at 0.95, while AG News with that teacher loses only 2.1 at 0.9 (84.5% to 82.4%). My
+  reading is that where the kappa-vs-coverage curve is flat near the target, a bound 0.01
+  lower moves the threshold a long way, and where it is steep the honest bound is nearly free.
+  That is a hypothesis from four curves, not a measurement, and the qwen Banking77 case is
+  confounded: its threshold accepts about 158 inputs against about 400 for gold, so its bound
+  is also wider because m is smaller.
 - **On the unseen AG News halves at 0.95, the count rules decline instead of missing
   (hypothesis on the conditional rate refuted).** The percentile rule found a threshold on
   every fitting half and kept 0.95 on the unseen half in 82.0% of them, so 18% of splits
   served a cascade that missed. The exact rule found a threshold in 16.0% of splits and kept
-  the target in 75.0% of those; Wilson found one in 25.0% and kept it in 80.0%. Both fall
-  short of the predicted 90%, for two reasons. A fitting half on which a 0.95 bound clears is
-  a lucky half, so conditioning on "found" selects samples that overstate. And "kept" is
-  scored on the other half's own estimate from about 100 answered inputs, which misses often
-  even when the true kappa sits just above 0.95. Unconditionally, the exact rule served a
+  the target in 75.0% of those (24 of 32 splits, exact 95% interval 57-89%); Wilson found one
+  in 25.0% and kept it in 80.0% (40 of 50, 66-90%). Both fall short of the predicted 90%,
+  Wilson only just. Two explanations are likely, though I did not test them separately. A
+  fitting half on which a 0.95 bound clears may be a lucky half, so conditioning on "found"
+  selects samples that overstate. And "kept" is scored on the other half's own estimate from
+  about 100 answered inputs, which misses often even when the true kappa sits just above 0.95.
+  Unconditionally, the exact rule served a
   missing cascade in 4.0% of splits (16.0% x 25.0%), Wilson in 5.0% and the percentile rule
-  in 18.0%. So most of the percentile rule's 41.9% was coverage that 238 labelled inputs
-  could not certify. At 0.9 on Banking77 (gold), exact kept the target in 94.5% of splits
+  in 18.0%. On those 238-input fitting halves the percentile rule's thresholds (median 36.6%
+  coverage on the unseen half) were mostly ones the count rules could not certify. At 0.9 on Banking77 (gold), exact kept the target in 94.5% of splits
   against 90.5%, at a median unseen-half coverage of 79.4% against 80.2%.
 
 **The default is now `rule: exact`, for both label counts.** It is the only rule whose
 coverage of the agreement rate is guaranteed at every rate. Through the plug-in chance term it
-also covers kappa in every simulated cell (pooled 96.5%, worst 94.4%), and its chosen threshold
+also covers kappa within Monte Carlo error of 95% in every simulated cell (pooled 96.5%, worst
+94.4%), and its chosen threshold
 keeps the target in 96.7% of searches. At 77 labels it costs exactly what Wilson costs (the two
 serve the same Banking77 threshold at both targets) and 1.4 points over the percentile rule.
 The answer only differs between the two count rules at 4 labels. There Wilson is cheaper

@@ -405,13 +405,15 @@ references that return nothing.
   `make eval-coverage` simulates each bound where the rule uses it. Both
   bootstrap methods cover about 93% instead of 95% (pooled 93.1% and 93.0%),
   and BCa is worse at 77 labels, where it reads ties on the discrete
-  disagreement count as bias. Bounding that count directly fixes it. The
+  disagreement count as bias. Bounding that count directly brings coverage
+  to about nominal. The
   one-sided Clopper-Pearson bound on the agreement rate, mapped to kappa
-  through the answered inputs' chance term, covers 96.5% pooled with no
-  cell under 94.4%. The threshold it picks truly keeps its target in 96.7%
+  through the answered inputs' chance term, covers 96.5% pooled, every cell
+  within Monte Carlo error of 95% (worst 94.4%). The threshold it picks truly keeps its target in 96.7%
   of searches, against 90.8% for the percentile rule. It costs 1.4 points
-  of served coverage on Banking77 and 8.8 on AG News at kappa 0.9: the cost
-  follows how flat the kappa-vs-coverage curve is near the target. *Rejected
+  of served coverage on Banking77 and 8.8 on AG News at kappa 0.9; the cost
+  does not follow the label count and looks like it follows how flat the
+  kappa-vs-coverage curve is near the target. *Rejected
   as the default:* Wilson, which is cheaper on AG News (72.7% against 66.9%)
   but covers the agreement rate as little as 92.5% at some rates; it is
   `--rule wilson`, and the bootstrap rules stay as `lower` and `bca`.
@@ -538,7 +540,7 @@ students, gold labels as the teacher, CPU:
 |---|---|---|
 | Temperature; ECE before -> after on unseen halves (median of 200 splits) | 1.24; 0.070 -> 0.054 | 1.22; 0.051 -> 0.047 |
 | Student coverage at kappa 0.9 with the teacher: exact count bound (default since M11) / percentile bound (M5) | 80.8% / 82.3% | 66.9% / 75.7% |
-| Splits where the unseen half kept kappa 0.9: estimate / percentile / exact rule | 55.5% / 90.5% / 94.5% | 46.0% / 87.0% / 87.5% (exact found a threshold in 92%) |
+| Splits where the unseen half kept kappa 0.9: estimate / percentile / exact rule | 55.5% / 90.5% / 94.5% | 46.0% / 87.0% / 80.5% (exact found no threshold in 8%) |
 | ONNX fp32 vs PyTorch, max abs logit diff over held-out | 2.3e-05 | 2.9e-05 |
 | int8 (211 MB vs 601 MB): agreement with fp32 on all / on answered inputs; kappa change | 0.964 / 1.000; -0.002 | 0.992 / 1.000; -0.006 |
 
@@ -629,8 +631,8 @@ Planned in PLAN.md, evolution round 1 (all built):
   worse at 77 labels, so the percentile bound stays the default; see Results)
 - [x] M11: a bound on the count itself: `exact` (Clopper-Pearson on the agreement count) and
   `wilson` rules for the cascade threshold (both cover about 96%, the search keeps its target
-  96-97% of the time; the cost in served coverage follows the curve's slope, 1.4 points on
-  Banking77 and 8.8 on AG News; `exact` is the new default; see Results)
+  96-97% of the time; the cost in served coverage is 1.4 points on Banking77 and 8.8 on AG
+  News, not explained by the label count; `exact` is the new default; see Results)
 
 Planned in PLAN.md, evolution round 2:
 

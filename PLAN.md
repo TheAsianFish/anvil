@@ -728,11 +728,13 @@ re-measures it properly).
   two of the three. The search held: 96.7% (exact) and 95.9% (Wilson) against 90.8%. The served
   coverage hypotheses held (Banking77 gold 1.4 points at 0.9, AG News gold 8.8, no exact threshold
   at 0.95 on AG News), but the label count is not the cause: the `qwen2.5:3b` Banking77 student
-  loses 18.1 points, and the cost follows how flat the kappa-vs-coverage curve is near the target.
+  loses 18.1 points. My hypothesis is the curve's flatness near the target, confounded there by a
+  smaller accepted set.
   The AG News 0.95 halves refuted the conditional prediction. Exact found a threshold in 16% of
-  splits and held it in 75% of those (Wilson 25% and 80%), because a fitting half that clears is a
-  lucky one. Unconditionally, exact served a missing cascade in 4% of splits against the
-  percentile rule's 18%. The chance term's plug-in showed no under-coverage. Added: a pointwise
+  splits and held it in 75% of those (24 of 32; Wilson 25% and 80%, 40 of 50), likely because a
+  fitting half that clears is a lucky one (not tested separately). Unconditionally, exact served a missing cascade in 4% of splits against the
+  percentile rule's 18%. The chance term's plug-in showed no under-coverage the simulation can see
+  (balanced marginals only). Added: a pointwise
   table (exact binomial sums over agreement rates), which shows Wilson covering p_o as little as
   92.5%. Default: `exact`, for both label counts, with the reason in RESULTS.md; the committed
   bundle keeps the percentile threshold until the export is re-run ("To measure").
