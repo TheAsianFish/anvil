@@ -143,6 +143,7 @@ make eval-noise                       # the control: the same student on matched
 make eval-frontier TEACHER=gold       # kappa vs labels, 3 seeds x 5 budgets per strategy (CPU, ~2.5 h)
 make eval-select                      # the strategies on synthetic blobs (seconds)
 make eval-extract TEACHER=gold        # span extraction on MIT Restaurant (ModernBERT-base tagger, CPU)
+make eval-extract-cascade             # the tagger's threshold on entity F1, from the committed predictions (20 s)
 
 # Calibrate, export and serve (classify tasks)
 uv run anvil calibrate --target-kappa 0.9            # temperature + threshold, on held-out labels
@@ -417,6 +418,17 @@ references that return nothing.
   as the default:* Wilson, which is cheaper on AG News (72.7% against 66.9%)
   but covers the agreement rate as little as 92.5% at some rates; it is
   `--rule wilson`, and the bootstrap rules stay as `lower` and `bca`.
+- **One threshold rule for any statistic pooled over inputs (M12).** The
+  search does not care what it scores: it needs the statistic at every
+  confidence prefix, bootstrap replicates that resample inputs, and a
+  jackknife. `PooledStatistic` in `anvil/calibrate.py` captures those three
+  methods. Kappa keeps its existing marginal-count implementation behind
+  the interface, so its thresholds are byte-identical. Entity F1 sums
+  per-sentence (tp, fp, fn), so a sentence's entities are resampled
+  together. *Rejected:* a separate F1 search (two copies of the subtle
+  tie-handling and skip logic), and resampling entities (they are not
+  independent within a sentence, so the intervals would come out too
+  narrow).
 - **Temperature scaling, and when not to.** One scalar T fitted by NLL on
   the held-out teacher labels makes confidence readable as agreement; it
   does not change any label. When the fit runs to a bound (the student
@@ -533,6 +545,15 @@ verification keeps none of the ~960 changed spans and the repair ladder
 recovers all of them. Claude parity on this task is under "To measure"
 (about $0.30 with Haiku 5.5).
 
+The same threshold rule works on the tagger (M12), with entity F1 over
+sentences in place of kappa: the 95% lower-bound rule answers 41.8% of the
+held-out sentences at F1 0.925 (bound 0.903), and the cascade scores F1 0.973
+over all of them. On unseen halves the threshold kept F1 0.9 in 84% of splits.
+That is short of classification's 90.5%, and the exact count bound that fixed
+kappa has no F1 analogue. Boundary errors are not measurably easier for the
+confidence to see than type errors (AUROC difference +0.041 [-0.021, +0.108]
+against clean sentences). The kind it sees worst is the missed entity.
+
 The cascade and the served student (M5), on the same Banking77 and AG News
 students, gold labels as the teacher, CPU:
 
@@ -636,9 +657,10 @@ Planned in PLAN.md, evolution round 1 (all built):
 
 Planned in PLAN.md, evolution round 2:
 
-- [ ] M12: the tagger in the cascade: the threshold rule on entity F1 from the committed
-  extraction predictions (coverage at F1 0.9, unseen halves, boundary against type errors by
-  confidence)
+- [x] M12: the tagger in the cascade: `choose_threshold` generalised to any statistic pooled
+  over inputs, run on entity F1 from the committed extraction predictions (41.8% coverage at
+  F1 0.9 under the lower bound, kept on 84% of unseen halves; boundary and type errors equally
+  visible against clean sentences, missed entities least; see Results)
 - [ ] M13: can the student flag its teacher's mistakes? Out-of-fold flagging of the local
   teacher's labels against the uniform and confusion-pair controls, and the fallible-teacher
   cascade measured against gold
@@ -653,7 +675,8 @@ Still open, each needing a key or the owner's own code:
   `anvil/select.py`, measured on the frontier against the random curve (24 tests in
   `tests/test_select.py`, expected failures today, wait for them).
 - **The extraction and generation students in the cascade.** `loop`, `calibrate` and
-  `serve` are classify-only today; M12 measures whether the tagger's confidence is worth serving.
+  `serve` are classify-only today. M12 measured the tagger's confidence: it can serve about
+  two sentences in five at F1 0.9, under a weaker guarantee than kappa's.
 - **A GPU frontier** on the Colab notebook, and a published Banking77 student distilled from
   Claude labels.
 

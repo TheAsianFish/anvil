@@ -1,0 +1,16 @@
+{
+  "command": "python -m eval.extract --predictions eval/results/extract-mit_restaurant-gold/report.json",
+  "git_sha": "fe621a5202e6d64c8da163d152557d998966ce7a",
+  "git_dirty": false,
+  "anvil": "0.1.0",
+  "python": "3.12.3",
+  "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+  "cpus": 4,
+  "seed": 0,
+  "n_resamples": 1000,
+  "splits": 200,
+  "teacher_model": "gold",
+  "wall_seconds": 19.6,
+  "spent_usd": 0.0,
+  "finished_at": "2026-10-23T14:00:26Z"
+}

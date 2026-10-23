@@ -21,6 +21,12 @@ pays for go to `eval/labels/<dataset>/`. Raw output goes to
 `eval/results/extract-<dataset>-<teacher>/` (`report.json`, `meta.json`,
 `train-metrics.jsonl`); `python -m eval.render` builds the RESULTS.md table. Overrides
 (`--student`, `--epochs`, `--size`, `--resamples`) make a smoke run under `...-smoke/`.
+
+`--predictions <report.json>` skips all of that and runs the cascade study
+(`eval.extract_cascade`, M12) on the held-out predictions a run committed, with no model:
+coverage against F1, the thresholds at F1 0.9 and 0.95, the split study and which errors the
+confidence detects. A full run also runs it on its own report, into
+`eval/results/cascade-extract-<dataset>-<teacher>/`.
 """
 
 from __future__ import annotations
@@ -63,6 +69,7 @@ from anvil.spec import TaskSpec
 from anvil.store import Split
 from anvil.students.tagger import EncoderTagger
 from anvil.teacher.base import Item
+from eval import extract_cascade
 from eval.classify import (
     DEFAULT_RESAMPLES,
     CeilingCfg,
@@ -605,7 +612,13 @@ def summary_line(report: Mapping[str, object], out: Path) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.extract", description=__doc__)
-    parser.add_argument("datasets", nargs="+", help="config names under eval/extract/")
+    parser.add_argument("datasets", nargs="*", help="config names under eval/extract/")
+    parser.add_argument(
+        "--predictions",
+        type=Path,
+        help="an eval.extract report.json: run the cascade study on its predictions, no model",
+    )
+    parser.add_argument("--splits", type=int, default=extract_cascade.DEFAULT_SPLITS)
     parser.add_argument("--teacher", choices=["auto", "claude", "replay", "gold"], default="auto")
     parser.add_argument("--student", help="override student.model (e.g. tiny for a smoke run)")
     parser.add_argument("--epochs", type=int, help="override student.epochs")
@@ -613,6 +626,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--resamples", type=int, default=DEFAULT_RESAMPLES)
     parser.add_argument("--out", type=Path, help="results directory (one dataset only)")
     args = parser.parse_args(argv)
+    if args.predictions is not None and args.datasets:
+        parser.error("--predictions takes no dataset: the report names its own")
+    if args.predictions is None and not args.datasets:
+        parser.error("name a dataset under eval/extract/, or pass --predictions <report.json>")
     if args.out is not None and len(args.datasets) > 1:
         parser.error("--out takes one dataset; several would overwrite each other")
 
@@ -620,6 +637,8 @@ def main(argv: list[str] | None = None) -> int:
     log.configure(settings.log_level)
     command = "python -m eval.extract " + " ".join(argv if argv is not None else sys.argv[1:])
     provenance = git_provenance()
+    if args.predictions is not None:
+        return _cascade_main(args, command, provenance)
     smoke = (
         any(v is not None for v in (args.student, args.epochs, args.size))
         or args.resamples != DEFAULT_RESAMPLES
@@ -644,9 +663,57 @@ def main(argv: list[str] | None = None) -> int:
             out = args.out or results_dir(name, model, smoke=smoke)
             report = run(config, data, kind, out, settings, args.resamples, command, provenance)
             print(summary_line(report, out))  # noqa: T201 - the final summary
+            if not smoke:
+                cascade_out = extract_cascade.results_dir(report)
+                if args.splits != extract_cascade.DEFAULT_SPLITS:
+                    cascade_out = cascade_out.with_name(cascade_out.name + SMOKE_SUFFIX)
+                cascade = extract_cascade.run(
+                    out / "report.json",
+                    cascade_out,
+                    n_splits=args.splits,
+                    command=f"{command} (cascade study on {out / 'report.json'})",
+                    provenance=provenance,
+                )
+                print(extract_cascade.summary_line(cascade, cascade_out))  # noqa: T201
     except AnvilError as exc:
         print(f"error: {exc}", file=sys.stderr)  # noqa: T201 - the CLI's error line
         return exc.exit_code
+    return 0
+
+
+def _cascade_main(args: argparse.Namespace, command: str, provenance: Mapping[str, object]) -> int:
+    try:
+        report = json.loads(args.predictions.read_text(encoding="utf-8"))
+        smoke = args.splits != extract_cascade.DEFAULT_SPLITS or (
+            args.resamples != extract_cascade.DEFAULT_RESAMPLES
+        )
+        if smoke and args.out is not None and not args.out.name.endswith(SMOKE_SUFFIX):
+            print(  # noqa: T201 - the CLI's error line
+                f"error: --out with overrides (a smoke run) must end in {SMOKE_SUFFIX}",
+                file=sys.stderr,
+            )
+            return 2
+        out = args.out or extract_cascade.results_dir(report)
+        if smoke and args.out is None:
+            out = out.with_name(out.name + SMOKE_SUFFIX)
+        cascade = extract_cascade.run(
+            args.predictions,
+            out,
+            n_splits=args.splits,
+            n_resamples=args.resamples,
+            command=command,
+            provenance=provenance,
+        )
+    except FileNotFoundError:
+        print(f"error: no report at {args.predictions}", file=sys.stderr)  # noqa: T201
+        return 2
+    except json.JSONDecodeError as exc:
+        print(f"error: {args.predictions} is not JSON: {exc}", file=sys.stderr)  # noqa: T201
+        return 2
+    except AnvilError as exc:
+        print(f"error: {exc}", file=sys.stderr)  # noqa: T201 - the CLI's error line
+        return exc.exit_code
+    print(extract_cascade.summary_line(cascade, out))  # noqa: T201 - the final summary
     return 0
 
 

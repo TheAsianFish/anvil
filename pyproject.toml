@@ -111,6 +111,7 @@ files = [
     "eval/classify.py",
     "eval/data.py",
     "eval/extract.py",
+    "eval/extract_cascade.py",
     "eval/frontier.py",
     "eval/render.py",
     "eval/select_study.py",

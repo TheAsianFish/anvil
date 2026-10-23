@@ -474,6 +474,189 @@ def _extract_details(name: str, r: Report, meta: Report) -> list[str]:
     return out
 
 
+_KIND_NAMES = {
+    "wrong_boundary": "boundary (same type, other extent)",
+    "wrong_type": "type (same extent, other type)",
+    "wrong_both": "both",
+    "missed": "missed (no overlapping span)",
+    "spurious": "spurious (overlaps no teacher span)",
+}
+
+
+def _auc(stats: Mapping[str, Any] | None) -> str:
+    if not stats or "auroc" not in stats:
+        return "n/a"
+    a = stats["auroc"]
+    return f"{_f(a['estimate'])} [{_f(a['low'])}, {_f(a['high'])}]"
+
+
+def _split_met(entry: Mapping[str, Any]) -> str:
+    if entry.get("met") is None:
+        return "n/a"
+    ci = entry.get("met_interval") or [None, None]
+    return (
+        f"{entry['met_splits']}/{entry['found_splits']} ({_pct(entry['met'])};"
+        f" {_pct(ci[0])}-{_pct(ci[1])})"
+    )
+
+
+def render_extract_cascade(runs: list[tuple[str, Report, Report]]) -> str:
+    """The tagger in the cascade (M12): thresholds on entity F1, the split study, the error
+    kinds either side of the threshold and how well the confidence detects each kind."""
+    if not runs:
+        return "No extraction cascade study yet: `make eval-extract-cascade`.\n"
+    out: list[str] = []
+    for name, r, meta in runs:
+        src, ss, served = r["source"], r["split_study"], r.get("served_rule", "lower")
+        out += [
+            f"#### {src['dataset']}, teacher `{src['teacher_model']}`, student"
+            f" `{_student_name(str(src['student_model']))}`: the tagger in the cascade",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`), from"
+            f" `{src['report']}` (sha256 `{str(src['sha256'])[:12]}`, student run"
+            f" `{src['student_run']}`)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; {r['n']} held-out"
+            f" sentences, entity F1 {_f(r['f1'])} against the teacher; confidence: the"
+            f" {src['confidence']} ({r['distinct_confidences']} distinct values); at least"
+            f" {ss['min_accepted']} answered sentences; {ss['n_resamples']} sentence"
+            f" resamples; wall {_f(meta.get('wall_seconds'), 0)} s; no model, spent $0.00",
+            "",
+            "Threshold each rule serves on all held-out sentences (the cascade F1 counts"
+            " escalated sentences as answered by the teacher):",
+            "",
+            "| Target F1 | Rule | Threshold | Sentences answered | F1 on answered"
+            " | Lower bound | F1 on escalated | Cascade F1 |",
+            "|---|---|---|---|---|---|---|---|",
+        ]
+        for target, rules in r["thresholds"].items():
+            for rule, c in rules.items():
+                label = _RULE_NAMES.get(rule, rule)
+                if c is None:
+                    out.append(f"| {target} | {label} | none | 0 (0.0%) | n/a | n/a | n/a | n/a |")
+                    continue
+                out.append(
+                    f"| {target} | {label} | {_f(c['threshold'], 4)} | {c['accepted']}"
+                    f" ({_pct(c['coverage'])}) | {_f(c['value'])} | {_f(c['low'])}"
+                    f" | {_f(c['below'].get('f1'))} | {_f(c['system_f1'])} |"
+                )
+        out += [
+            "",
+            f"Unseen halves: {ss['splits']} random splits into {ss['fit_size']} sentences to"
+            f' fit the threshold on and {ss["test_size"]} to test it on. "Kept" counts the'
+            " splits whose unseen half's answered sentences reach the target among those"
+            ' where a threshold was found (exact 95% interval); "missed" is the share of'
+            " all splits that served a cascade missing the target.",
+            "",
+            "| Target F1 | Rule | Threshold found | Unseen half: kept the target"
+            " | Missed (all splits) | Unseen half: coverage | Unseen half: F1 on answered |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for target, rules in ss["targets"].items():
+            for rule, e in rules.items():
+                out.append(
+                    f"| {target} | {_RULE_NAMES.get(rule, rule)} | {_pct(e['found'])}"
+                    f" | {_split_met(e)} | {_pct(e['missed_share'])}"
+                    f" | {_qpct(e.get('coverage'))} | {_q(e.get('f1'))} |"
+                )
+        cuts = [(t, rules.get(served)) for t, rules in r["thresholds"].items()]
+        cuts = [(t, c) for t, c in cuts if c is not None]
+        if cuts:
+            head = " | ".join(f"Above F1 {t} cut | Below" for t, _ in cuts)
+            out += [
+                "",
+                f"Error kinds of M4's matcher either side of the {_RULE_NAMES.get(served, served)}"
+                " threshold (counts of teacher spans, spurious ones of student spans; each"
+                " row adds up to the committed report's breakdown):",
+                "",
+                f"| | All | {head} |",
+                "|---|---|" + "---|---|" * len(cuts),
+            ]
+
+            def row(label: str, total: object, cells: list[str]) -> str:
+                return f"| {label} | {total} | " + " | ".join(cells) + " |"
+
+            out.append(
+                row(
+                    "Sentences",
+                    r["n"],
+                    [f"{c[s]['sentences']}" for _, c in cuts for s in ("above", "below")],
+                )
+            )
+            total_entities = sum(v for k, v in r["errors"].items() if k != "spurious")
+            out.append(
+                row(
+                    "Teacher entities",
+                    total_entities,
+                    [
+                        f"{c[s].get('teacher_entities', 0)}"
+                        f" ({_rate(c[s].get('teacher_entities', 0), total_entities)})"
+                        for _, c in cuts
+                        for s in ("above", "below")
+                    ],
+                )
+            )
+            out.append(
+                row(
+                    "Entity F1",
+                    _f(r["f1"]),
+                    [_f(c[s].get("f1")) for _, c in cuts for s in ("above", "below")],
+                )
+            )
+            for kind, label in _KIND_NAMES.items():
+                total = r["errors"][kind]
+                cells = []
+                for _, c in cuts:
+                    for s in ("above", "below"):
+                        n = (c[s].get("errors") or {}).get(kind, 0)
+                        cells.append(f"{n} ({_rate(n, total)})")
+                out.append(row(label, total, cells))
+        det = r["detection"]
+        out += [
+            "",
+            'Does low confidence find each kind? AUROC of the confidence for "this sentence'
+            ' holds an error of this kind", against the clean sentences (no false positive'
+            f" or negative; {det['clean_sentences']} of them) and against every other"
+            " sentence, with 95% sentence-resampled intervals. A sentence can hold several kinds"
+            f" ({det['boundary_and_type']} hold both a boundary and a type error).",
+            "",
+            "| Error kind | Sentences | AUROC against clean"
+            " | AUROC against every other sentence |",
+            "|---|---|---|---|",
+        ]
+        clean, rest = det["clean"]["by_kind"], det["rest"]["by_kind"]
+        for kind, label in {"any_error": "any error", **_KIND_NAMES}.items():
+            if kind not in clean:
+                continue
+            out.append(
+                f"| {label} | {clean[kind]['sentences']} | {_auc(clean[kind])}"
+                f" | {_auc(rest.get(kind))} |"
+            )
+        out.append(
+            f"| boundary minus type (paired) | | {_diff(det['clean'].get('boundary_minus_type'))}"
+            f" | {_diff(det['rest'].get('boundary_minus_type'))} |"
+        )
+        out += [
+            "",
+            "F1 against coverage on all held-out sentences:",
+            "",
+            "| Coverage | Threshold | F1 on answered | Cascade F1 |",
+            "|---|---|---|---|",
+        ]
+        for p in r["curve"]:
+            out.append(
+                f"| {_pct(p['coverage'])} | {_f(p['threshold'], 4)} | {_f(p['value'])}"
+                f" | {_f(p['system_f1'])} |"
+            )
+        if src.get("teacher_model") == "gold":
+            out += [
+                "",
+                "The teacher here is the dataset's gold spans (no API key in this run): this"
+                " measures the tagger's confidence against clean labels, not against Claude.",
+            ]
+        out.append("")
+    return "\n".join(out)
+
+
 def _em(stats: Mapping[str, Any] | None, key: str = "execution_match") -> str:
     """Execution match with its interval, `0.712 [0.660, 0.763]`."""
     if not stats or key not in stats:
@@ -1480,6 +1663,7 @@ def render_bench(runs: list[tuple[str, Report, Report]]) -> str:
 
 LEDGER_EVALS = (
     ("classify-", "eval-classify"),
+    ("cascade-extract-", "eval-extract-cascade"),
     ("extract-", "eval-extract"),
     ("generate-", "eval-generate"),
     ("frontier-", "eval-frontier"),
@@ -1799,6 +1983,9 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "select": render_select(load_select(results_dir)),
         "frontier": render_frontier(load_frontiers(results_dir)),
         "extract": render_extract(load_runs(results_dir, prefix="extract-")),
+        "extract-cascade": render_extract_cascade(
+            load_runs(results_dir, prefix="cascade-extract-")
+        ),
         "calibration": render_calibration(load_runs(results_dir, prefix="calibration-")),
         "coverage": (
             render_coverage(*coverage)

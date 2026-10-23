@@ -1,5 +1,5 @@
 .PHONY: help sync check fmt lint typecheck test test-live record demo wheel-check docker spike-onnx \
-	eval-classify eval-extract eval-generate eval-select eval-frontier eval-calibration eval-export eval-noise eval-shift eval-coverage bench \
+	eval-classify eval-extract eval-extract-cascade eval-generate eval-select eval-frontier eval-calibration eval-export eval-noise eval-shift eval-coverage bench \
 	results clean
 
 UV ?= uv
@@ -51,6 +51,10 @@ eval-classify: ## M2/M8 parity on AG News and Banking77 (TEACHER=auto|claude|oll
 
 eval-extract: ## M4 span extraction parity on MIT Restaurant (TEACHER=auto|claude|replay|gold), then RESULTS.md
 	$(RUN) python -m eval.extract mit_restaurant --teacher $(TEACHER)
+	$(RUN) python -m eval.render
+
+eval-extract-cascade: ## M12 the tagger in the cascade, from the committed extraction predictions (no model, under a minute), then RESULTS.md
+	$(RUN) python -m eval.extract --predictions eval/results/extract-mit_restaurant-gold/report.json
 	$(RUN) python -m eval.render
 
 eval-generate: ## M6 text-to-SQL parity on WikiSQL by execution match (TEACHER=auto|claude|replay|gold), then RESULTS.md

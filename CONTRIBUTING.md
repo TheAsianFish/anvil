@@ -33,6 +33,7 @@ live tests and evals are skipped without it and nothing else needs it.
 | `make eval-noise` | the M8 control: the frontier's MiniLM student on gold, on the local teacher's labels, and on gold corrupted at the teacher's error rate (uniform and the teacher's own confusions), 3 seeds; replays `eval/labels/`, about 2 h of CPU |
 | `make eval-shift` | M9: the served Banking77 bundle off-distribution (its test split, CLINC150's out-of-scope utterances, AG News; max softmax against max logit, energy, k-NN and Mahalanobis scores). Datasets pinned in `eval/shift.yaml`; exports the bundle when `make eval-export` has not; about 20 min of CPU once the student exists. `python -m eval.shift --scores eval/results/shift-banking77-gold/scores.npz` re-runs the analysis from the committed scores without a model |
 | `make eval-coverage` | M10, M11: a seeded simulation of how often the one-sided percentile and BCa bootstrap bounds and the exact (Clopper-Pearson) and Wilson bounds on the agreement count cover the population kappa (kappa {0.85, 0.9, 0.95} x items {100, 250, 500} x labels {4, 77}) and how often the threshold search's chosen threshold truly keeps its target, plus the count bounds' exact pointwise coverage of the agreement rate; offline, about 30 s on two cores. `python -m eval.coverage --check` re-runs it and compares the counts with the committed report (CI does, under a 60 s timeout) |
+| `make eval-extract-cascade` | M12: the tagger in the cascade from the committed extraction predictions (`python -m eval.extract --predictions eval/results/extract-mit_restaurant-gold/report.json`; no model, about 20 s): F1-vs-coverage curve, thresholds at F1 0.9 and 0.95 under the point, percentile and BCa rules (`calibrate.choose_statistic_threshold` on `extraction.entity_f1_statistic`), 200 unseen-half splits, M4's error kinds either side of the threshold and the per-kind AUROC of the confidence; writes `eval/results/cascade-extract-<dataset>-<teacher>/`. A full `make eval-extract` runs it on its own report |
 | `make bench` | latency, throughput and cost table (M5) |
 | `make docker` | build the CLI image and the torch-free serving image (`--target serve`) |
 | `anvil push <export> --repo ns/name [--dry-run]` | write the model card (`README.md`) into an export and upload it to the Hugging Face Hub; needs `HF_TOKEN` unless `--dry-run` |
@@ -66,7 +67,8 @@ never logged).
 
 ```
 anvil/            package: spec, teacher/, store, students/, train/, evaluate/,
-                  spans + align + extraction (M4), select + loop (M3), calibrate +
+                  spans + align + extraction (M4), select + loop (M3), calibrate (any
+                  pooled statistic since M12) +
                   export + runtime + serve (M5), outputs + chat + generation + merge,
                   students/generator.py, train/generator.py, evaluate/sql.py,
                   generation.py, judge.py (M6), hub (model card + push, M7),
@@ -78,7 +80,8 @@ scripts/          demo.sh, wheel_check.sh (clean-venv install of the built wheel
 tests/            unit + integration; tests/recordings/ holds real Claude
                   responses replayed offline (empty until `make record`)
 eval/             classify.py, extract.py and generate.py (the parity harnesses; wikisql.py
-                  loads WikiSQL), calibration.py,
+                  loads WikiSQL), extract_cascade.py (M12, the tagger's threshold),
+                  calibration.py,
                   export.py and bench.py (M5, on the student student.py finds), coverage.py
                   (M10, the bound and threshold-search simulation), shift.py
                   and shift.yaml (M9, the bundle off-distribution), data.py
