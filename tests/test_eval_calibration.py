@@ -88,6 +88,21 @@ def test_lower_rule_answers_no_more_than_point_rule() -> None:
             assert lower["coverage"]["median"] <= point["coverage"]["median"] + 1e-12
 
 
+def test_count_rules_are_served_and_never_answer_more_than_point() -> None:
+    r = report()
+    by_rule = section(r, "by_rule")
+    assert set(by_rule) == {"point", "lower", "bca", "exact", "wilson"}
+    for target in ("0.9", "0.95"):
+        point = by_rule["point"][target]
+        for rule in ("exact", "wilson"):
+            row = by_rule[rule][target]
+            if row["threshold"] is None:
+                continue
+            assert row["kappa_low"] <= row["kappa"]
+            assert row["kappa_low"] >= float(target)
+            assert row["coverage"] <= point["coverage"]
+
+
 def test_analyse_is_deterministic() -> None:
     z, y = synthetic()
     assert analyse(z, y, 5, 50, seed=3) == analyse(z, y, 5, 50, seed=3)

@@ -12,11 +12,15 @@ study re-runs from the raw output in seconds with `--logits`:
 2. The out-of-sample check (`splits`): the held-out split is cut in half at random many times;
    the temperature and the threshold are fitted on one half and the other half says whether
    the cascade really keeps the target kappa on the inputs it answers, and at what coverage.
-   Four ways to pick the threshold are compared: `point` (the kappa estimate reaches the
+   Six ways to pick the threshold are compared: `point` (the kappa estimate reaches the
    target), `lower` (its one-sided 95% percentile-bootstrap lower bound does), `bca` (its
-   one-sided 95% BCa lower bound does) and `point-raw` (point rule on uncalibrated
-   confidences), so the effect of the bound, of its method and of the temperature are each
-   visible.
+   one-sided 95% BCa lower bound does), `exact` and `wilson` (the one-sided 95% Clopper-Pearson
+   or Wilson bound on the agreement count, mapped to kappa, does) and `point-raw` (point rule
+   on uncalibrated confidences), so the effect of the bound, of its method and of the
+   temperature are each visible. Where a rule finds no threshold on the fitting half the
+   cascade escalates everything; the share of splits where it found one is reported next to
+   how often the found threshold held, since never answering is the trivial way to hold a
+   target.
 3. The coverage cost of each rule on the whole held-out split (`by_rule`): the threshold,
    coverage and lower bound every rule would serve at each target, from the same logits.
 
@@ -66,7 +70,7 @@ DATASETS = ("banking77", "ag_news")
 TARGETS = (0.9, 0.95)
 SERVED_TARGET = 0.9
 SERVED_RULE: Rule = "lower"
-RULES: tuple[Rule, ...] = ("point", "lower", "bca")
+RULES: tuple[Rule, ...] = ("point", "lower", "bca", "exact", "wilson")
 COVERAGE_GRID = (1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.5)
 N_BINS = 15
 MIN_ACCEPTED = 30
@@ -76,6 +80,8 @@ METHODS: tuple[tuple[str, Rule, bool], ...] = (
     ("point", "point", True),
     ("lower", "lower", True),
     ("bca", "bca", True),
+    ("exact", "exact", True),
+    ("wilson", "wilson", True),
     ("point-raw", "point", False),
 )
 """(name, threshold rule, temperature-scaled confidences) for the split study."""
