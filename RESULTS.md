@@ -22,6 +22,7 @@ directory under `eval/results/`.
 | `calibration-ag_news-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` | `52dd15a` | 1m 06s | $0.00 |
 | `calibration-banking77-gold` | eval-calibration | gold | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-gold/logits.npz` | `52dd15a` | 0m 57s | $0.00 |
 | `calibration-banking77-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` | `52dd15a` | 0m 51s | $0.00 |
+| `cascade-extract-mit_restaurant-gold` | eval-extract-cascade | gold | `python -m eval.extract --predictions eval/results/extract-mit_restaurant-gold/report.json` | `fe621a5` | 0m 20s | $0.00 |
 | `classify-ag_news-gold` | eval-classify | gold | `python -m eval.classify ag_news banking77 --teacher gold` | `74cca5e` | 36m 10s | $0.00 |
 | `classify-ag_news-gold-seed1` | eval-classify | gold | `python -m eval.classify ag_news --teacher gold --seed 1` | `1c900f7` | 47m 59s | $0.00 |
 | `classify-ag_news-qwen2.5-3b` | eval-classify | qwen2.5:3b | `python -m eval.classify ag_news banking77 --teacher ollama` | `e25575f` | 41m 06s | $0.00 |
@@ -40,7 +41,7 @@ directory under `eval/results/`.
 | `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
 | `shift-banking77-gold` | eval-shift | gold | `python -m eval.shift --teacher gold` | `773e679` | 10m 59s | $0.00 |
 | `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
-| **Total (23 runs)** | | | | | 13h 48m 54s | $0.00 |
+| **Total (24 runs)** | | | | | 13h 49m 14s | $0.00 |
 
 Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
 <!-- END generated:ledger -->
@@ -439,6 +440,146 @@ Alignment stress on the 976 held-out gold spans: every mention corrupted the sam
 | title_case | 973 | 0 (0.0%) | 973 (100.0%) | 0 |
 | trailing_full_stop | 976 | 0 (0.0%) | 976 (100.0%) | 0 |
 <!-- END generated:extract -->
+
+### The tagger in the cascade: MIT Restaurant (M12)
+
+The classification cascade answers an input when the student's confidence reaches a threshold
+chosen so that kappa with the teacher on the answered inputs keeps a target. M12 asks whether
+that rule ports to the tagger, where agreement is entity F1 over sentences, and whether the
+tagger's confidence (its minimum token probability, which `eval.extract` already stores per
+held-out sentence) sees the errors it makes.
+
+- Command: `make eval-extract-cascade` (`python -m eval.extract --predictions
+  eval/results/extract-mit_restaurant-gold/report.json`, then `python -m eval.render`). It reads
+  the committed M4 predictions (teacher spans, student spans and confidence for the 500
+  held-out sentences) and needs no model: 20 s of CPU, $0. A full `make eval-extract` runs it on
+  its own report.
+- Method: `choose_threshold` is generalised to any statistic pooled over inputs
+  (`anvil/calibrate.py`: `PooledStatistic`, `choose_statistic_threshold`). Entity F1 is one such
+  statistic (`evaluate.extraction.entity_f1_statistic`): each sentence contributes its (tp, fp,
+  fn), a set of sentences scores the F1 of their sum, and the bootstrap resamples whole
+  sentences, so a sentence's entities stay together. The `point`, `lower` (one-sided 95%
+  percentile bound) and `bca` rules work for any such statistic. The count rules (`exact`,
+  `wilson`, the default for classification since M11) do not: F1 is not a share of independent
+  trials, so there is no binomial count to bound. Kappa goes through the same scan
+  (`KappaStatistic`), and re-running the four committed calibration analyses gives reports
+  byte-identical to the unmodified code on the same machine. The split study, the error kinds
+  (from M4's own matcher, `errors_by_input`) and the AUROCs are described in the block below.
+- `anvil calibrate` and `anvil serve` stay classify-only: nothing serves this threshold yet.
+
+Findings, against the plan's hypotheses:
+
+- **The lower-bound rule answers 41.8% of sentences at F1 0.9 (hypothesis 35-45% confirmed;
+  point estimate 46.0%, against the predicted 50%).** It serves 209 sentences at F1 0.925 with a
+  bound of 0.903, and the cascade, with the other 291 sentences sent to the teacher, scores F1
+  0.973 overall. At 0.95 it answers 23.2% (116 sentences, F1 0.972). BCa lands a few sentences
+  lower (41.6% and 21.6%).
+- **On unseen halves the bound holds 84.0% of the time at 0.9 against a predicted 85%
+  (hypothesis not confirmed; the study cannot tell the two apart).** 168 of 200 splits kept F1
+  0.9 on the unseen half's answered sentences (exact 95% interval 78.2-88.8%, which holds 85%); BCa kept it in 86.5%
+  and the point rule in 44.0%. At 0.95 the percentile rule kept 70.8% of the splits where it
+  found a threshold and BCa 78.6%, so 28.5% and 16.5% of all splits served a cascade that
+  missed. The 0.9 figure is below the classification one (90.5% for the percentile rule on
+  Banking77 at kappa 0.9). Three causes are plausible, and I did not separate them: the
+  percentile bound under-covers (M10 measured 93% for kappa); the search picks the largest
+  coverage whose bound clears, which favours lucky fitting halves; and "kept" is judged on about
+  100 answered sentences of the other half, whose own F1 estimate is noisy. The count rule that
+  fixed this for kappa has no analogue for F1, so the rule ports, but without M11's guarantee.
+- **Errors above the threshold are the ones the confidence misses, and boundary errors are
+  not the main survivors.** Above the 0.9 cut sit 36.3% of the teacher's entities but only
+  8.7% of the boundary errors (11 of 127), against 16.3% of the type errors (7 of 43) and
+  16.7% of the missed entities (7 of 42). Above the 0.95 cut no type error remains and missed
+  entities are the largest kind left (4 of 42, against 2 of 127 boundary errors).
+- **Boundary errors are not detectably easier to see than type errors once both are compared
+  with the same clean sentences (hypothesis not confirmed).** Against the 280 clean sentences
+  the AUROC of low confidence is 0.863 [0.822, 0.900] for boundary-error sentences and 0.822
+  [0.754, 0.884] for type-error ones, a paired difference of +0.041 [-0.021, +0.108]: under the
+  predicted 0.05, and the interval includes zero, which the plan expected possible with 38
+  type-error sentences. The pilot's gap (0.778 against 0.682) ranked each kind against every
+  other sentence, and that difference, +0.096 [+0.008, +0.187], does exclude zero. But in that
+  comparison each kind's negatives include the sentences holding the other errors, which also
+  have low confidence: 106 boundary-only sentences among the type kind's negatives, against 29
+  type-only ones among the boundary kind's (9 sentences hold both). My reading, not a separate
+  measurement, is that most of the pilot's gap reflects how large the other error class is
+  rather than how visible each kind is. The kind the confidence sees worst is the missed entity
+  (0.785 against clean, 0.619 against the rest). A plausible mechanism, untested here: a
+  minimum token probability only drops on a token the tagger hesitated over, and a missed
+  entity may be one it tagged O without hesitating.
+
+Whether this confidence is worth serving: at F1 0.9 the tagger can answer about two sentences in
+five with an unseen-half hold rate of 84-87%. That is a usable cascade, with a weaker guarantee
+than the classification one. Its residual errors are skewed toward missed entities, the kind
+this confidence cannot see. The tagger's export and serving remain a later milestone.
+
+<!-- BEGIN generated:extract-cascade -->
+#### mit_restaurant, teacher `gold`, student `ModernBERT-base`: the tagger in the cascade
+
+- Raw output: `eval/results/cascade-extract-mit_restaurant-gold/` (`report.json`, `meta.json`), from `eval/results/extract-mit_restaurant-gold/report.json` (sha256 `d235ec00397d`, student run `20261018-080309-n1442`)
+- Command: `python -m eval.extract --predictions eval/results/extract-mit_restaurant-gold/report.json` at `fe621a5`; 500 held-out sentences, entity F1 0.727 against the teacher; confidence: the minimum token probability, rounded to 4 decimals (463 distinct values); at least 30 answered sentences; 1000 sentence resamples; wall 20 s; no model, spent $0.00
+
+Threshold each rule serves on all held-out sentences (the cascade F1 counts escalated sentences as answered by the teacher):
+
+| Target F1 | Rule | Threshold | Sentences answered | F1 on answered | Lower bound | F1 on escalated | Cascade F1 |
+|---|---|---|---|---|---|---|---|
+| 0.9 | point estimate | 0.8779 | 230 (46.0%) | 0.901 | n/a | 0.613 | 0.960 |
+| 0.9 | 95% percentile lower bound | 0.9032 | 209 (41.8%) | 0.925 | 0.903 | 0.621 | 0.973 |
+| 0.9 | 95% BCa lower bound | 0.9036 | 208 (41.6%) | 0.927 | 0.902 | 0.621 | 0.974 |
+| 0.95 | point estimate | 0.9599 | 147 (29.4%) | 0.953 | n/a | 0.659 | 0.989 |
+| 0.95 | 95% percentile lower bound | 0.9714 | 116 (23.2%) | 0.972 | 0.951 | 0.673 | 0.995 |
+| 0.95 | 95% BCa lower bound | 0.9756 | 108 (21.6%) | 0.979 | 0.962 | 0.677 | 0.996 |
+
+Unseen halves: 200 random splits into 250 sentences to fit the threshold on and 250 to test it on. "Kept" counts the splits whose unseen half's answered sentences reach the target among those where a threshold was found (exact 95% interval); "missed" is the share of all splits that served a cascade missing the target.
+
+| Target F1 | Rule | Threshold found | Unseen half: kept the target | Missed (all splits) | Unseen half: coverage | Unseen half: F1 on answered |
+|---|---|---|---|---|---|---|
+| 0.9 | point estimate | 100.0% | 88/200 (44.0%; 37.0%-51.2%) | 56.0% | 47.4% [40.8%, 59.2%] | 0.894 [0.848, 0.947] |
+| 0.9 | 95% percentile lower bound | 100.0% | 168/200 (84.0%; 78.2%-88.8%) | 16.0% | 38.6% [26.8%, 46.5%] | 0.927 [0.877, 0.973] |
+| 0.9 | 95% BCa lower bound | 100.0% | 173/200 (86.5%; 81.0%-90.9%) | 13.5% | 35.6% [23.2%, 44.8%] | 0.929 [0.885, 0.983] |
+| 0.95 | point estimate | 100.0% | 74/200 (37.0%; 30.3%-44.1%) | 63.0% | 30.0% [22.8%, 42.4%] | 0.944 [0.903, 0.984] |
+| 0.95 | 95% percentile lower bound | 97.5% | 138/195 (70.8%; 63.8%-77.0%) | 28.5% | 22.4% [18.8%, 31.3%] | 0.970 [0.920, 0.994] |
+| 0.95 | 95% BCa lower bound | 77.0% | 121/154 (78.6%; 71.2%-84.8%) | 16.5% | 21.2% [9.6%, 29.7%] | 0.980 [0.922, 1.000] |
+
+Error kinds of M4's matcher either side of the 95% percentile lower bound threshold (counts of teacher spans, spurious ones of student spans; each row adds up to the committed report's breakdown):
+
+| | All | Above F1 0.9 cut | Below | Above F1 0.95 cut | Below |
+|---|---|---|---|---|---|
+| Sentences | 500 | 209 | 291 | 116 | 384 |
+| Teacher entities | 976 | 354 (36.3%) | 622 (63.7%) | 182 (18.6%) | 794 (81.4%) |
+| Entity F1 | 0.727 | 0.925 | 0.621 | 0.972 | 0.673 |
+| boundary (same type, other extent) | 127 | 11 (8.7%) | 116 (91.3%) | 2 (1.6%) | 125 (98.4%) |
+| type (same extent, other type) | 43 | 7 (16.3%) | 36 (83.7%) | 0 (0.0%) | 43 (100.0%) |
+| both | 25 | 2 (8.0%) | 23 (92.0%) | 0 (0.0%) | 25 (100.0%) |
+| missed (no overlapping span) | 42 | 7 (16.7%) | 35 (83.3%) | 4 (9.5%) | 38 (90.5%) |
+| spurious (overlaps no teacher span) | 65 | 7 (10.8%) | 58 (89.2%) | 2 (3.1%) | 63 (96.9%) |
+
+Does low confidence find each kind? AUROC of the confidence for "this sentence holds an error of this kind", against the clean sentences (no false positive or negative; 280 of them) and against every other sentence, with 95% sentence-resampled intervals. A sentence can hold several kinds (9 hold both a boundary and a type error).
+
+| Error kind | Sentences | AUROC against clean | AUROC against every other sentence |
+|---|---|---|---|
+| any error | 220 | 0.841 [0.805, 0.873] | n/a |
+| boundary (same type, other extent) | 115 | 0.863 [0.822, 0.900] | 0.778 [0.732, 0.820] |
+| type (same extent, other type) | 38 | 0.822 [0.754, 0.884] | 0.682 [0.605, 0.758] |
+| both | 23 | 0.907 [0.841, 0.955] | 0.797 [0.710, 0.871] |
+| missed (no overlapping span) | 36 | 0.785 [0.708, 0.849] | 0.619 [0.539, 0.693] |
+| spurious (overlaps no teacher span) | 54 | 0.855 [0.795, 0.907] | 0.754 [0.687, 0.817] |
+| boundary minus type (paired) | | +0.041 [-0.021, 0.108] | +0.096 [0.008, 0.187] |
+
+F1 against coverage on all held-out sentences:
+
+| Coverage | Threshold | F1 on answered | Cascade F1 |
+|---|---|---|---|
+| 100.0% | 0.2221 | 0.727 | 0.727 |
+| 90.0% | 0.5046 | 0.764 | 0.789 |
+| 80.0% | 0.5748 | 0.798 | 0.841 |
+| 70.0% | 0.6770 | 0.835 | 0.887 |
+| 60.0% | 0.7751 | 0.871 | 0.927 |
+| 50.0% | 0.8531 | 0.896 | 0.953 |
+| 40.0% | 0.9121 | 0.927 | 0.975 |
+| 30.0% | 0.9556 | 0.948 | 0.987 |
+| 20.0% | 0.9807 | 0.987 | 0.998 |
+
+The teacher here is the dataset's gold spans (no API key in this run): this measures the tagger's confidence against clean labels, not against Claude.
+<!-- END generated:extract-cascade -->
 
 ### Selection on synthetic data (M3)
 

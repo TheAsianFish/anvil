@@ -1,0 +1,657 @@
+{
+  "source": {
+    "report": "eval/results/extract-mit_restaurant-gold/report.json",
+    "sha256": "d235ec00397db18b8512a62758ea3e1e5db78c992b63db8c3bd6da9d4e57fcdf",
+    "dataset": "mit_restaurant",
+    "teacher_model": "gold",
+    "student_model": "answerdotai/ModernBERT-base",
+    "student_run": "20261018-080309-n1442",
+    "confidence": "minimum token probability, rounded to 4 decimals"
+  },
+  "targets": [
+    0.9,
+    0.95
+  ],
+  "rules": [
+    "point",
+    "lower",
+    "bca"
+  ],
+  "served_rule": "lower",
+  "n": 500,
+  "f1": 0.7266470009832842,
+  "errors": {
+    "correct": 739,
+    "wrong_type": 43,
+    "wrong_boundary": 127,
+    "wrong_both": 25,
+    "missed": 42,
+    "spurious": 65
+  },
+  "confidence": {
+    "mean": 0.789438,
+    "p5": 0.443675,
+    "median": 0.8527,
+    "p95": 0.9975
+  },
+  "distinct_confidences": 463,
+  "curve": [
+    {
+      "level": 1.0,
+      "threshold": 0.2221,
+      "accepted": 500,
+      "coverage": 1.0,
+      "value": 0.7266470009832842,
+      "system_f1": 0.7266470009832842
+    },
+    {
+      "level": 0.9,
+      "threshold": 0.5046,
+      "accepted": 450,
+      "coverage": 0.9,
+      "value": 0.7641456582633053,
+      "system_f1": 0.7893946973486743
+    },
+    {
+      "level": 0.8,
+      "threshold": 0.5748,
+      "accepted": 400,
+      "coverage": 0.8,
+      "value": 0.7981947130883301,
+      "system_f1": 0.8410360589131539
+    },
+    {
+      "level": 0.7,
+      "threshold": 0.677,
+      "accepted": 350,
+      "coverage": 0.7,
+      "value": 0.8348348348348348,
+      "system_f1": 0.887410440122825
+    },
+    {
+      "level": 0.6,
+      "threshold": 0.7751,
+      "accepted": 300,
+      "coverage": 0.6,
+      "value": 0.8705882352941177,
+      "system_f1": 0.9267042542286007
+    },
+    {
+      "level": 0.5,
+      "threshold": 0.8531,
+      "accepted": 250,
+      "coverage": 0.5,
+      "value": 0.8963963963963963,
+      "system_f1": 0.9529170931422722
+    },
+    {
+      "level": 0.4,
+      "threshold": 0.9121,
+      "accepted": 200,
+      "coverage": 0.4,
+      "value": 0.9265367316341829,
+      "system_f1": 0.974910394265233
+    },
+    {
+      "level": 0.3,
+      "threshold": 0.9556,
+      "accepted": 150,
+      "coverage": 0.3,
+      "value": 0.9475890985324947,
+      "system_f1": 0.9871860584315736
+    },
+    {
+      "level": 0.2,
+      "threshold": 0.9807,
+      "accepted": 100,
+      "coverage": 0.2,
+      "value": 0.9868421052631579,
+      "system_f1": 0.9979508196721312
+    }
+  ],
+  "thresholds": {
+    "0.9": {
+      "point": {
+        "rule": "point",
+        "target": 0.9,
+        "threshold": 0.8779,
+        "accepted": 230,
+        "coverage": 0.46,
+        "value": 0.9013732833957553,
+        "low": null,
+        "system_f1": 0.9596320899335717,
+        "above": {
+          "sentences": 230,
+          "teacher_entities": 398,
+          "student_entities": 403,
+          "f1": 0.9013732833957553,
+          "errors": {
+            "correct": 361,
+            "wrong_type": 8,
+            "wrong_boundary": 19,
+            "wrong_both": 2,
+            "missed": 8,
+            "spurious": 12
+          }
+        },
+        "below": {
+          "sentences": 270,
+          "teacher_entities": 578,
+          "student_entities": 655,
+          "f1": 0.6131386861313869,
+          "errors": {
+            "correct": 378,
+            "wrong_type": 35,
+            "wrong_boundary": 108,
+            "wrong_both": 23,
+            "missed": 34,
+            "spurious": 53
+          }
+        }
+      },
+      "lower": {
+        "rule": "lower",
+        "target": 0.9,
+        "threshold": 0.9032,
+        "accepted": 209,
+        "coverage": 0.418,
+        "value": 0.925035360678925,
+        "low": 0.9032920284135754,
+        "system_f1": 0.9728344438749359,
+        "above": {
+          "sentences": 209,
+          "teacher_entities": 354,
+          "student_entities": 353,
+          "f1": 0.925035360678925,
+          "errors": {
+            "correct": 327,
+            "wrong_type": 7,
+            "wrong_boundary": 11,
+            "wrong_both": 2,
+            "missed": 7,
+            "spurious": 7
+          }
+        },
+        "below": {
+          "sentences": 291,
+          "teacher_entities": 622,
+          "student_entities": 705,
+          "f1": 0.6209495101733233,
+          "errors": {
+            "correct": 412,
+            "wrong_type": 36,
+            "wrong_boundary": 116,
+            "wrong_both": 23,
+            "missed": 35,
+            "spurious": 58
+          }
+        }
+      },
+      "bca": {
+        "rule": "bca",
+        "target": 0.9,
+        "threshold": 0.9036,
+        "accepted": 208,
+        "coverage": 0.416,
+        "value": 0.927246790299572,
+        "low": 0.9023990773879034,
+        "system_f1": 0.97385955920041,
+        "above": {
+          "sentences": 208,
+          "teacher_entities": 351,
+          "student_entities": 350,
+          "f1": 0.927246790299572,
+          "errors": {
+            "correct": 325,
+            "wrong_type": 7,
+            "wrong_boundary": 10,
+            "wrong_both": 2,
+            "missed": 7,
+            "spurious": 7
+          }
+        },
+        "below": {
+          "sentences": 292,
+          "teacher_entities": 625,
+          "student_entities": 708,
+          "f1": 0.6211552888222055,
+          "errors": {
+            "correct": 414,
+            "wrong_type": 36,
+            "wrong_boundary": 117,
+            "wrong_both": 23,
+            "missed": 35,
+            "spurious": 58
+          }
+        }
+      }
+    },
+    "0.95": {
+      "point": {
+        "rule": "point",
+        "target": 0.95,
+        "threshold": 0.9599,
+        "accepted": 147,
+        "coverage": 0.294,
+        "value": 0.9529914529914529,
+        "low": null,
+        "system_f1": 0.9887295081967213,
+        "above": {
+          "sentences": 147,
+          "teacher_entities": 234,
+          "student_entities": 234,
+          "f1": 0.9529914529914529,
+          "errors": {
+            "correct": 223,
+            "wrong_type": 3,
+            "wrong_boundary": 4,
+            "wrong_both": 0,
+            "missed": 4,
+            "spurious": 4
+          }
+        },
+        "below": {
+          "sentences": 353,
+          "teacher_entities": 742,
+          "student_entities": 824,
+          "f1": 0.6590038314176245,
+          "errors": {
+            "correct": 516,
+            "wrong_type": 40,
+            "wrong_boundary": 123,
+            "wrong_both": 25,
+            "missed": 38,
+            "spurious": 61
+          }
+        }
+      },
+      "lower": {
+        "rule": "lower",
+        "target": 0.95,
+        "threshold": 0.9714,
+        "accepted": 116,
+        "coverage": 0.232,
+        "value": 0.9723756906077348,
+        "low": 0.9514038847031175,
+        "system_f1": 0.9948717948717949,
+        "above": {
+          "sentences": 116,
+          "teacher_entities": 182,
+          "student_entities": 180,
+          "f1": 0.9723756906077348,
+          "errors": {
+            "correct": 176,
+            "wrong_type": 0,
+            "wrong_boundary": 2,
+            "wrong_both": 0,
+            "missed": 4,
+            "spurious": 2
+          }
+        },
+        "below": {
+          "sentences": 384,
+          "teacher_entities": 794,
+          "student_entities": 878,
+          "f1": 0.6734449760765551,
+          "errors": {
+            "correct": 563,
+            "wrong_type": 43,
+            "wrong_boundary": 125,
+            "wrong_both": 25,
+            "missed": 38,
+            "spurious": 63
+          }
+        }
+      },
+      "bca": {
+        "rule": "bca",
+        "target": 0.95,
+        "threshold": 0.9756,
+        "accepted": 108,
+        "coverage": 0.216,
+        "value": 0.9791044776119403,
+        "low": 0.9615945678020495,
+        "system_f1": 0.9964120963608406,
+        "above": {
+          "sentences": 108,
+          "teacher_entities": 168,
+          "student_entities": 167,
+          "f1": 0.9791044776119403,
+          "errors": {
+            "correct": 164,
+            "wrong_type": 0,
+            "wrong_boundary": 1,
+            "wrong_both": 0,
+            "missed": 3,
+            "spurious": 2
+          }
+        },
+        "below": {
+          "sentences": 392,
+          "teacher_entities": 808,
+          "student_entities": 891,
+          "f1": 0.6768687463213655,
+          "errors": {
+            "correct": 575,
+            "wrong_type": 43,
+            "wrong_boundary": 126,
+            "wrong_both": 25,
+            "missed": 39,
+            "spurious": 63
+          }
+        }
+      }
+    }
+  },
+  "split_study": {
+    "splits": 200,
+    "fit_size": 250,
+    "test_size": 250,
+    "seed": 0,
+    "n_resamples": 1000,
+    "min_accepted": 30,
+    "targets": {
+      "0.9": {
+        "point": {
+          "found": 1.0,
+          "met": 0.44,
+          "missed_share": 0.56,
+          "found_splits": 200,
+          "met_splits": 88,
+          "met_interval": [
+            0.3700555793390471,
+            0.5117497309253001
+          ],
+          "coverage": {
+            "mean": 0.48782000000000003,
+            "p5": 0.408,
+            "median": 0.474,
+            "p95": 0.5922
+          },
+          "fit_coverage": {
+            "mean": 0.4902,
+            "p5": 0.408,
+            "median": 0.484,
+            "p95": 0.5922
+          },
+          "f1": {
+            "mean": 0.8969616255576256,
+            "p5": 0.8477419291415987,
+            "median": 0.8939187269110542,
+            "p95": 0.9469222423146474
+          }
+        },
+        "lower": {
+          "found": 1.0,
+          "met": 0.84,
+          "missed_share": 0.16,
+          "found_splits": 200,
+          "met_splits": 168,
+          "met_interval": [
+            0.7817009846486621,
+            0.8879125023541962
+          ],
+          "coverage": {
+            "mean": 0.37498000000000004,
+            "p5": 0.2676,
+            "median": 0.386,
+            "p95": 0.4645999999999998
+          },
+          "fit_coverage": {
+            "mean": 0.37476,
+            "p5": 0.2516,
+            "median": 0.392,
+            "p95": 0.4721999999999999
+          },
+          "f1": {
+            "mean": 0.9271308680363586,
+            "p5": 0.8769519842188206,
+            "median": 0.9265235173824131,
+            "p95": 0.9732715201465201
+          }
+        },
+        "bca": {
+          "found": 1.0,
+          "met": 0.865,
+          "missed_share": 0.135,
+          "found_splits": 200,
+          "met_splits": 173,
+          "met_interval": [
+            0.8096908273166041,
+            0.9091128982451001
+          ],
+          "coverage": {
+            "mean": 0.35245999999999994,
+            "p5": 0.232,
+            "median": 0.356,
+            "p95": 0.44819999999999993
+          },
+          "fit_coverage": {
+            "mean": 0.35298,
+            "p5": 0.2198,
+            "median": 0.364,
+            "p95": 0.46019999999999994
+          },
+          "f1": {
+            "mean": 0.9320247670023301,
+            "p5": 0.8851418828400925,
+            "median": 0.9286819991154356,
+            "p95": 0.9830508474576272
+          }
+        }
+      },
+      "0.95": {
+        "point": {
+          "found": 1.0,
+          "met": 0.37,
+          "missed_share": 0.63,
+          "found_splits": 200,
+          "met_splits": 74,
+          "met_interval": [
+            0.3029698242712391,
+            0.4409464847847383
+          ],
+          "coverage": {
+            "mean": 0.3084,
+            "p5": 0.228,
+            "median": 0.3,
+            "p95": 0.4241999999999999
+          },
+          "fit_coverage": {
+            "mean": 0.30885999999999997,
+            "p5": 0.22,
+            "median": 0.308,
+            "p95": 0.4083999999999998
+          },
+          "f1": {
+            "mean": 0.9418943849963067,
+            "p5": 0.903183249638267,
+            "median": 0.9442219633996523,
+            "p95": 0.9839657074951192
+          }
+        },
+        "lower": {
+          "found": 0.975,
+          "met": 0.7076923076923077,
+          "missed_share": 0.285,
+          "found_splits": 195,
+          "met_splits": 138,
+          "met_interval": [
+            0.638460977837748,
+            0.7704860598065971
+          ],
+          "coverage": {
+            "mean": 0.22986666666666666,
+            "p5": 0.188,
+            "median": 0.224,
+            "p95": 0.3131999999999999
+          },
+          "fit_coverage": {
+            "mean": 0.2341128205128205,
+            "p5": 0.1908,
+            "median": 0.228,
+            "p95": 0.304
+          },
+          "f1": {
+            "mean": 0.9662603471369465,
+            "p5": 0.9203347441323586,
+            "median": 0.9704142011834319,
+            "p95": 0.9943240223463687
+          }
+        },
+        "bca": {
+          "found": 0.77,
+          "met": 0.7857142857142857,
+          "missed_share": 0.165,
+          "found_splits": 154,
+          "met_splits": 121,
+          "met_interval": [
+            0.7124370525869191,
+            0.8476690938244626
+          ],
+          "coverage": {
+            "mean": 0.2026233766233766,
+            "p5": 0.096,
+            "median": 0.212,
+            "p95": 0.29739999999999994
+          },
+          "fit_coverage": {
+            "mean": 0.21194805194805194,
+            "p5": 0.124,
+            "median": 0.22,
+            "p95": 0.3
+          },
+          "f1": {
+            "mean": 0.9697674629378706,
+            "p5": 0.9216672728007435,
+            "median": 0.9802623035969354,
+            "p95": 1.0
+          }
+        }
+      }
+    }
+  },
+  "detection": {
+    "clean_sentences": 280,
+    "boundary_and_type": 9,
+    "clean": {
+      "by_kind": {
+        "any_error": {
+          "sentences": 220,
+          "auroc": {
+            "estimate": 0.8412256493506494,
+            "low": 0.8048967477809982,
+            "high": 0.8734079488897111,
+            "resamples": 1000
+          }
+        },
+        "wrong_boundary": {
+          "sentences": 115,
+          "auroc": {
+            "estimate": 0.8634316770186335,
+            "low": 0.8220884751473745,
+            "high": 0.8999264266593783,
+            "resamples": 1000
+          }
+        },
+        "wrong_type": {
+          "sentences": 38,
+          "auroc": {
+            "estimate": 0.8222744360902255,
+            "low": 0.75423413740291,
+            "high": 0.8843798934661133,
+            "resamples": 1000
+          }
+        },
+        "wrong_both": {
+          "sentences": 23,
+          "auroc": {
+            "estimate": 0.9065217391304348,
+            "low": 0.8414295408538829,
+            "high": 0.9554046379644784,
+            "resamples": 1000
+          }
+        },
+        "missed": {
+          "sentences": 36,
+          "auroc": {
+            "estimate": 0.7851686507936508,
+            "low": 0.7077319873653821,
+            "high": 0.8491357899948567,
+            "resamples": 1000
+          }
+        },
+        "spurious": {
+          "sentences": 54,
+          "auroc": {
+            "estimate": 0.8547949735449736,
+            "low": 0.7949637985191931,
+            "high": 0.9074172843776461,
+            "resamples": 1000
+          }
+        }
+      },
+      "boundary_minus_type": {
+        "estimate": 0.041157240928408,
+        "low": -0.021139604322627285,
+        "high": 0.1079611527195144,
+        "resamples": 1000
+      }
+    },
+    "rest": {
+      "by_kind": {
+        "wrong_boundary": {
+          "sentences": 115,
+          "auroc": {
+            "estimate": 0.77828345567476,
+            "low": 0.7321700633052068,
+            "high": 0.8204358972289354,
+            "resamples": 1000
+          }
+        },
+        "wrong_type": {
+          "sentences": 38,
+          "auroc": {
+            "estimate": 0.6820745044429255,
+            "low": 0.6045296248056002,
+            "high": 0.7582327760891591,
+            "resamples": 1000
+          }
+        },
+        "wrong_both": {
+          "sentences": 23,
+          "auroc": {
+            "estimate": 0.7973748974569319,
+            "low": 0.7097030655667554,
+            "high": 0.8709404976946011,
+            "resamples": 1000
+          }
+        },
+        "missed": {
+          "sentences": 36,
+          "auroc": {
+            "estimate": 0.6192528735632183,
+            "low": 0.5386489311867684,
+            "high": 0.6929295471082398,
+            "resamples": 1000
+          }
+        },
+        "spurious": {
+          "sentences": 54,
+          "auroc": {
+            "estimate": 0.7536331174223551,
+            "low": 0.6874560639281715,
+            "high": 0.8174112218290813,
+            "resamples": 1000
+          }
+        }
+      },
+      "boundary_minus_type": {
+        "estimate": 0.09620895123183448,
+        "low": 0.008450027903212762,
+        "high": 0.18672530836372442,
+        "resamples": 1000
+      }
+    }
+  }
+}
