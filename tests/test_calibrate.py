@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import json
 import math
+from statistics import NormalDist
 
 import numpy as np
 import numpy.typing as npt
@@ -451,3 +452,167 @@ def test_a_fit_that_runs_to_a_bound_is_not_identified_even_with_disagreements() 
     flat = np.array([[0.2, 0.0, 0.0, 0.0, 0.0]])
     assert softmax(flat, 0.05)[0].max() > 0.5
     assert softmax(flat, 1.0)[0].max() < 0.25
+
+
+# count rules: "exact" and "wilson"
+
+
+def brute_tail(k: int, n: int, p: float) -> float:
+    return sum(math.comb(n, j) * p**j * (1 - p) ** (n - j) for j in range(k, n + 1))
+
+
+def brute_cp(k: int, n: int, confidence: float) -> float:
+    if k == 0:
+        return 0.0
+    lo, hi = 0.0, 1.0
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        if brute_tail(k, n, mid) < 1 - confidence:
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def brute_wilson(k: int, n: int, confidence: float) -> float:
+    z = NormalDist().inv_cdf(confidence)
+    p_hat = k / n
+    a, b, c = 1 + z * z / n, -(2 * p_hat + z * z / n), p_hat * p_hat
+    return max((-b - math.sqrt(b * b - 4 * a * c)) / (2 * a), 0.0)
+
+
+def brute_count_bound(
+    point: CoveragePoint,
+    confidence: FloatArray,
+    teacher: IntArray,
+    student: IntArray,
+    n_labels: int,
+    method: str,
+    level: float,
+) -> float:
+    """The count bound on the inputs a threshold accepts, from their marginals by hand."""
+    keep = confidence >= point.threshold
+    t = [int(x) for x, m in zip(teacher, keep, strict=True) if m]
+    s = [int(x) for x, m in zip(student, keep, strict=True) if m]
+    n = len(t)
+    agree = sum(a == b for a, b in zip(t, s, strict=True))
+    chance = sum(t.count(j) * s.count(j) for j in range(n_labels))
+    if chance == n * n:
+        return 0.0
+    low = brute_cp(agree, n, level) if method == "exact" else brute_wilson(agree, n, level)
+    p_e = chance / (n * n)
+    return (low - p_e) / (1 - p_e)
+
+
+@pytest.mark.parametrize("rule", ["exact", "wilson"])
+def test_count_rules_match_a_brute_force_scan(rule: str) -> None:
+    for seed in range(2):
+        confidence, teacher, student = tied_case(30 + seed, 210, 3)
+        curve = coverage_curve(confidence, teacher, student, 3)
+        lows = [brute_count_bound(p, confidence, teacher, student, 3, rule, 0.95) for p in curve]
+        for target in (0.4, 0.6, 0.75, 0.9, 1.0):
+            ok = [
+                (p, low)
+                for p, low in zip(curve, lows, strict=True)
+                if p.accepted >= 30 and p.kappa >= target and low >= target
+            ]
+            choice = choose_threshold(
+                confidence,
+                teacher,
+                student,
+                3,
+                target,
+                rule=rule,  # type: ignore[arg-type]
+            )
+            if not ok:
+                assert choice is None
+                continue
+            best, best_low = max(ok, key=lambda pl: pl[0].coverage)
+            assert choice is not None
+            assert choice.rule == rule
+            assert (choice.threshold, choice.accepted, choice.coverage) == (
+                best.threshold,
+                best.accepted,
+                best.coverage,
+            )
+            assert choice.kappa == best.kappa
+            assert choice.system_kappa == best.system_kappa
+            assert choice.kappa_low is not None
+            assert choice.kappa_low == pytest.approx(best_low, abs=1e-9)
+            assert target <= choice.kappa_low <= choice.kappa
+
+
+def test_count_rules_never_exceed_the_point_rule_and_ignore_resampling() -> None:
+    for seed in range(3):
+        confidence, teacher, student = tied_case(seed, 300, 3)
+        for target in (0.5, 0.7, 0.85):
+            point = choose_threshold(confidence, teacher, student, 3, target, rule="point")
+            for rule in ("exact", "wilson"):
+                got = choose_threshold(
+                    confidence,
+                    teacher,
+                    student,
+                    3,
+                    target,
+                    rule=rule,
+                )
+                other = choose_threshold(
+                    confidence,
+                    teacher,
+                    student,
+                    3,
+                    target,
+                    rule=rule,
+                    n_resamples=7,
+                    seed=99,
+                )
+                assert got == other
+                if got is not None:
+                    assert point is not None
+                    assert got.coverage <= point.coverage
+
+
+def test_count_rules_on_perfect_agreement() -> None:
+    # The first 40 inputs are perfect over 3 labels: point kappa 1, but the exact bound of 40
+    # out of 40 is (0.05 ** (1 / 40) - p_e) / (1 - p_e), about 0.89. A target of 1.0 is out of
+    # reach; 0.85 is met at that perfect prefix, where the full curve's bound (about 0.83)
+    # misses it even though its point kappa (about 0.89) clears it.
+    confidence, teacher, student = dip_case()
+    assert choose_threshold(confidence, teacher, student, 3, 1.0, rule="exact") is None
+    point = choose_threshold(confidence, teacher, student, 3, 0.85, rule="point")
+    assert point is not None
+    assert point.coverage == 1.0
+    choice = choose_threshold(confidence, teacher, student, 3, 0.85, rule="exact")
+    assert choice is not None
+    assert choice.accepted == 40
+    assert choice.kappa == 1.0
+    p_e = sum((teacher[:40] == j).sum() ** 2 for j in range(3)) / 40**2
+    assert choice.kappa_low == pytest.approx((0.05 ** (1 / 40) - p_e) / (1 - p_e), abs=1e-12)
+
+
+def test_count_rules_bound_a_single_label_cascade_at_zero() -> None:
+    # Every input has the same label from both raters: the point kappa takes the 1.0
+    # convention, but p_e == 1 leaves no chance-corrected evidence, so the count bound is 0.
+    same = np.zeros(50, dtype=np.int64)
+    confidence = np.linspace(1.0, 0.0, 50)
+    assert choose_threshold(confidence, same, same, 2, 0.5, rule="point") is not None
+    for rule in ("exact", "wilson"):
+        assert choose_threshold(confidence, same, same, 2, 0.5, rule=rule) is None
+        assert choose_threshold(confidence, same, same, 2, 0.0, rule=rule) is not None
+
+
+def test_count_rule_unknown_raises() -> None:
+    confidence, teacher, student = dip_case()
+    with pytest.raises(ValueError, match="unknown rule"):
+        choose_threshold(confidence, teacher, student, 3, 0.8, rule="clopper")  # type: ignore[arg-type]
+
+
+def test_calibrate_with_the_exact_rule() -> None:
+    z, y = sampled(8, 600, 4, 3.0)
+    result = calibrate(z, y, target_kappa=0.5, rule="exact")
+    assert result.rule == "exact"
+    assert result.threshold is not None
+    assert result.kappa_low is not None
+    assert result.kappa is not None
+    assert 0.5 <= result.kappa_low <= result.kappa
+    assert json.loads(json.dumps(result.as_dict()))["rule"] == "exact"

@@ -13,8 +13,9 @@ Three steps, all numpy (this module is imported on the torch-free serving image)
 2. `reliability` and `ece` measure how far confidence is from agreement, before and after.
 3. `coverage_curve` and `choose_threshold` trade coverage (share the student answers) against
    kappa on the answered inputs, and pick the threshold that keeps a target kappa at the
-   largest coverage, optionally on a one-sided bootstrap lower bound (percentile or BCa) so
-   the target holds with stated confidence rather than only on this sample.
+   largest coverage, optionally on a one-sided lower bound (bootstrap percentile or BCa, or
+   the exact or Wilson binomial bound on the agreement count) so the target holds with stated
+   confidence rather than only on this sample.
 """
 
 from __future__ import annotations
@@ -26,17 +27,23 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
+from anvil.evaluate.binomial import CountMethod, kappa_lower_from_counts
 from anvil.evaluate.bootstrap import Method, lower_bounds, resample_indices
 
 FloatArray = npt.NDArray[np.float64]
 IntArray = npt.NDArray[np.int64]
 ArrayLike2D = npt.ArrayLike
 """Anything np.asarray turns into a (n, n_labels) float array: an ndarray or nested lists."""
-Rule = Literal["point", "lower", "bca"]
+Rule = Literal["point", "lower", "bca", "exact", "wilson"]
 """How `choose_threshold` decides that a threshold keeps the target: "point", the kappa estimate
 reaches it; "lower", its one-sided percentile-bootstrap lower bound does; "bca", its one-sided
-BCa lower bound does."""
+BCa lower bound does; "exact", the Clopper-Pearson lower bound on the agreement count, mapped to
+kappa through the sample's chance term, does; "wilson", the same with the Wilson score bound."""
+RULES: tuple[Rule, ...] = ("point", "lower", "bca", "exact", "wilson")
 BOUND_METHOD: dict[Rule, Method] = {"lower": "percentile", "bca": "bca"}
+"""The bootstrap rules and the method that reads their replicates."""
+COUNT_METHOD: dict[Rule, CountMethod] = {"exact": "exact", "wilson": "wilson"}
+"""The rules bounded from the agreement count, with no resampling."""
 
 _BISECTION_STEPS = 60
 TEMPERATURE_BOUNDS = (0.05, 20.0)
@@ -258,6 +265,70 @@ def _cascade_inputs(
     return conf, t, s, order
 
 
+@dataclass(frozen=True)
+class _CurveCounts:
+    """Running counts over the inputs sorted by confidence (highest first), and the cuts a
+    threshold can make: the last index of each run of equal confidences."""
+
+    n: int
+    confidence: FloatArray
+    """Sorted, highest first."""
+    rows: IntArray
+    """(n, K) running teacher label counts."""
+    cols: IntArray
+    """(n, K) running student label counts."""
+    agree: IntArray
+    """Running agreement count."""
+    ends: IntArray
+    accepted: IntArray
+    """ends + 1: inputs accepted at each cut."""
+
+    @property
+    def agree_at_cuts(self) -> IntArray:
+        return self.agree[self.ends]
+
+    @property
+    def chance_at_cuts(self) -> IntArray:
+        """n_accepted^2 * p_e at each cut, as an integer."""
+        out: IntArray = (self.rows[self.ends] * self.cols[self.ends]).sum(axis=1)
+        return out
+
+
+def _curve_counts(
+    confidence: npt.ArrayLike, teacher: npt.ArrayLike, student: npt.ArrayLike, n_labels: int
+) -> _CurveCounts:
+    conf, t, s, order = _cascade_inputs(confidence, teacher, student, n_labels)
+    c_sorted, t_sorted, s_sorted = conf[order], t[order], s[order]
+    eye = np.eye(n_labels, dtype=np.int64)
+    ends = np.flatnonzero(np.append(c_sorted[1:] != c_sorted[:-1], True)).astype(np.int64)
+    return _CurveCounts(
+        n=int(conf.size),
+        confidence=c_sorted,
+        rows=np.cumsum(eye[t_sorted], axis=0),
+        cols=np.cumsum(eye[s_sorted], axis=0),
+        agree=np.cumsum(t_sorted == s_sorted).astype(np.int64),
+        ends=ends,
+        accepted=ends + 1,
+    )
+
+
+def count_bounds(
+    confidence: npt.ArrayLike,
+    teacher: npt.ArrayLike,
+    student: npt.ArrayLike,
+    n_labels: int,
+    method: CountMethod,
+    confidence_level: float = 0.95,
+) -> FloatArray:
+    """The `method`'s one-sided kappa lower bound on the accepted inputs at every point of
+    `coverage_curve` (same order), from the agreement count and the plug-in chance term at
+    each cut, all in one vectorised call (`binomial.kappa_lower_from_counts`)."""
+    c = _curve_counts(confidence, teacher, student, n_labels)
+    return kappa_lower_from_counts(
+        c.agree_at_cuts, c.chance_at_cuts, c.accepted, method, confidence_level
+    )
+
+
 def coverage_curve(
     confidence: npt.ArrayLike, teacher: npt.ArrayLike, student: npt.ArrayLike, n_labels: int
 ) -> list[CoveragePoint]:
@@ -273,18 +344,10 @@ def coverage_curve(
     the cascade's are the student's counts on the accepted prefix plus the teacher's on the
     escalated rest.
     """
-    conf, t, s, order = _cascade_inputs(confidence, teacher, student, n_labels)
-    n = conf.size
-    c_sorted, t_sorted, s_sorted = conf[order], t[order], s[order]
-    eye = np.eye(n_labels, dtype=np.int64)
-    rows = np.cumsum(eye[t_sorted], axis=0)
-    cols = np.cumsum(eye[s_sorted], axis=0)
-    agree = np.cumsum(t_sorted == s_sorted).astype(np.int64)
-
-    # The last index of each run of equal confidences is a cut a threshold can make.
-    ends = np.flatnonzero(np.append(c_sorted[1:] != c_sorted[:-1], True))
-    accepted = ends + 1
-    kappa = _kappa_from_counts(agree[ends], (rows[ends] * cols[ends]).sum(axis=1), accepted)
+    c = _curve_counts(confidence, teacher, student, n_labels)
+    n, c_sorted, ends, accepted = c.n, c.confidence, c.ends, c.accepted
+    agree, rows, cols = c.agree, c.rows, c.cols
+    kappa = _kappa_from_counts(c.agree_at_cuts, c.chance_at_cuts, accepted)
 
     t_total = rows[-1]
     system_cols = cols[ends] + (t_total[None, :] - rows[ends])
@@ -316,7 +379,7 @@ class ThresholdChoice:
     coverage: float
     kappa: float
     kappa_low: float | None
-    """One-sided bootstrap lower bound of kappa on the accepted inputs (None for rule "point")."""
+    """The rule's one-sided lower bound of kappa on the accepted inputs (None for "point")."""
     system_kappa: float
 
 
@@ -339,7 +402,11 @@ def choose_threshold(
     the kappa on the accepted inputs to reach the target; rule "lower" requires its one-sided
     percentile-bootstrap lower bound, the (1 - confidence_level) quantile of `n_resamples`
     kappa replicates over the accepted inputs (the 5th percentile for 0.95), to reach it; rule
-    "bca" reads the same replicates at the BCa-adjusted level (`bootstrap.bca_levels`).
+    "bca" reads the same replicates at the BCa-adjusted level (`bootstrap.bca_levels`). Rules
+    "exact" and "wilson" bound the agreement count instead (`binomial.kappa_lower_from_counts`:
+    the one-sided Clopper-Pearson or Wilson bound on p_o, mapped to kappa with the accepted
+    inputs' own chance term); they draw no resamples, so `n_resamples` and `seed` do not apply,
+    and every candidate's bound comes from one vectorised call.
 
     Kappa is not monotone in coverage (it can dip and recover as the threshold falls), so the
     scan does not stop at the first failure: it walks from the largest coverage down and
@@ -349,10 +416,11 @@ def choose_threshold(
     cost bound rather than an identity: in rare skewed cases a percentile lower bound can sit
     above the point estimate, but a threshold whose own estimate misses the target is not one
     to serve. Each candidate's resamples come from `resample_indices(accepted, n_resamples,
-    seed)`, so the choice is a pure function of the inputs and the seed.
+    seed)`, so the choice is a pure function of the inputs and the seed. Both count bounds sit
+    at or below the point estimate, so for them the skip loses nothing.
     """
-    if rule not in ("point", "lower", "bca"):
-        raise ValueError(f"unknown rule {rule!r}; use 'point', 'lower' or 'bca'")
+    if rule not in RULES:
+        raise ValueError(f"unknown rule {rule!r}; use one of {', '.join(RULES)}")
     if not math.isfinite(target_kappa):
         raise ValueError(f"target_kappa must be finite, got {target_kappa}")
     if min_accepted < 1:
@@ -364,11 +432,21 @@ def choose_threshold(
     _, t, s, order = _cascade_inputs(confidence, teacher, student, n_labels)
     curve = coverage_curve(confidence, teacher, student, n_labels)
     t_sorted, s_sorted = t[order], s[order]
-    for point in reversed(curve):
+    counted = (
+        count_bounds(confidence, teacher, student, n_labels, COUNT_METHOD[rule], confidence_level)
+        if rule in COUNT_METHOD
+        else None
+    )
+    for i in range(len(curve) - 1, -1, -1):
+        point = curve[i]
         if point.accepted < min_accepted or point.kappa < target_kappa:
             continue
         low: float | None = None
-        if rule != "point":
+        if counted is not None:
+            low = float(counted[i])
+            if low < target_kappa:
+                continue
+        elif rule != "point":
             k = point.accepted
             method = BOUND_METHOD[rule]
             idx = resample_indices(k, n_resamples, seed)
