@@ -13,6 +13,7 @@ from hypothesis import strategies as st
 from scipy.optimize import minimize_scalar  # type: ignore[import-untyped]
 
 from anvil.calibrate import (
+    DEFAULT_RULE,
     CoveragePoint,
     calibrate,
     choose_threshold,
@@ -308,7 +309,9 @@ def test_lower_rule_never_exceeds_point_rule() -> None:
 
 def test_lower_bound_is_the_fifth_percentile_of_the_bootstrap_on_the_accepted_inputs() -> None:
     confidence, teacher, student = tied_case(11, 400, 3)
-    choice = choose_threshold(confidence, teacher, student, 3, 0.7, n_resamples=300, seed=5)
+    choice = choose_threshold(
+        confidence, teacher, student, 3, 0.7, rule="lower", n_resamples=300, seed=5
+    )
     assert choice is not None
     keep = confidence >= choice.threshold
     assert int(keep.sum()) == choice.accepted
@@ -393,7 +396,7 @@ def test_choose_threshold_none_min_accepted_and_determinism() -> None:
 
 def test_calibrate_end_to_end() -> None:
     z, y = sampled(8, 1500, 4, 3.0)
-    result = calibrate(z, y, target_kappa=0.6, n_resamples=200)
+    result = calibrate(z, y, target_kappa=0.6, rule="lower", n_resamples=200)
     assert result.temperature == pytest.approx(3.0, rel=0.2)
     assert result.ece_after < result.ece_before
     assert result.nll_after < result.nll_before
@@ -616,3 +619,11 @@ def test_calibrate_with_the_exact_rule() -> None:
     assert result.kappa is not None
     assert 0.5 <= result.kappa_low <= result.kappa
     assert json.loads(json.dumps(result.as_dict()))["rule"] == "exact"
+
+
+def test_the_default_rule_is_exact() -> None:
+    confidence, teacher, student = tied_case(11, 400, 3)
+    default = choose_threshold(confidence, teacher, student, 3, 0.7)
+    assert default == choose_threshold(confidence, teacher, student, 3, 0.7, rule="exact")
+    assert default is not None
+    assert default.rule == DEFAULT_RULE == "exact"

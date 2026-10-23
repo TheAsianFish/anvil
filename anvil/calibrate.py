@@ -40,6 +40,13 @@ reaches it; "lower", its one-sided percentile-bootstrap lower bound does; "bca",
 BCa lower bound does; "exact", the Clopper-Pearson lower bound on the agreement count, mapped to
 kappa through the sample's chance term, does; "wilson", the same with the Wilson score bound."""
 RULES: tuple[Rule, ...] = ("point", "lower", "bca", "exact", "wilson")
+DEFAULT_RULE: Rule = "exact"
+"""The default since M11, from `make eval-coverage` (RESULTS.md, "Does the interval cover?"):
+the bootstrap bounds cover about 93% where they claim 95%; the exact bound covers the agreement
+rate at least 95% at every rate by construction (Wilson dips to 92.5%) and, through the plug-in
+chance term, kappa in every simulated cell. It costs the most served coverage where the
+kappa-vs-coverage curve is flat near the target; "wilson" is the cheaper rule for a user who
+accepts its pointwise dips."""
 BOUND_METHOD: dict[Rule, Method] = {"lower": "percentile", "bca": "bca"}
 """The bootstrap rules and the method that reads their replicates."""
 COUNT_METHOD: dict[Rule, CountMethod] = {"exact": "exact", "wilson": "wilson"}
@@ -390,7 +397,7 @@ def choose_threshold(
     n_labels: int,
     target_kappa: float,
     *,
-    rule: Rule = "lower",
+    rule: Rule = DEFAULT_RULE,
     min_accepted: int = 30,
     confidence_level: float = 0.95,
     n_resamples: int = 1000,
@@ -520,7 +527,7 @@ def calibrate(
     teacher: npt.ArrayLike,
     *,
     target_kappa: float | None = 0.9,
-    rule: Rule = "lower",
+    rule: Rule = DEFAULT_RULE,
     n_bins: int = 15,
     min_accepted: int = 30,
     n_resamples: int = 1000,

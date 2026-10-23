@@ -51,7 +51,7 @@ trained 20261020-142608-n200 on 200 fake-rules-bbf26b5d labels (16 held back for
 student 20261020-142608-n200 vs fake-rules-bbf26b5d on 91 held-out inputs: kappa 1.000 [1.000, 1.000], accuracy 1.000 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261020-142608-n200.json
 == anvil calibrate (temperature and the threshold that keeps kappa 0.9 with the teacher)
 calibrated 20261020-142608-n200 on 91 held-out fake-rules-bbf26b5d labels: temperature 1.000, ECE 0.020 -> 0.020
-threshold 0.8821: the student answers 100.0% of held-out inputs at kappa 1.000, lower bound 1.000 (target 0.9); written to .anvil/demo/ticket-triage/students/20261020-142608-n200/calibration.json
+threshold 0.8821: the student answers 100.0% of held-out inputs at kappa 1.000, lower bound 0.956 (target 0.9); written to .anvil/demo/ticket-triage/students/20261020-142608-n200/calibration.json
 == anvil export (ONNX fp32, checked against PyTorch before it can be served)
 fp32: passed parity vs pytorch on 91 inputs: max |logit diff| 1.91e-06, agreement 1.000, kappa vs teacher 1.000 (drop +0.000); 0.7 MB (max |logit diff| <= 1e-04 and agreement == 1.0)
 bundle .anvil/demo/bundle; serve it with `anvil serve .anvil/demo/bundle`

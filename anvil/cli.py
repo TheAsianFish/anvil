@@ -312,12 +312,12 @@ def calibrate_cmd(
     rule: Annotated[
         Rule,
         typer.Option(
-            help="lower: the 95% percentile-bootstrap lower bound must reach the target; bca:"
-            " the 95% BCa lower bound must; exact: the 95% Clopper-Pearson bound on the"
-            " agreement count, mapped to kappa, must; wilson: the same with the Wilson score"
-            " bound; point: the estimate must."
+            help="exact: the 95% Clopper-Pearson bound on the agreement count, mapped to kappa,"
+            " must reach the target; wilson: the same with the Wilson score bound; lower: the"
+            " 95% percentile-bootstrap lower bound must; bca: the 95% BCa lower bound must;"
+            " point: the estimate must."
         ),
-    ] = Rule.lower_bound,
+    ] = Rule.exact,
 ) -> None:
     """Fit a temperature and the escalation threshold on the held-out teacher labels."""
 
