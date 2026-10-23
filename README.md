@@ -51,7 +51,7 @@ trained 20261020-142608-n200 on 200 fake-rules-bbf26b5d labels (16 held back for
 student 20261020-142608-n200 vs fake-rules-bbf26b5d on 91 held-out inputs: kappa 1.000 [1.000, 1.000], accuracy 1.000 (majority 'bug' accuracy 0.209); report .anvil/demo/ticket-triage/reports/eval-20261020-142608-n200.json
 == anvil calibrate (temperature and the threshold that keeps kappa 0.9 with the teacher)
 calibrated 20261020-142608-n200 on 91 held-out fake-rules-bbf26b5d labels: temperature 1.000, ECE 0.020 -> 0.020
-threshold 0.8821: the student answers 100.0% of held-out inputs at kappa 1.000, lower bound 1.000 (target 0.9); written to .anvil/demo/ticket-triage/students/20261020-142608-n200/calibration.json
+threshold 0.8821: the student answers 100.0% of held-out inputs at kappa 1.000, lower bound 0.956 (target 0.9); written to .anvil/demo/ticket-triage/students/20261020-142608-n200/calibration.json
 == anvil export (ONNX fp32, checked against PyTorch before it can be served)
 fp32: passed parity vs pytorch on 91 inputs: max |logit diff| 1.91e-06, agreement 1.000, kappa vs teacher 1.000 (drop +0.000); 0.7 MB (max |logit diff| <= 1e-04 and agreement == 1.0)
 bundle .anvil/demo/bundle; serve it with `anvil serve .anvil/demo/bundle`
@@ -253,7 +253,7 @@ flowchart LR
 | `anvil/students/encoder.py` | Any Hugging Face encoder with a classification head; `tiny` builds a random-init ModernBERT for tests and the demo |
 | `anvil/train/loop.py` | One generic PyTorch loop: seeded batches, gradient accumulation, AMP, warmup + linear decay, clipping, early stopping, per-epoch checkpoints that resume bit for bit |
 | `anvil/train/classifier.py` | Cross-entropy for the encoder classifier; early stopping on the kappa of a validation slice of the training labels |
-| `anvil/evaluate/` | Kappa and accuracy with vectorised percentile and BCa bootstrap CIs (the jackknife from marginals), macro F1, per-class scores, top confusions, teacher self-agreement, slices by confidence and input length; for extraction, exact-match entity F1, word-level tag kappa, an error breakdown (boundary, type, missed, spurious) and intervals that resample inputs |
+| `anvil/evaluate/` | Kappa and accuracy with vectorised percentile and BCa bootstrap CIs (the jackknife from marginals), Clopper-Pearson and Wilson bounds on the agreement count mapped to kappa, macro F1, per-class scores, top confusions, teacher self-agreement, slices by confidence and input length; for extraction, exact-match entity F1, word-level tag kappa, an error breakdown (boundary, type, missed, spurious) and intervals that resample inputs |
 | `anvil/spans.py`, `anvil/align.py` | Extraction answers as mentions (text, type, claimed offset); alignment verifies each against the input with a ladder of repair rules, resolves overlaps, snaps spans to student tokens as BIO tags and reports every repair and drop |
 | `anvil/students/tagger.py`, `anvil/train/tagger.py` | `EncoderTagger`: any encoder with a fast tokenizer and a token-classification head, trained by the same loop with early stopping on validation entity F1 |
 | `eval/extract.py` | `make eval-extract` on MIT Restaurant: gazetteer baseline, ceiling, gold comparison and the alignment stress study |
@@ -263,7 +263,7 @@ flowchart LR
 | `anvil/select.py` | `select_batch(pool, k, strategy, seed)`: `random` (the reference curve); `uncertainty`, `margin` and `diverse` are declared with a contract test suite and not written yet |
 | `anvil/loop.py` | `anvil loop`: rounds of select, label, retrain from scratch, score; label, dollar and target-kappa stops; picks stored before labelling so an interrupted loop resumes to the same rows |
 | `eval/frontier.py`, `eval/select_study.py` | `make eval-frontier` (3 seeds x 5 budgets per strategy) and `make eval-select` (synthetic blobs, logistic student) |
-| `anvil/calibrate.py` | Temperature scaling (bisection on the NLL gradient), ECE and reliability bins, the coverage-vs-kappa curve, and the threshold search on the point estimate or a one-sided percentile or BCa bootstrap lower bound; numpy only |
+| `anvil/calibrate.py` | Temperature scaling (bisection on the NLL gradient), ECE and reliability bins, the coverage-vs-kappa curve, and the threshold search on the point estimate, a one-sided percentile or BCa bootstrap lower bound, or an exact (default) or Wilson bound on the agreement count; numpy only |
 | `anvil/export.py`, `anvil/runtime.py` | `torch.onnx` (dynamo) export with dynamic batch and sequence axes, fp32 parity gate through the serving tokenizer, opt-in int8 with the MLP down-projections in fp32; `OnnxStudent` loads a bundle with ONNX Runtime and `tokenizers`, never torch |
 | `anvil/serve.py` | `anvil serve`: FastAPI `/predict`, `/healthz`, `/metrics`; inputs under the threshold go to the teacher in one batch per request; every teacher failure degrades to the student's answer |
 | `eval/calibration.py`, `eval/export.py`, `eval/bench.py` | `make eval-calibration` (temperature, coverage, and the split study of whether a threshold holds on unseen inputs), `make eval-export` (parity and the int8 layer probe), `make bench` |
@@ -397,17 +397,26 @@ references that return nothing.
   threshold is the largest coverage whose kappa on the answered inputs
   reaches the target; picking it on the point estimate fits the sample's
   noise, so fresh inputs land below the target about as often as above.
-  `anvil calibrate` uses the one-sided 95% bootstrap lower bound by default
-  and `make eval-calibration` measures both rules on held-out halves the
-  threshold never saw. *Rejected:* a learned deferral model (more to
+  `anvil calibrate` uses a one-sided 95% lower bound by default (the exact
+  count bound since M11) and `make eval-calibration` measures every rule on
+  held-out halves the threshold never saw. *Rejected:* a learned deferral model (more to
   maintain for a gain the plain threshold already measures).
-- **Percentile bound, not BCa (M10).** `make eval-coverage` simulates the
-  bound where the rule uses it. Both methods cover about 93% instead of 95%
-  (pooled 93.1% and 93.0%). BCa helps with 4 labels and hurts with 77,
-  where it reads ties on the discrete disagreement count as bias: at 100
-  items and kappa 0.95 it covers 88.6% against 92.4%. On the Banking77
-  gold splits it kept the target less often too (88.0% against 90.5%). So the
-  default stays the percentile bound, and BCa is `--rule bca`.
+- **An exact bound on the agreement count, not the bootstrap (M10, M11).**
+  `make eval-coverage` simulates each bound where the rule uses it. Both
+  bootstrap methods cover about 93% instead of 95% (pooled 93.1% and 93.0%),
+  and BCa is worse at 77 labels, where it reads ties on the discrete
+  disagreement count as bias. Bounding that count directly brings coverage
+  to about nominal. The
+  one-sided Clopper-Pearson bound on the agreement rate, mapped to kappa
+  through the answered inputs' chance term, covers 96.5% pooled, every cell
+  within Monte Carlo error of 95% (worst 94.4%). The threshold it picks truly keeps its target in 96.7%
+  of searches, against 90.8% for the percentile rule. It costs 1.4 points
+  of served coverage on Banking77 and 8.8 on AG News at kappa 0.9; the cost
+  does not follow the label count and looks like it follows how flat the
+  kappa-vs-coverage curve is near the target. *Rejected
+  as the default:* Wilson, which is cheaper on AG News (72.7% against 66.9%)
+  but covers the agreement rate as little as 92.5% at some rates; it is
+  `--rule wilson`, and the bootstrap rules stay as `lower` and `bca`.
 - **Temperature scaling, and when not to.** One scalar T fitted by NLL on
   the held-out teacher labels makes confidence readable as agreement; it
   does not change any label. When the fit runs to a bound (the student
@@ -530,8 +539,8 @@ students, gold labels as the teacher, CPU:
 | | Banking77 | AG News |
 |---|---|---|
 | Temperature; ECE before -> after on unseen halves (median of 200 splits) | 1.24; 0.070 -> 0.054 | 1.22; 0.051 -> 0.047 |
-| Student coverage at kappa 0.9 with the teacher (95% lower-bound rule) | 82.3% | 75.7% |
-| Splits where the unseen half kept kappa 0.9: estimate rule / lower-bound rule | 55.5% / 90.5% | 46.0% / 87.0% |
+| Student coverage at kappa 0.9 with the teacher: exact count bound (default since M11) / percentile bound (M5) | 80.8% / 82.3% | 66.9% / 75.7% |
+| Splits where the unseen half kept kappa 0.9: estimate / percentile / exact rule | 55.5% / 90.5% / 94.5% | 46.0% / 87.0% / 80.5% (exact found no threshold in 8%) |
 | ONNX fp32 vs PyTorch, max abs logit diff over held-out | 2.3e-05 | 2.9e-05 |
 | int8 (211 MB vs 601 MB): agreement with fp32 on all / on answered inputs; kappa change | 0.964 / 1.000; -0.002 | 0.992 / 1.000; -0.006 |
 
@@ -544,7 +553,9 @@ to reach it holds it in roughly nine of ten splits, at a cost of 7 (Banking77: m
 coverage 80.2% against 87.1%) to 23 (AG News: 65.1% against 88.3%) points of
 coverage. The bound itself covers about 93% rather than 95% at these sizes, and
 picking the best threshold costs about two points more: the threshold the search
-chooses truly keeps its target in 91% of simulated searches (M10). Temperature
+chooses truly keeps its target in 91% of simulated searches (M10). An exact
+binomial bound on the agreement count closes that gap: it covers 96.5% and its
+search keeps the target in 96.7% (M11), so it is now the default. Temperature
 scaling makes the confidences readable as agreement
 rates but buys no coverage (Banking77 at kappa 0.9: 87.1% calibrated, 87.9%
 uncalibrated, within noise). On Banking77 the
@@ -618,12 +629,13 @@ Planned in PLAN.md, evolution round 1 (all built):
   bounds at the kappa, sample size and label count where the threshold rule applies them
   (both cover about 93%; the threshold search keeps its target 91% of the time; BCa is
   worse at 77 labels, so the percentile bound stays the default; see Results)
+- [x] M11: a bound on the count itself: `exact` (Clopper-Pearson on the agreement count) and
+  `wilson` rules for the cascade threshold (both cover about 96%, the search keeps its target
+  96-97% of the time; the cost in served coverage is 1.4 points on Banking77 and 8.8 on AG
+  News, not explained by the label count; `exact` is the new default; see Results)
 
 Planned in PLAN.md, evolution round 2:
 
-- [ ] M11: a bound on the count itself: `exact` (Clopper-Pearson on the agreement count) and
-  `wilson` rules for the cascade threshold, their coverage and served-coverage cost against the
-  percentile bootstrap at 4 and 77 labels, and the default re-decided
 - [ ] M12: the tagger in the cascade: the threshold rule on entity F1 from the committed
   extraction predictions (coverage at F1 0.9, unseen halves, boundary against type errors by
   confidence)

@@ -1,4 +1,4 @@
-"""`make eval-coverage`: does the bound the cascade's threshold rule relies on cover?
+"""`make eval-coverage`: do the bounds the cascade's threshold rule can rely on cover?
 
 `choose_threshold` serves the largest coverage whose one-sided 95% bootstrap lower bound of
 kappa clears the target, so the rule is only as honest as that bound. Two simulations, both
@@ -10,22 +10,33 @@ rule applies it:
    draws its own label independently from the same distribution, so both raters share the
    marginals and the population kappa is exactly the copy probability (p_o = kappa + (1 -
    kappa) / K, p_e = 1 / K). Each replication computes the percentile and BCa bounds from the
-   same 1,000 resamples `choose_threshold` would draw; "covers" means the one-sided 95% lower
-   bound is at or below the population kappa (and, for the two-sided 95% interval, that the
-   interval contains it). Also: the point estimate's bias and spread against the bootstrap's.
+   same 1,000 resamples `choose_threshold` would draw, and the exact (Clopper-Pearson) and
+   Wilson bounds from the sample's agreement count and plug-in chance term; "covers" means the
+   one-sided 95% lower bound is at or below the population kappa (and, for the two-sided 95%
+   bootstrap interval, that the interval contains it). Also: the point estimate's bias and
+   spread against the bootstrap's. The count bounds draw nothing from the generator, so the
+   bootstrap columns are the same samples, resamples and counts as before they were added.
 2. Threshold search (`search`): n held-out inputs with a confidence c uniform on [0, 1] and an
    agreement probability 1 - BETA * (1 - c) ** GAMMA (the student copies the teacher with that
    probability, else draws independently as above). The population kappa of the inputs above
    threshold t is then the mean copy probability over c >= t, 1 - BETA * u ** GAMMA /
    (GAMMA + 1) for coverage u = 1 - t, which with BETA = 0.8 and GAMMA = 4 tracks the
    Banking77 gold student's committed coverage curve (0.84 on everything, 0.93 at 80%, 0.99 at
-   50%). Each replication runs the threshold search for every rule (`point`, `lower`, `bca`)
-   on one sample and checks the population kappa at the chosen threshold against the target:
-   the selection effect of picking the best of many thresholds, which a fixed-threshold
-   coverage study misses.
+   50%). Each replication runs the threshold search for every rule (`point`, `lower`, `bca`,
+   `exact`, `wilson`) on one sample and checks the population kappa at the chosen threshold
+   against the target: the selection effect of picking the best of many thresholds, which a
+   fixed-threshold coverage study misses.
 
-The search shares one bootstrap per candidate threshold between the two bound rules
-(`search_all`); a test checks it picks exactly what `choose_threshold` picks for each rule.
+3. Pointwise (`pointwise`): no sampling at all. Both count bounds bound p_o, the agreement
+   rate, before the chance term maps it to kappa; for m answered inputs and every agreement
+   rate p on a fine grid over the range a cascade answers at, the probability that the bound
+   is at or below p is summed exactly over the binomial distribution of the count. The
+   Clopper-Pearson bound is at least 95% at every p by construction; the Wilson bound is not,
+   and this says by how much and how often it falls short.
+
+The search shares one bootstrap per candidate threshold between the two bootstrap rules, and
+scans the count rules with `count_choice` (`search_all`); a test
+checks it picks exactly what `choose_threshold` picks for each rule.
 Cells run in parallel worker processes; each has its own seed stream (SeedSequence keyed by
 the cell), so the report is the same for any number of workers.
 
@@ -52,7 +63,21 @@ import numpy as np
 import numpy.typing as npt
 
 from anvil import __version__
-from anvil.calibrate import BOUND_METHOD, CoveragePoint, Rule, coverage_curve
+from anvil.calibrate import (
+    BOUND_METHOD,
+    COUNT_METHOD,
+    RULES,
+    CoveragePoint,
+    Rule,
+    count_choice,
+    coverage_curve,
+)
+from anvil.evaluate.binomial import (
+    COUNT_BOUNDS,
+    CountMethod,
+    binomial_pmf,
+    kappa_lower_from_counts,
+)
 from anvil.evaluate.bootstrap import (
     bca_levels,
     kappa_jackknife,
@@ -75,10 +100,16 @@ CONFIDENCE = 0.95
 N_RESAMPLES = 1000
 """What `choose_threshold` draws per candidate, so the simulation measures the served rule."""
 MIN_ACCEPTED = 30
-RULES: tuple[Rule, ...] = ("point", "lower", "bca")
-METHODS = ("percentile", "bca")
+BOOTSTRAP_METHODS = ("percentile", "bca")
+COUNT_METHODS: tuple[CountMethod, ...] = ("exact", "wilson")
+METHODS = BOOTSTRAP_METHODS + COUNT_METHODS
 BETA = 0.8
 GAMMA = 4.0
+POINTWISE_SIZES = (30, 100, 250, 500)
+"""30 is `min_accepted`, the fewest inputs a threshold may answer."""
+POINTWISE_RATES = (0.8, 0.999, 2000)
+"""Agreement rates from 0.8 to 0.999 (2,000 points): kappa 0.85 at 4 labels is p_o 0.89, and a
+cascade at kappa 0.95 with 77 labels answers where p_o is above 0.95."""
 DEFAULT_FIXED_REPS = 500
 DEFAULT_SEARCH_REPS = 30
 DEFAULT_SEED = 0
@@ -124,7 +155,7 @@ class Cell:
 
 
 def fixed_cell(cell: Cell) -> dict[str, object]:
-    """Coverage of the percentile and BCa bounds at one (kappa, n, K)."""
+    """Coverage of the percentile, BCa, exact and Wilson bounds at one (kappa, n, K)."""
     rng = _cell_rng(cell.seed, "fixed", cell.index)
     n, k, kappa = cell.n, cell.labels, cell.kappa
     full = np.arange(n, dtype=np.int64)[None, :]
@@ -133,8 +164,9 @@ def fixed_cell(cell: Cell) -> dict[str, object]:
     estimates = np.empty(cell.reps)
     boot_sd = np.empty(cell.reps)
     bca_level = np.empty(cell.reps)
-    lows = np.empty((cell.reps, 2))
-    one_sided = np.zeros(2, dtype=np.int64)
+    lows = np.empty((cell.reps, len(METHODS)))
+    agree = np.empty(cell.reps, dtype=np.int64)
+    chance = np.empty(cell.reps, dtype=np.int64)
     two_sided = np.zeros(2, dtype=np.int64)
     for rep in range(cell.reps):
         teacher = rng.integers(0, k, size=n, dtype=np.int64)
@@ -148,9 +180,14 @@ def fixed_cell(cell: Cell) -> dict[str, object]:
         estimates[rep] = estimate
         boot_sd[rep] = float(values.std())
         bca_level[rep] = adjusted[0]
-        lows[rep] = ends[:, 0]
-        one_sided += ends[:, 0] <= kappa
+        lows[rep, :2] = ends[:, 0]
         two_sided += (ends[:, 1] <= kappa) & (kappa <= ends[:, 2])
+        agree[rep] = int(np.count_nonzero(teacher == student))
+        rows, cols = np.bincount(teacher, minlength=k), np.bincount(student, minlength=k)
+        chance[rep] = int((rows * cols).sum())
+    for i, method in enumerate(COUNT_METHODS, start=2):
+        lows[:, i] = kappa_lower_from_counts(agree, chance, n, method, CONFIDENCE)
+    one_sided = (lows <= kappa).sum(axis=0)
     sd = float(estimates.std(ddof=1))
     methods = METHODS
     return {
@@ -159,7 +196,7 @@ def fixed_cell(cell: Cell) -> dict[str, object]:
         "labels": k,
         "reps": cell.reps,
         "lower_covered": {m: int(one_sided[i]) for i, m in enumerate(methods)},
-        "interval_covered": {m: int(two_sided[i]) for i, m in enumerate(methods)},
+        "interval_covered": {m: int(two_sided[i]) for i, m in enumerate(BOOTSTRAP_METHODS)},
         "mean_lower": {m: float(lows[:, i].mean()) for i, m in enumerate(methods)},
         "mean_bca_level": float(bca_level.mean()),
         "mean_estimate": float(estimates.mean()),
@@ -184,24 +221,40 @@ def search_all(
 ) -> dict[Rule, CoveragePoint | None]:
     """The point `choose_threshold` would choose under every rule, from one scan: the same
     candidates in the same order with the same resamples, but each candidate's replicates are
-    computed once and read by both bound rules."""
+    computed once and read by both bootstrap rules, and the count rules are `count_choice`."""
     curve = coverage_curve(confidence, teacher, student, n_labels)
     order = np.argsort(-confidence, kind="stable")
     t_sorted, s_sorted = teacher[order], student[order]
     chosen: dict[Rule, CoveragePoint | None] = {rule: None for rule in RULES}
-    methods = tuple(BOUND_METHOD[r] for r in RULES if r != "point")
-    for point in reversed(curve):
-        if point.accepted < min_accepted or point.kappa < target:
-            continue
-        if chosen["point"] is None:
-            chosen["point"] = point
-        m = point.accepted
+    eligible = [
+        i
+        for i in range(len(curve) - 1, -1, -1)
+        if curve[i].accepted >= min_accepted and curve[i].kappa >= target
+    ]
+    if eligible:
+        chosen["point"] = curve[eligible[0]]
+    for rule, method in COUNT_METHOD.items():
+        found = count_choice(
+            confidence,
+            teacher,
+            student,
+            n_labels,
+            target,
+            method,
+            min_accepted=min_accepted,
+            confidence_level=confidence_level,
+        )
+        chosen[rule] = None if found is None else curve[found[0]]
+    boot_rules = tuple(BOUND_METHOD)
+    methods = tuple(BOUND_METHOD[r] for r in boot_rules)
+    for i in eligible:
+        m = curve[i].accepted
         idx = resample_indices(m, n_resamples, seed)
         bounds = lower_bounds(t_sorted[:m], s_sorted[:m], n_labels, idx, confidence_level, methods)
-        for rule in RULES:
-            if rule != "point" and chosen[rule] is None and bounds[BOUND_METHOD[rule]] >= target:
-                chosen[rule] = point
-        if all(v is not None for v in chosen.values()):
+        for rule in boot_rules:
+            if chosen[rule] is None and bounds[BOUND_METHOD[rule]] >= target:
+                chosen[rule] = curve[i]
+        if all(chosen[r] is not None for r in boot_rules):
             break
     return chosen
 
@@ -245,6 +298,30 @@ def search_cell(cell: Cell) -> dict[str, object]:
     return out
 
 
+def pointwise() -> list[dict[str, object]]:
+    """Exact coverage of p_o by each count bound at every agreement rate of the grid."""
+    rates = np.linspace(*POINTWISE_RATES[:2], int(POINTWISE_RATES[2]))
+    out: list[dict[str, object]] = []
+    for m in POINTWISE_SIZES:
+        pmf = binomial_pmf(m, rates)
+        counts = np.arange(m + 1, dtype=np.int64)
+        for method in COUNT_METHODS:
+            bound = COUNT_BOUNDS[method](counts, np.full(m + 1, m), CONFIDENCE)
+            coverage = (pmf * (bound[None, :] <= rates[:, None])).sum(axis=1)
+            worst = int(coverage.argmin())
+            out.append(
+                {
+                    "n": m,
+                    "method": method,
+                    "min": float(coverage.min()),
+                    "rate_at_min": float(rates[worst]),
+                    "mean": float(coverage.mean()),
+                    "share_below_nominal": float((coverage < CONFIDENCE - 1e-12).mean()),
+                }
+            )
+    return out
+
+
 def _run_cell(cell: Cell) -> dict[str, object]:
     return fixed_cell(cell) if cell.part == "fixed" else search_cell(cell)
 
@@ -278,6 +355,12 @@ def simulate(fixed_reps: int, search_reps: int, seed: int, workers: int) -> dict
             "fixed_reps": fixed_reps,
             "search_reps": search_reps,
             "seed": seed,
+            "pointwise_sizes": list(POINTWISE_SIZES),
+            "pointwise_rates": {
+                "low": POINTWISE_RATES[0],
+                "high": POINTWISE_RATES[1],
+                "points": int(POINTWISE_RATES[2]),
+            },
             "search_population": {
                 "beta": BETA,
                 "gamma": GAMMA,
@@ -288,6 +371,7 @@ def simulate(fixed_reps: int, search_reps: int, seed: int, workers: int) -> dict
         },
         "fixed": [r for c, r in done if c.part == "fixed"],
         "search": [r for c, r in done if c.part == "search"],
+        "pointwise": pointwise(),
     }
 
 
@@ -300,10 +384,27 @@ def counts(report: dict[str, object]) -> list[int]:
     assert isinstance(search, list)
     out: list[int] = []
     for r in fixed:
-        out += [r[part][m] for part in ("lower_covered", "interval_covered") for m in METHODS]
+        out += [r["lower_covered"][m] for m in METHODS]
+        out += [r["interval_covered"][m] for m in BOOTSTRAP_METHODS]
     for r in search:
         out += [r[rule][key] for rule in RULES for key in ("found", "met")]
     return out
+
+
+def pointwise_matches(committed: object, fresh: object, tolerance: float = 1e-9) -> bool:
+    """`--check` for the pointwise table: exact sums with no sampling, so the same rows and
+    every value within `tolerance` (summation order may differ across CPUs)."""
+    if not isinstance(committed, list) or not isinstance(fresh, list):
+        return False
+    if len(committed) != len(fresh):
+        return False
+    for a, b in zip(committed, fresh, strict=True):
+        if (a["n"], a["method"]) != (b["n"], b["method"]):
+            return False
+        keys = ("min", "rate_at_min", "mean", "share_below_nominal")
+        if any(abs(float(a[k]) - float(b[k])) > tolerance for k in keys):
+            return False
+    return True
 
 
 CHECK_TOLERANCE = 1
@@ -351,8 +452,14 @@ def main(argv: list[str] | None = None) -> int:
     report = simulate(args.fixed_reps, args.search_reps, args.seed, args.workers)
     wall = time.perf_counter() - started
     if args.check:
-        committed = counts(json.loads((out / "report.json").read_text(encoding="utf-8")))
+        saved = json.loads((out / "report.json").read_text(encoding="utf-8"))
+        committed = counts(saved)
         fresh = counts(report)
+        if not pointwise_matches(saved.get("pointwise"), report["pointwise"]):
+            print(  # noqa: T201 - the CLI's error line
+                f"error: the pointwise table differs from {out / 'report.json'}", file=sys.stderr
+            )
+            return 1
         if len(committed) != len(fresh):
             print(f"error: {out / 'report.json'} holds another grid", file=sys.stderr)  # noqa: T201
             return 1

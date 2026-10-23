@@ -459,3 +459,17 @@ def test_card_names_the_bca_rule(bundle: Path, home: Path) -> None:
     meta = read_bundle_meta(bundle)
     bca = {**meta, "calibration": {**CALIBRATION, "rule": "bca"}}
     assert "the 95% BCa bootstrap lower bound of kappa must reach it" in render_card("bundle", bca)
+
+
+@pytest.mark.parametrize(
+    ("rule", "text"),
+    [
+        ("exact", "the 95% exact (Clopper-Pearson) lower bound on the agreement count"),
+        ("wilson", "the 95% Wilson score lower bound on the agreement count"),
+    ],
+)
+def test_card_names_the_count_rules(bundle: Path, home: Path, rule: str, text: str) -> None:
+    meta = read_bundle_meta(bundle)
+    card = render_card("bundle", {**meta, "calibration": {**CALIBRATION, "rule": rule}})
+    assert text in card
+    assert "mapped to kappa through the answered inputs' chance agreement" in card

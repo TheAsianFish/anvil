@@ -281,6 +281,10 @@ def _calibration(meta: Mapping[str, object]) -> list[str]:
     rule_text = {
         "lower": "the 95% bootstrap lower bound of kappa must reach it",
         "bca": "the 95% BCa bootstrap lower bound of kappa must reach it",
+        "exact": "the 95% exact (Clopper-Pearson) lower bound on the agreement count, mapped to"
+        " kappa through the answered inputs' chance agreement, must reach it",
+        "wilson": "the 95% Wilson score lower bound on the agreement count, mapped to kappa"
+        " through the answered inputs' chance agreement, must reach it",
         "point": "the kappa estimate must reach it",
     }.get(rule or "", f"rule {_code(rule)}")
     out.append(f"| Target | kappa {_f(calib.get('target_kappa'), 'g')} ({rule_text}) |")

@@ -7,22 +7,26 @@ study re-runs from the raw output in seconds with `--logits`:
 
 1. On the whole held-out split: the temperature, NLL and ECE before and after, the reliability
    bins, the coverage-vs-parity curve, and the threshold `anvil calibrate` would serve (target
-   kappa 0.9 and 0.95, rule `lower`). These are in-sample: the threshold is picked and scored
+   kappa 0.9 and 0.95, rule `exact`). These are in-sample: the threshold is picked and scored
    on the same items, which is what the product does with the labels it has.
 2. The out-of-sample check (`splits`): the held-out split is cut in half at random many times;
    the temperature and the threshold are fitted on one half and the other half says whether
    the cascade really keeps the target kappa on the inputs it answers, and at what coverage.
-   Four ways to pick the threshold are compared: `point` (the kappa estimate reaches the
+   Six ways to pick the threshold are compared: `point` (the kappa estimate reaches the
    target), `lower` (its one-sided 95% percentile-bootstrap lower bound does), `bca` (its
-   one-sided 95% BCa lower bound does) and `point-raw` (point rule on uncalibrated
-   confidences), so the effect of the bound, of its method and of the temperature are each
-   visible.
+   one-sided 95% BCa lower bound does), `exact` and `wilson` (the one-sided 95% Clopper-Pearson
+   or Wilson bound on the agreement count, mapped to kappa, does) and `point-raw` (point rule
+   on uncalibrated confidences), so the effect of the bound, of its method and of the
+   temperature are each visible. Where a rule finds no threshold on the fitting half the
+   cascade escalates everything; the share of splits where it found one is reported next to
+   how often the found threshold held, since never answering is the trivial way to hold a
+   target.
 3. The coverage cost of each rule on the whole held-out split (`by_rule`): the threshold,
    coverage and lower bound every rule would serve at each target, from the same logits.
 
 Raw output: `eval/results/calibration-<dataset>-<teacher>/` (`report.json`, `meta.json`,
 `logits.npz`). It also writes `calibration.json` into the student's directory (target 0.9,
-rule `lower`), which `make eval-export` puts into the ONNX bundle.
+rule `exact`), which `make eval-export` puts into the ONNX bundle.
 """
 
 from __future__ import annotations
@@ -65,8 +69,8 @@ RESULTS_DIR = ROOT / "eval" / "results"
 DATASETS = ("banking77", "ag_news")
 TARGETS = (0.9, 0.95)
 SERVED_TARGET = 0.9
-SERVED_RULE: Rule = "lower"
-RULES: tuple[Rule, ...] = ("point", "lower", "bca")
+SERVED_RULE: Rule = "exact"
+RULES: tuple[Rule, ...] = ("point", "lower", "bca", "exact", "wilson")
 COVERAGE_GRID = (1.0, 0.95, 0.9, 0.85, 0.8, 0.75, 0.7, 0.6, 0.5)
 N_BINS = 15
 MIN_ACCEPTED = 30
@@ -76,6 +80,8 @@ METHODS: tuple[tuple[str, Rule, bool], ...] = (
     ("point", "point", True),
     ("lower", "lower", True),
     ("bca", "bca", True),
+    ("exact", "exact", True),
+    ("wilson", "wilson", True),
     ("point-raw", "point", False),
 )
 """(name, threshold rule, temperature-scaled confidences) for the split study."""

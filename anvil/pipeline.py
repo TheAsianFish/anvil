@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from anvil.align import AlignmentReport
-from anvil.calibrate import Calibration, Rule, calibrate
+from anvil.calibrate import DEFAULT_RULE, Calibration, Rule, calibrate
 from anvil.chat import ChatReport
 from anvil.errors import AlignmentError, ConfigError, StoreError, StudentError
 from anvil.evaluate.extraction import ExtractionAgreement
@@ -451,7 +451,7 @@ def calibrate_student(
     student_dir: Path | None = None,
     *,
     target_kappa: float | None = 0.9,
-    rule: Rule = "lower",
+    rule: Rule = DEFAULT_RULE,
     min_accepted: int = 30,
     n_resamples: int = 1000,
     seed: int = 0,
