@@ -439,6 +439,18 @@ def test_main_rejects_bad_invocations(tmp_path: Path, capsys: pytest.CaptureFixt
     assert "out of date" in capsys.readouterr().err
 
 
+@pytest.mark.usefixtures("no_git")
+@pytest.mark.parametrize("override", [["--splits", "0"], ["--resamples", "0"]])
+def test_main_rejects_non_positive_counts(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], override: list[str]
+) -> None:
+    path = _write(tmp_path, synthetic_report(n=70))
+    argv = ["--predictions", str(path), "--out", str(tmp_path / "z-smoke"), *override]
+    assert extract.main(argv) == 2
+    assert "must be positive" in capsys.readouterr().err
+    assert not (tmp_path / "z-smoke").exists()
+
+
 # --- RESULTS.md -----------------------------------------------------------------------------
 
 

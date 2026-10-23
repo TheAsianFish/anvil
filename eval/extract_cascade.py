@@ -402,6 +402,10 @@ def run(
     provenance: Mapping[str, object] | None = None,
 ) -> dict[str, object]:
     """Analyse the predictions in `report_path` and write `report.json` and `meta.json`."""
+    if n_splits < 1 or n_resamples < 1:
+        raise ConfigError(
+            f"--splits and --resamples must be positive, got {n_splits} and {n_resamples}"
+        )
     started = time.perf_counter()
     try:
         raw = report_path.read_bytes()

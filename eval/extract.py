@@ -665,6 +665,8 @@ def main(argv: list[str] | None = None) -> int:
             print(summary_line(report, out))  # noqa: T201 - the final summary
             if not smoke:
                 cascade_out = extract_cascade.results_dir(report)
+                if args.splits != extract_cascade.DEFAULT_SPLITS:
+                    cascade_out = cascade_out.with_name(cascade_out.name + SMOKE_SUFFIX)
                 cascade = extract_cascade.run(
                     out / "report.json",
                     cascade_out,
