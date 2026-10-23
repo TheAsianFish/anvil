@@ -979,6 +979,8 @@ _RULE_NAMES = {
     "point": "point estimate",
     "lower": "95% percentile lower bound",
     "bca": "95% BCa lower bound",
+    "exact": "95% exact (Clopper-Pearson) count bound",
+    "wilson": "95% Wilson count bound",
 }
 
 
@@ -986,6 +988,8 @@ _METHOD_NAMES = {
     "point": "point estimate, calibrated",
     "lower": "95% percentile lower bound, calibrated",
     "bca": "95% BCa lower bound, calibrated",
+    "exact": "95% exact count bound, calibrated",
+    "wilson": "95% Wilson count bound, calibrated",
     "point-raw": "point estimate, uncalibrated",
 }
 
@@ -1088,11 +1092,29 @@ def _met(cell: Mapping[str, Any]) -> str:
     return f"{cell['met']}/{cell['found']} ({_rate(cell['met'], cell['found'])})"
 
 
+_COVERAGE_METHODS = {
+    "percentile": "Percentile",
+    "bca": "BCa",
+    "exact": "Exact",
+    "wilson": "Wilson",
+}
+_SEARCH_RULES = {
+    "point": "Point",
+    "lower": "Percentile",
+    "bca": "BCa",
+    "exact": "Exact",
+    "wilson": "Wilson",
+}
+
+
 def render_coverage(report: Report, meta: Report) -> str:
     """The coverage simulation (`eval.coverage`): does the one-sided 95% lower bound cover the
     population kappa, and does the threshold search keep its target on the population?"""
     cfg, fixed, search = report["config"], report["fixed"], report["search"]
     fixed = sorted(fixed, key=lambda c: (c["labels"], c["n"], c["kappa"]))
+    methods = [m for m in _COVERAGE_METHODS if any(m in c["lower_covered"] for c in fixed)]
+    names = [_COVERAGE_METHODS[m] for m in methods]
+    rules = [r for r in _SEARCH_RULES if all(r in c for c in search)]
     search = sorted(search, key=lambda c: (c["labels"], c["n"], c["target"]))
     pop = cfg["search_population"]
     at = ", ".join(f"{_pct(float(u))} -> {_f(k)}" for u, k in pop["kappa_at_coverage"].items())
@@ -1107,37 +1129,36 @@ def render_coverage(report: Report, meta: Report) -> str:
         "",
         "#### Fixed sample: does the one-sided 95% lower bound cover the population kappa?",
         "",
-        "| Labels | Items | Kappa | Percentile bound covers | BCa bound covers"
-        " | BCa level for the 5% bound (mean) | Two-sided 95%: percentile / BCa"
+        "| Labels | Items | Kappa | "
+        + " | ".join(f"{n} bound covers" for n in names)
+        + " | Mean bound: "
+        + " / ".join(names)
+        + " | BCa level for the 5% bound (mean) | Two-sided 95%: percentile / BCa"
         " | Bias of the estimate (± s.e.) | SD of the estimate / bootstrap SD |",
-        "|---|---|---|---|---|---|---|---|---|",
+        "|---|---|---|" + "---|" * len(names) + "---|---|---|---|---|",
     ]
     for c in fixed:
         reps, lo, iv = c["reps"], c["lower_covered"], c["interval_covered"]
+        means = " / ".join(_f(c["mean_lower"].get(m)) for m in methods)
         out.append(
-            f"| {c['labels']} | {c['n']} | {c['kappa']} | {_rate(lo['percentile'], reps)}"
-            f" | {_rate(lo['bca'], reps)} | {_pct(c['mean_bca_level'])}"
+            f"| {c['labels']} | {c['n']} | {c['kappa']}"
+            + "".join(f" | {_rate(lo[m], reps)}" if m in lo else " | n/a" for m in methods)
+            + f" | {means} | {_pct(c['mean_bca_level'])}"
             f" | {_rate(iv['percentile'], reps)} / {_rate(iv['bca'], reps)}"
             f" | {c['bias']:+.4f} ± {c['bias_se']:.4f}"
             f" | {_f(c['sd_estimate'], 4)} / {_f(c['mean_bootstrap_sd'], 4)} |"
         )
-    total = sum(c["reps"] for c in fixed)
-    pooled = ", ".join(
-        f"{name} {_rate(sum(c['lower_covered'][m] for c in fixed), total)}"
-        for m, name in (("percentile", "percentile"), ("bca", "BCa"))
-    )
+    out += ["", *_pooled_coverage(fixed, methods, names), ""]
     out += [
-        "",
-        f"Pooled over all {len(fixed)} cells ({total} replications), the one-sided bound"
-        f" covers: {pooled}.",
-        "",
         "#### Threshold search: how often does the chosen threshold truly keep the target?",
         "",
-        "| Labels | Items | Target | Oracle coverage | Point: met | Percentile: met | BCa: met"
-        " | Point: true coverage | Percentile: true coverage | BCa: true coverage |",
-        "|---|---|---|---|---|---|---|---|---|---|",
+        "| Labels | Items | Target | Oracle coverage | "
+        + " | ".join(f"{_SEARCH_RULES[r]}: met" for r in rules)
+        + " | "
+        + " | ".join(f"{_SEARCH_RULES[r]}: true coverage" for r in rules)
+        + " |",
+        "|---|---|---|---|" + "---|" * (2 * len(rules)),
     ]
-    rules = ("point", "lower", "bca")
     for c in search:
         out.append(
             f"| {c['labels']} | {c['n']} | {c['target']} | {_pct(c['oracle_coverage'])}"
@@ -1165,7 +1186,61 @@ def render_coverage(report: Report, meta: Report) -> str:
         f"Pooled over all {len(search)} cells: " + "; ".join(pooled_rules) + ".",
         "",
     ]
+    for labels in sorted({c["labels"] for c in search}):
+        cells = [c for c in search if c["labels"] == labels]
+        parts = []
+        for rule in rules:
+            found = sum(c[rule]["found"] for c in cells)
+            met = sum(c[rule]["met"] for c in cells)
+            reps = sum(c["reps"] for c in cells)
+            parts.append(
+                f"{_SEARCH_RULES[rule]} found a threshold in {found}/{reps}, met"
+                f" {_rate(met, found)}, true coverage {_pct(_weighted(cells, rule))}"
+            )
+        out.append(f"- {labels} labels: " + "; ".join(parts) + ".")
+    out.append("")
     return "\n".join(out)
+
+
+def _weighted(cells: list[Mapping[str, Any]], rule: str) -> float | None:
+    """Mean true coverage of the found thresholds over `cells`, weighted by how many were
+    found in each."""
+    rows = [(c[rule]["found"], c[rule]["mean_true_coverage"]) for c in cells]
+    weight = sum(w for w, v in rows if v is not None)
+    return sum(w * v for w, v in rows if v is not None) / weight if weight else None
+
+
+def _pooled_coverage(
+    fixed: list[Mapping[str, Any]], methods: list[str], names: list[str]
+) -> list[str]:
+    """Pooled one-sided coverage of each method over all cells and by label count, and each
+    method's worst cell."""
+    total = sum(c["reps"] for c in fixed)
+
+    def pooled(cells: list[Mapping[str, Any]], m: str) -> str:
+        return _rate(sum(c["lower_covered"][m] for c in cells), sum(c["reps"] for c in cells))
+
+    lines = [
+        f"Pooled over all {len(fixed)} cells ({total} replications), the one-sided bound"
+        " covers: "
+        + ", ".join(f"{n} {pooled(fixed, m)}" for m, n in zip(methods, names, strict=True))
+        + "."
+    ]
+    for labels in sorted({c["labels"] for c in fixed}):
+        cells = [c for c in fixed if c["labels"] == labels]
+        lines.append(
+            f"- {labels} labels: "
+            + ", ".join(f"{n} {pooled(cells, m)}" for m, n in zip(methods, names, strict=True))
+        )
+    worst = []
+    for m, n in zip(methods, names, strict=True):
+        cell = min(fixed, key=lambda c: c["lower_covered"][m] / c["reps"])
+        worst.append(
+            f"{n} {_rate(cell['lower_covered'][m], cell['reps'])} ({cell['labels']} labels,"
+            f" {cell['n']} items, kappa {cell['kappa']})"
+        )
+    lines.append("- Worst cell: " + "; ".join(worst))
+    return lines
 
 
 def _kci(stats: Mapping[str, Any] | None) -> str:
