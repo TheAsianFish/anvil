@@ -35,7 +35,7 @@ rule applies it:
    and this says by how much and how often it falls short.
 
 The search shares one bootstrap per candidate threshold between the two bootstrap rules, and
-computes both count bounds for every candidate in one vectorised call (`search_all`); a test
+scans the count rules with `count_choice` (`search_all`); a test
 checks it picks exactly what `choose_threshold` picks for each rule.
 Cells run in parallel worker processes; each has its own seed stream (SeedSequence keyed by
 the cell), so the report is the same for any number of workers.
@@ -69,7 +69,7 @@ from anvil.calibrate import (
     RULES,
     CoveragePoint,
     Rule,
-    count_bounds,
+    count_choice,
     coverage_curve,
 )
 from anvil.evaluate.binomial import (
@@ -221,8 +221,7 @@ def search_all(
 ) -> dict[Rule, CoveragePoint | None]:
     """The point `choose_threshold` would choose under every rule, from one scan: the same
     candidates in the same order with the same resamples, but each candidate's replicates are
-    computed once and read by both bootstrap rules, and the count rules' bounds come from one
-    vectorised call per rule over the whole curve."""
+    computed once and read by both bootstrap rules, and the count rules are `count_choice`."""
     curve = coverage_curve(confidence, teacher, student, n_labels)
     order = np.argsort(-confidence, kind="stable")
     t_sorted, s_sorted = teacher[order], student[order]
@@ -235,8 +234,17 @@ def search_all(
     if eligible:
         chosen["point"] = curve[eligible[0]]
     for rule, method in COUNT_METHOD.items():
-        bound = count_bounds(confidence, teacher, student, n_labels, method, confidence_level)
-        chosen[rule] = next((curve[i] for i in eligible if bound[i] >= target), None)
+        found = count_choice(
+            confidence,
+            teacher,
+            student,
+            n_labels,
+            target,
+            method,
+            min_accepted=min_accepted,
+            confidence_level=confidence_level,
+        )
+        chosen[rule] = None if found is None else curve[found[0]]
     boot_rules = tuple(BOUND_METHOD)
     methods = tuple(BOUND_METHOD[r] for r in boot_rules)
     for i in eligible:

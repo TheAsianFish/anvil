@@ -627,3 +627,15 @@ def test_the_default_rule_is_exact() -> None:
     assert default == choose_threshold(confidence, teacher, student, 3, 0.7, rule="exact")
     assert default is not None
     assert default.rule == DEFAULT_RULE == "exact"
+
+
+def test_exact_rule_scales_to_a_large_held_out_set() -> None:
+    # Every cut is eligible and most fail the bound: the scan must stay near linear.
+    rng = np.random.default_rng(0)
+    n = 20_000
+    teacher = rng.integers(0, 4, size=n, dtype=np.int64)
+    student = np.where(rng.random(n) < 0.95, teacher, rng.integers(0, 4, size=n))
+    choice = choose_threshold(rng.random(n), teacher, student, 4, 0.95, rule="exact")
+    assert choice is not None
+    assert choice.kappa_low is not None
+    assert choice.kappa_low >= 0.95

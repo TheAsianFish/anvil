@@ -216,6 +216,48 @@ def kappa_lower_from_counts(
     return out
 
 
+def kappa_bound_clears(
+    agree: npt.ArrayLike,
+    chance: npt.ArrayLike,
+    n: npt.ArrayLike,
+    method: CountMethod,
+    target: float,
+    confidence: float = 0.95,
+) -> npt.NDArray[np.bool_]:
+    """Whether `kappa_lower_from_counts(...) >= target`, decided without computing the bound.
+
+    The bound clears the target exactly when L >= p* = p_e + target * (1 - p_e) (kappa is
+    increasing in p_o). For "exact" that is one tail evaluation per item instead of a
+    bisection: L >= p* iff P(X >= agree; n, p*) <= 1 - confidence, since the tail increases in
+    p and equals 1 - confidence at L. Wilson's closed form is simply compared. A threshold
+    search over every cut of a large held-out set therefore stays linear in the cuts it tests.
+    """
+    if method not in COUNT_BOUNDS:
+        raise ValueError(f"unknown count method {method!r}; use 'exact' or 'wilson'")
+    if method == "wilson":
+        out: npt.NDArray[np.bool_] = (
+            kappa_lower_from_counts(agree, chance, n, method, confidence) >= target
+        )
+        return out
+    _check_confidence(confidence)
+    a, m = _counts(agree, n)
+    c = np.broadcast_to(np.atleast_1d(np.asarray(chance)), a.shape).astype(np.int64)
+    if c.size and (c.min() < 0 or (c > m * m).any()):
+        raise ValueError("chance must lie in [0, n^2]")
+    mf = m.astype(np.float64)
+    p_e = c / (mf * mf)
+    p_star = p_e + target * (1 - p_e)
+    clears = np.zeros(a.shape, dtype=bool)
+    degenerate = c == m * m
+    clears[degenerate] = target <= 0.0  # the bound is 0 there
+    live = ~degenerate
+    clears[live & (p_star <= 0)] = True
+    test = live & (p_star > 0) & (p_star < 1) & (a > 0)
+    if test.any():
+        clears[test] = _tail(a[test], m[test], p_star[test]) <= 1.0 - confidence
+    return clears
+
+
 def kappa_lower_bound(
     a_codes: IntArray,
     b_codes: IntArray,

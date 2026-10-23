@@ -11,9 +11,11 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from anvil.evaluate.binomial import (
+    CountMethod,
     binomial_pmf,
     binomial_upper_tail,
     clopper_pearson_lower,
+    kappa_bound_clears,
     kappa_lower_bound,
     kappa_lower_from_counts,
     wilson_lower,
@@ -309,3 +311,17 @@ def test_binomial_pmf_rejects_bad_inputs() -> None:
         binomial_pmf(0, [0.5])
     with pytest.raises(ValueError, match="probabilities"):
         binomial_pmf(5, [1.5])
+
+
+@pytest.mark.parametrize("method", ["exact", "wilson"])
+def test_kappa_bound_clears_agrees_with_the_bound(method: CountMethod) -> None:
+    rng = np.random.default_rng(3)
+    n = rng.integers(1, 400, size=500)
+    agree = (n * rng.uniform(0.5, 1.0, size=n.size)).astype(np.int64)
+    chance = (n * n * rng.uniform(0.0, 1.0, size=n.size)).astype(np.int64)
+    chance[:20] = n[:20] * n[:20]  # degenerate p_e == 1
+    for target in (-0.1, 0.0, 0.5, 0.9, 0.95, 1.0):
+        bound = kappa_lower_from_counts(agree, chance, n, method)
+        clears = kappa_bound_clears(agree, chance, n, method, target)
+        decided = np.abs(bound - target) > 1e-9  # leave out ties at the bisection's precision
+        assert (clears[decided] == (bound[decided] >= target)).all()

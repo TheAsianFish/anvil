@@ -27,7 +27,7 @@ from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
-from anvil.evaluate.binomial import CountMethod, kappa_lower_from_counts
+from anvil.evaluate.binomial import CountMethod, kappa_bound_clears, kappa_lower_from_counts
 from anvil.evaluate.bootstrap import Method, lower_bounds, resample_indices
 
 FloatArray = npt.NDArray[np.float64]
@@ -319,21 +319,46 @@ def _curve_counts(
     )
 
 
-def count_bounds(
+_COUNT_CHUNK = 256
+"""Cuts tested per vectorised call in `count_choice`: the scan stops at the first chunk with a
+cut that clears, and a chunk's tail matrix stays small however large the held-out set."""
+
+
+def count_choice(
     confidence: npt.ArrayLike,
     teacher: npt.ArrayLike,
     student: npt.ArrayLike,
     n_labels: int,
+    target_kappa: float,
     method: CountMethod,
+    *,
+    min_accepted: int = 30,
     confidence_level: float = 0.95,
-) -> FloatArray:
-    """The `method`'s one-sided kappa lower bound on the accepted inputs at every point of
-    `coverage_curve` (same order), from the agreement count and the plug-in chance term at
-    each cut, all in one vectorised call (`binomial.kappa_lower_from_counts`)."""
+) -> tuple[int, float] | None:
+    """The index into `coverage_curve` of the largest-coverage point with at least
+    `min_accepted` accepted inputs, a point kappa at or above the target and a `method` bound
+    at or above it, with that bound; None when no point qualifies.
+
+    Only eligible cuts are tested, from the largest coverage down in chunks, each with
+    `binomial.kappa_bound_clears` (one tail sum per cut, no bisection), so the cost stays near
+    linear in the held-out size; the bound itself is computed for the chosen cut only.
+    """
     c = _curve_counts(confidence, teacher, student, n_labels)
-    return kappa_lower_from_counts(
-        c.agree_at_cuts, c.chance_at_cuts, c.accepted, method, confidence_level
-    )
+    agree, chance, accepted = c.agree_at_cuts, c.chance_at_cuts, c.accepted
+    kappa = _kappa_from_counts(agree, chance, accepted)
+    eligible = np.flatnonzero((accepted >= min_accepted) & (kappa >= target_kappa))[::-1]
+    for start in range(0, eligible.size, _COUNT_CHUNK):
+        chunk = eligible[start : start + _COUNT_CHUNK]
+        clears = kappa_bound_clears(
+            agree[chunk], chance[chunk], accepted[chunk], method, target_kappa, confidence_level
+        )
+        if clears.any():
+            i = int(chunk[int(np.argmax(clears))])
+            low = kappa_lower_from_counts(
+                agree[i], chance[i], accepted[i], method, confidence_level
+            )[0]
+            return i, float(low)
+    return None
 
 
 def coverage_curve(
@@ -413,7 +438,7 @@ def choose_threshold(
     "exact" and "wilson" bound the agreement count instead (`binomial.kappa_lower_from_counts`:
     the one-sided Clopper-Pearson or Wilson bound on p_o, mapped to kappa with the accepted
     inputs' own chance term); they draw no resamples, so `n_resamples` and `seed` do not apply,
-    and every candidate's bound comes from one vectorised call.
+    and the scan is `count_choice`.
 
     Kappa is not monotone in coverage (it can dip and recover as the threshold falls), so the
     scan does not stop at the first failure: it walks from the largest coverage down and
@@ -439,21 +464,36 @@ def choose_threshold(
     _, t, s, order = _cascade_inputs(confidence, teacher, student, n_labels)
     curve = coverage_curve(confidence, teacher, student, n_labels)
     t_sorted, s_sorted = t[order], s[order]
-    counted = (
-        count_bounds(confidence, teacher, student, n_labels, COUNT_METHOD[rule], confidence_level)
-        if rule in COUNT_METHOD
-        else None
-    )
-    for i in range(len(curve) - 1, -1, -1):
-        point = curve[i]
+    if rule in COUNT_METHOD:
+        found = count_choice(
+            confidence,
+            teacher,
+            student,
+            n_labels,
+            target_kappa,
+            COUNT_METHOD[rule],
+            min_accepted=min_accepted,
+            confidence_level=confidence_level,
+        )
+        if found is None:
+            return None
+        i, bound = found
+        p = curve[i]
+        return ThresholdChoice(
+            rule=rule,
+            target_kappa=target_kappa,
+            threshold=p.threshold,
+            accepted=p.accepted,
+            coverage=p.coverage,
+            kappa=p.kappa,
+            kappa_low=bound,
+            system_kappa=p.system_kappa,
+        )
+    for point in reversed(curve):
         if point.accepted < min_accepted or point.kappa < target_kappa:
             continue
         low: float | None = None
-        if counted is not None:
-            low = float(counted[i])
-            if low < target_kappa:
-                continue
-        elif rule != "point":
+        if rule != "point":
             k = point.accepted
             method = BOUND_METHOD[rule]
             idx = resample_indices(k, n_resamples, seed)
