@@ -43,11 +43,12 @@ from __future__ import annotations
 import re
 from collections import Counter
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 import numpy as np
 import numpy.typing as npt
 
+from anvil.calibrate import CountStatistic
 from anvil.evaluate.bootstrap import Interval, resample_indices
 from anvil.evaluate.metrics import cohen_kappa
 from anvil.evaluate.slices import Slice
@@ -246,6 +247,35 @@ def _categorise(t: Span, student: set[Span]) -> str:
     return "missed"
 
 
+def _breakdown(counts: Counter[str], spurious: int) -> ErrorBreakdown:
+    return ErrorBreakdown(
+        correct=counts["correct"],
+        wrong_type=counts["wrong_type"],
+        wrong_boundary=counts["wrong_boundary"],
+        wrong_both=counts["wrong_both"],
+        missed=counts["missed"],
+        spurious=spurious,
+    )
+
+
+def errors_by_input(
+    teacher: Sequence[Sequence[Span]], student: Sequence[Sequence[Span]]
+) -> list[ErrorBreakdown]:
+    """`error_breakdown` of each input on its own, so the rows sum to `error_breakdown`.
+
+    A sentence-level view of the same matcher: which inputs hold a boundary error, a type
+    error and so on, for slicing the errors by anything known per input (the student's
+    confidence, for the cascade).
+    """
+    _check_lengths(teacher=teacher, student=student)
+    out = []
+    for t, s in zip(teacher, student, strict=True):
+        ts, ss = set(t), set(s)
+        spurious = sum(not any(x.overlaps(y) for y in ts) for x in ss)
+        out.append(_breakdown(Counter(_categorise(x, ss) for x in ts), spurious))
+    return out
+
+
 def error_breakdown(
     teacher: Sequence[Sequence[Span]], student: Sequence[Sequence[Span]]
 ) -> ErrorBreakdown:
@@ -259,21 +289,21 @@ def error_breakdown(
     teacher span at all; a student span that overlaps one but does not match it is already
     counted through that teacher span and is not spurious.
     """
-    _check_lengths(teacher=teacher, student=student)
+    rows = errors_by_input(teacher, student)
     counts: Counter[str] = Counter()
-    spurious = 0
-    for t, s in zip(teacher, student, strict=True):
-        ts, ss = set(t), set(s)
-        counts.update(_categorise(x, ss) for x in ts)
-        spurious += sum(not any(x.overlaps(y) for y in ts) for x in ss)
-    return ErrorBreakdown(
-        correct=counts["correct"],
-        wrong_type=counts["wrong_type"],
-        wrong_boundary=counts["wrong_boundary"],
-        wrong_both=counts["wrong_both"],
-        missed=counts["missed"],
-        spurious=spurious,
-    )
+    for row in rows:
+        counts.update({k: v for k, v in asdict(row).items() if k != "spurious"})
+    return _breakdown(counts, sum(row.spurious for row in rows))
+
+
+def entity_f1_statistic(
+    teacher: Sequence[Sequence[Span]], student: Sequence[Sequence[Span]]
+) -> CountStatistic:
+    """Micro entity F1 as a statistic of sentences for the cascade's threshold rules
+    (`calibrate.choose_statistic_threshold`): each input contributes its (tp, fp, fn), a set
+    of inputs scores the F1 of their sum (1.0 when it has no entity at all, as in
+    `entity_scores`), and a resample with no entity is undefined, as in `entity_f1_ci`."""
+    return CountStatistic(_input_counts(teacher, student), _f1_from_counts, _f1_replicates)
 
 
 # --- word level ---------------------------------------------------------------------------

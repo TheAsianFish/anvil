@@ -19,8 +19,10 @@ from anvil.evaluate.extraction import (
     by_length,
     entity_f1_ci,
     entity_f1_difference_ci,
+    entity_f1_statistic,
     entity_scores,
     error_breakdown,
+    errors_by_input,
     extraction_agreement,
     extraction_self_agreement,
     per_type,
@@ -146,6 +148,54 @@ def test_error_categories_partition_teacher_spans() -> None:
     total = sum(len(set(t)) for t in teacher)
     assert e.correct + e.wrong_type + e.wrong_boundary + e.wrong_both + e.missed == total
     assert e.correct == entity_scores(teacher, student).tp
+
+
+def _sum_breakdowns(rows: list[ErrorBreakdown]) -> ErrorBreakdown:
+    fields = [asdict(r) for r in rows]
+    return ErrorBreakdown(**{k: sum(f[k] for f in fields) for k in asdict(rows[0])})
+
+
+@pytest.mark.parametrize("seed", range(6))
+def test_errors_by_input_rows_sum_to_the_breakdown(seed: int) -> None:
+    rng = np.random.default_rng(seed)
+    teacher, student = random_corpus(rng, 40, p_keep=0.5)
+    rows = errors_by_input(teacher, student)
+    assert len(rows) == 40
+    assert _sum_breakdowns(rows) == error_breakdown(teacher, student)
+    for t, s, row in zip(teacher, student, rows, strict=True):
+        assert row == error_breakdown([t], [s])
+
+
+def test_errors_by_input_hand_case_one_of_each_kind() -> None:
+    t = Span(5, 10, P)
+    teacher = [[t], [t], [t], [t], [], [t, Span(20, 25, L)], []]
+    student = [
+        [Span(6, 12, P)],  # wrong_boundary
+        [Span(5, 10, L)],  # wrong_type
+        [Span(3, 7, L)],  # wrong_both
+        [],  # missed
+        [Span(0, 2, L)],  # spurious
+        [t, Span(30, 32, P)],  # one correct, one missed, one spurious
+        [],  # nothing at all
+    ]
+    rows = errors_by_input(teacher, student)
+    assert rows == [
+        ErrorBreakdown(0, 0, 1, 0, 0, 0),
+        ErrorBreakdown(0, 1, 0, 0, 0, 0),
+        ErrorBreakdown(0, 0, 0, 1, 0, 0),
+        ErrorBreakdown(0, 0, 0, 0, 1, 0),
+        ErrorBreakdown(0, 0, 0, 0, 0, 1),
+        ErrorBreakdown(1, 0, 0, 0, 1, 1),
+        ErrorBreakdown(0, 0, 0, 0, 0, 0),
+    ]
+    assert _sum_breakdowns(rows) == error_breakdown(teacher, student)
+    assert error_breakdown(teacher, student) == ErrorBreakdown(1, 1, 1, 1, 2, 2)
+
+
+def test_errors_by_input_rejects_length_mismatch_and_takes_no_inputs() -> None:
+    with pytest.raises(ValueError, match="lengths differ"):
+        errors_by_input([[]], [[], []])
+    assert errors_by_input([], []) == []
 
 
 # --- word tags ----------------------------------------------------------------------------
@@ -518,3 +568,85 @@ def test_self_agreement_uses_shared_ids() -> None:
         extraction_self_agreement(texts, {"a": []}, {"b": []})
     with pytest.raises(ValueError, match="no text"):
         extraction_self_agreement({}, {"a": []}, {"a": []})
+
+
+# --- entity F1 as a cascade statistic -------------------------------------------------------
+
+
+def _f1_statistic_corpora() -> list[tuple[list[list[Span]], list[list[Span]]]]:
+    rng = np.random.default_rng(21)
+    teacher, student = random_corpus(rng, 25)
+    sparse_t, sparse_a, _ = sparse_corpus()
+    return [(teacher, student), (sparse_t, sparse_a)]
+
+
+@pytest.mark.parametrize("corpus", _f1_statistic_corpora(), ids=["random", "sparse"])
+def test_entity_f1_statistic_prefix_is_entity_scores(
+    corpus: tuple[list[list[Span]], list[list[Span]]],
+) -> None:
+    teacher, student = corpus
+    stat = entity_f1_statistic(teacher, student)
+    n = len(teacher)
+    assert stat.n == n
+    prefix = stat.prefix(np.arange(n, dtype=np.int64))
+    expected = [entity_scores(teacher[: m + 1], student[: m + 1]).f1 for m in range(n)]
+    assert prefix.tolist() == pytest.approx(expected, abs=1e-12)
+    order = np.arange(n, dtype=np.int64)[::-1].copy()
+    reverse = [
+        entity_scores(
+            [teacher[i] for i in order[: m + 1]], [student[i] for i in order[: m + 1]]
+        ).f1
+        for m in range(n)
+    ]
+    assert stat.prefix(order).tolist() == pytest.approx(reverse, abs=1e-12)
+
+
+@pytest.mark.parametrize("corpus", _f1_statistic_corpora(), ids=["random", "sparse"])
+def test_entity_f1_statistic_replicates_and_jackknife(
+    corpus: tuple[list[list[Span]], list[list[Span]]],
+) -> None:
+    teacher, student = corpus
+    stat = entity_f1_statistic(teacher, student)
+    n = len(teacher)
+    members = np.arange(n, dtype=np.int64)
+    idx = resample_indices(n, 100, 4)
+    reps = stat.replicates(members, idx)
+    expected = np.array([_oracle_f1(teacher, student, row) for row in idx.tolist()])
+    np.testing.assert_allclose(reps, expected, atol=1e-12, equal_nan=True)
+    # The same draws give entity_f1_ci's interval.
+    ci = entity_f1_ci(teacher, student, n_resamples=100, seed=4)
+    defined = reps[~np.isnan(reps)]
+    assert (ci.low, ci.high) == pytest.approx(tuple(np.percentile(defined, [2.5, 97.5])))
+    # A subset of members, resampled with their own draws.
+    sub = members[::2]
+    sub_idx = resample_indices(sub.size, 30, 1)
+    got = stat.replicates(sub, sub_idx)
+    want = [_oracle_f1(teacher, student, [int(sub[j]) for j in row]) for row in sub_idx]
+    np.testing.assert_allclose(got, np.array(want), atol=1e-12, equal_nan=True)
+
+    jack = stat.jackknife(members)
+    loo = [_oracle_f1(teacher, student, [j for j in range(n) if j != i]) for i in range(n)]
+    np.testing.assert_allclose(jack, np.array(loo), atol=1e-12, equal_nan=True)
+
+
+def test_entity_f1_statistic_conventions_when_nothing_to_score() -> None:
+    # Point estimate 1.0 on an all-empty prefix (entity_scores), NaN for an all-empty
+    # resample or leave-one-out set (entity_f1_ci).
+    teacher: list[list[Span]] = [[], [Span(0, 1, P)], []]
+    student: list[list[Span]] = [[], [], []]
+    stat = entity_f1_statistic(teacher, student)
+    assert stat.prefix(np.array([0, 2, 1], dtype=np.int64)).tolist() == [1.0, 1.0, 0.0]
+    members = np.array([0, 2], dtype=np.int64)
+    assert np.isnan(stat.replicates(members, resample_indices(2, 10, 0))).all()
+    assert np.isnan(stat.jackknife(members)).all()
+    jack = stat.jackknife(np.arange(3, dtype=np.int64))
+    assert jack[0] == 0.0
+    assert np.isnan(jack[1])
+    assert jack[2] == 0.0
+
+
+def test_entity_f1_statistic_dedups_and_checks_lengths() -> None:
+    stat = entity_f1_statistic([[Span(0, 2, P), Span(0, 2, P)]], [[Span(0, 2, P)] * 3])
+    assert stat.counts.tolist() == [[1, 0, 0]]
+    with pytest.raises(ValueError, match="lengths differ"):
+        entity_f1_statistic([[]], [])

@@ -16,19 +16,32 @@ Three steps, all numpy (this module is imported on the torch-free serving image)
    largest coverage, optionally on a one-sided lower bound (bootstrap percentile or BCa, or
    the exact or Wilson binomial bound on the agreement count) so the target holds with stated
    confidence rather than only on this sample.
+
+The threshold search is not specific to kappa: `choose_statistic_threshold` runs the point and
+bootstrap rules on any `PooledStatistic`, a statistic of a set of inputs with bootstrap
+replicates and a jackknife that resample whole inputs. `KappaStatistic` is the classification
+one (`choose_threshold` scans through it); `evaluate.extraction.entity_f1_statistic` builds the
+tagger's, entity F1 over sentences, on `CountStatistic`.
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
-from typing import Literal
+from typing import Literal, Protocol
 
 import numpy as np
 import numpy.typing as npt
 
 from anvil.evaluate.binomial import CountMethod, kappa_bound_clears, kappa_lower_from_counts
-from anvil.evaluate.bootstrap import Method, lower_bounds, resample_indices
+from anvil.evaluate.bootstrap import (
+    Method,
+    endpoints,
+    kappa_jackknife,
+    kappa_replicates,
+    resample_indices,
+)
 
 FloatArray = npt.NDArray[np.float64]
 IntArray = npt.NDArray[np.int64]
@@ -51,6 +64,9 @@ BOUND_METHOD: dict[Rule, Method] = {"lower": "percentile", "bca": "bca"}
 """The bootstrap rules and the method that reads their replicates."""
 COUNT_METHOD: dict[Rule, CountMethod] = {"exact": "exact", "wilson": "wilson"}
 """The rules bounded from the agreement count, with no resampling."""
+STATISTIC_RULES: tuple[Rule, ...] = ("point", "lower", "bca")
+"""The rules `choose_statistic_threshold` takes for any `PooledStatistic`: the count rules need
+a binomial agreement count, which kappa has and entity F1 does not."""
 
 _BISECTION_STEPS = 60
 TEMPERATURE_BOUNDS = (0.05, 20.0)
@@ -415,6 +431,299 @@ class ThresholdChoice:
     system_kappa: float
 
 
+class PooledStatistic(Protocol):
+    """A statistic of a set of inputs that the threshold rules can bound by resampling inputs.
+
+    The cascade accepts the inputs whose confidence reaches a threshold; the statistic says how
+    well the student did on those inputs (kappa with the teacher over labels, entity F1 over
+    the spans of sentences). Every method takes `members`, indices of the inputs in question,
+    so the bootstrap resamples whole inputs: for F1 a sentence's entities stay together, as in
+    `evaluate.extraction`. A replicate or jackknife value is NaN when that resample has
+    nothing to score (a set of sentences with no entities). The percentile bound reads the
+    defined replicates only; a NaN estimate or jackknife value leaves BCa undefined, and an
+    undefined bound never clears a target.
+    """
+
+    @property
+    def n(self) -> int:
+        """The number of inputs."""
+        ...
+
+    def prefix(self, order: IntArray) -> FloatArray:
+        """The statistic on order[:m] for every m = 1..n, shape (n,) (the point estimates,
+        with the statistic's own convention for a set with nothing to score)."""
+        ...
+
+    def replicates(self, members: IntArray, idx: IntArray) -> FloatArray:
+        """The statistic on members[idx[r]] for every row r of `idx` (n_resamples, m)."""
+        ...
+
+    def jackknife(self, members: IntArray) -> FloatArray:
+        """Entry i is the statistic on `members` without members[i]."""
+        ...
+
+
+class KappaStatistic:
+    """Cohen's kappa of student against teacher label codes: the statistic of the
+    classification cascade. Replicates and jackknife are `bootstrap.kappa_replicates` and
+    `bootstrap.kappa_jackknife`, and the prefix values are those of `coverage_curve`, so a
+    threshold chosen through it is the one `choose_threshold` has always chosen."""
+
+    def __init__(self, teacher: npt.ArrayLike, student: npt.ArrayLike, n_labels: int) -> None:
+        if n_labels < 1:
+            raise ValueError(f"n_labels must be positive, got {n_labels}")
+        t = np.asarray(teacher)
+        if t.ndim != 1 or t.size < 1:
+            raise ValueError(f"teacher must be 1-d with at least one item, got {t.shape}")
+        self.teacher = _codes(t, t.size, n_labels, "teacher")
+        self.student = _codes(student, self.teacher.size, n_labels, "student")
+        self.n_labels = n_labels
+
+    @property
+    def n(self) -> int:
+        return int(self.teacher.size)
+
+    def prefix(self, order: IntArray) -> FloatArray:
+        eye = np.eye(self.n_labels, dtype=np.int64)
+        t, s = self.teacher[order], self.student[order]
+        rows, cols = np.cumsum(eye[t], axis=0), np.cumsum(eye[s], axis=0)
+        agree = np.cumsum(t == s).astype(np.int64)
+        accepted = np.arange(1, order.size + 1, dtype=np.int64)
+        return _kappa_from_counts(agree, (rows * cols).sum(axis=1), accepted)
+
+    def replicates(self, members: IntArray, idx: IntArray) -> FloatArray:
+        return kappa_replicates(self.teacher[members], self.student[members], self.n_labels, idx)
+
+    def jackknife(self, members: IntArray) -> FloatArray:
+        return kappa_jackknife(self.teacher[members], self.student[members], self.n_labels)
+
+
+CountsValue = Callable[[IntArray], FloatArray]
+"""Maps pooled counts, shape (R, d), to the statistic of each row, shape (R,)."""
+
+
+class CountStatistic:
+    """A statistic of summed per-input counts: input i contributes the row counts[i] (for
+    entity F1 its (tp, fp, fn)), and a set of inputs scores `value` of the sum of its rows.
+
+    `value` gives the point estimates; `replicate_value` the bootstrap and jackknife values,
+    which may differ on a set with nothing to score (entity F1 calls that 1.0 as a point
+    estimate and undefined, NaN, as a replicate; see `evaluate.extraction`). A resample's
+    pooled counts are W @ counts over the draw counts W, as in `evaluate.extraction`, and the
+    jackknife subtracts one row from the total.
+    """
+
+    def __init__(
+        self, counts: npt.ArrayLike, value: CountsValue, replicate_value: CountsValue
+    ) -> None:
+        c = np.asarray(counts)
+        if c.ndim != 2 or c.shape[0] < 1 or c.shape[1] < 1:
+            raise ValueError(f"counts must have shape (n, d) with n >= 1, got {c.shape}")
+        if not np.issubdtype(c.dtype, np.integer) or c.min() < 0:
+            raise ValueError("counts must be non-negative integers")
+        self.counts = c.astype(np.int64)
+        self.value = value
+        self.replicate_value = replicate_value
+
+    @property
+    def n(self) -> int:
+        return int(self.counts.shape[0])
+
+    def prefix(self, order: IntArray) -> FloatArray:
+        return self.value(np.cumsum(self.counts[order], axis=0))
+
+    def replicates(self, members: IntArray, idx: IntArray) -> FloatArray:
+        r, m = idx.shape
+        offsets = (np.arange(r, dtype=np.int64) * m)[:, None]
+        w = np.bincount((offsets + idx).ravel(), minlength=r * m).reshape(r, m)
+        return self.replicate_value(w @ self.counts[members])
+
+    def jackknife(self, members: IntArray) -> FloatArray:
+        c = self.counts[members]
+        return self.replicate_value(c.sum(axis=0)[None, :] - c)
+
+
+@dataclass(frozen=True)
+class StatisticPoint:
+    """The cascade at one threshold, scored by a `PooledStatistic` on the accepted inputs."""
+
+    threshold: float
+    accepted: int
+    coverage: float
+    value: float
+
+
+@dataclass(frozen=True)
+class StatisticChoice:
+    """The threshold `choose_statistic_threshold` chose and the statistic at it."""
+
+    rule: Rule
+    target: float
+    threshold: float
+    accepted: int
+    coverage: float
+    value: float
+    low: float | None
+    """The rule's one-sided lower bound of the statistic on the accepted inputs (None for
+    "point")."""
+
+
+def _confidence(confidence: npt.ArrayLike, n: int) -> tuple[FloatArray, IntArray, IntArray]:
+    """Validated confidences, their order (highest first, stable) and the cut indices into that
+    order: the last index of each run of equal confidences."""
+    conf = np.asarray(confidence, dtype=np.float64)
+    if conf.ndim != 1 or conf.size < 1:
+        raise ValueError(f"confidence must be 1-d with at least one item, got {conf.shape}")
+    if not np.isfinite(conf).all():
+        raise ValueError("confidence contains NaN or infinite values")
+    if conf.size != n:
+        raise ValueError(f"one confidence per input is needed: got {conf.size} for {n} inputs")
+    order = np.argsort(-conf, kind="stable").astype(np.int64)
+    c_sorted = conf[order]
+    ends = np.flatnonzero(np.append(c_sorted[1:] != c_sorted[:-1], True)).astype(np.int64)
+    return c_sorted, order, ends
+
+
+def statistic_curve(confidence: npt.ArrayLike, statistic: PooledStatistic) -> list[StatisticPoint]:
+    """The statistic on the accepted inputs at every threshold, from the highest down: one
+    point per distinct confidence, as in `coverage_curve` (ties are accepted together)."""
+    c_sorted, order, ends = _confidence(confidence, statistic.n)
+    values = statistic.prefix(order)[ends]
+    n = int(order.size)
+    return [
+        StatisticPoint(
+            threshold=float(c_sorted[e]),
+            accepted=int(e + 1),
+            coverage=float((e + 1) / n),
+            value=float(v),
+        )
+        for e, v in zip(ends, values, strict=True)
+    ]
+
+
+def _check_rule_args(
+    rule: Rule,
+    target: float,
+    min_accepted: int,
+    confidence_level: float,
+    rules: tuple[Rule, ...],
+    target_name: str = "target",
+) -> None:
+    if rule not in rules:
+        raise ValueError(f"unknown rule {rule!r}; use one of {', '.join(rules)}")
+    if not math.isfinite(target):
+        raise ValueError(f"{target_name} must be finite, got {target}")
+    if min_accepted < 1:
+        raise ValueError(f"min_accepted must be positive, got {min_accepted}")
+    if rule == "bca" and min_accepted < 2:
+        raise ValueError("rule 'bca' needs min_accepted >= 2: its jackknife leaves one item out")
+    if not 0.0 < confidence_level < 1.0:
+        raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
+
+
+def _bootstrap_lower(
+    statistic: PooledStatistic,
+    members: IntArray,
+    rule: Rule,
+    confidence_level: float,
+    n_resamples: int,
+    seed: int,
+) -> float:
+    """The one-sided lower bound of rule "lower" or "bca" on `members`, NaN when no resample
+    has anything to score (a bound that cannot be computed never clears a target)."""
+    m = int(members.size)
+    values = statistic.replicates(members, resample_indices(m, n_resamples, seed))
+    defined = values[~np.isnan(values)]
+    if not defined.size:
+        return math.nan
+    method = BOUND_METHOD[rule]
+    if method == "percentile":
+        return float(endpoints(defined, [1 - confidence_level], method)[0])
+    estimate = float(statistic.replicates(members, np.arange(m, dtype=np.int64)[None, :])[0])
+    jack = statistic.jackknife(members)
+    if math.isnan(estimate) or np.isnan(jack).any():
+        return math.nan
+    bound = endpoints(defined, [1 - confidence_level], method, estimate=estimate, jackknife=jack)
+    return float(bound[0])
+
+
+def _scan(
+    confidence: npt.ArrayLike,
+    statistic: PooledStatistic,
+    target: float,
+    rule: Rule,
+    min_accepted: int,
+    confidence_level: float,
+    n_resamples: int,
+    seed: int,
+) -> tuple[int, float | None] | None:
+    """The cut index (into the distinct confidences, highest first) of the largest coverage
+    that qualifies under `rule`, with its bound; see `choose_statistic_threshold`."""
+    _, order, ends = _confidence(confidence, statistic.n)
+    values = statistic.prefix(order)[ends]
+    for i in range(ends.size - 1, -1, -1):
+        accepted = int(ends[i] + 1)
+        if accepted < min_accepted or not values[i] >= target:
+            continue
+        if rule == "point":
+            return i, None
+        low = _bootstrap_lower(
+            statistic, order[:accepted], rule, confidence_level, n_resamples, seed
+        )
+        if low >= target:
+            return i, low
+    return None
+
+
+def choose_statistic_threshold(
+    confidence: npt.ArrayLike,
+    statistic: PooledStatistic,
+    target: float,
+    *,
+    rule: Rule,
+    min_accepted: int = 30,
+    confidence_level: float = 0.95,
+    n_resamples: int = 1000,
+    seed: int = 0,
+) -> StatisticChoice | None:
+    """The largest-coverage threshold whose accepted inputs reach `target` on `statistic`.
+
+    The rule is `choose_threshold`'s for any statistic: "point" needs the estimate on the
+    accepted inputs to reach the target, "lower" its one-sided percentile-bootstrap bound (the
+    (1 - confidence_level) quantile of `n_resamples` replicates that resample the accepted
+    inputs), "bca" the same replicates read at the BCa level, with the statistic's own
+    jackknife. The scan walks from the largest coverage down, skips points whose estimate
+    misses the target without a bootstrap, and draws each candidate's resamples from
+    `resample_indices(accepted, n_resamples, seed)`, so the choice is a pure function of the
+    inputs and the seed. With `KappaStatistic` this is `choose_threshold` under the same rule.
+    The count rules ("exact", "wilson") are not available here: they need a binomial count.
+    """
+    _check_rule_args(rule, target, min_accepted, confidence_level, STATISTIC_RULES)
+    found = _scan(
+        confidence,
+        statistic,
+        target,
+        rule,
+        min_accepted,
+        confidence_level,
+        n_resamples,
+        seed,
+    )
+    if found is None:
+        return None
+    i, low = found
+    p = statistic_curve(confidence, statistic)[i]
+    return StatisticChoice(
+        rule=rule,
+        target=target,
+        threshold=p.threshold,
+        accepted=p.accepted,
+        coverage=p.coverage,
+        value=p.value,
+        low=low,
+    )
+
+
 def choose_threshold(
     confidence: npt.ArrayLike,
     teacher: npt.ArrayLike,
@@ -451,19 +760,9 @@ def choose_threshold(
     seed)`, so the choice is a pure function of the inputs and the seed. Both count bounds sit
     at or below the point estimate, so for them the skip loses nothing.
     """
-    if rule not in RULES:
-        raise ValueError(f"unknown rule {rule!r}; use one of {', '.join(RULES)}")
-    if not math.isfinite(target_kappa):
-        raise ValueError(f"target_kappa must be finite, got {target_kappa}")
-    if min_accepted < 1:
-        raise ValueError(f"min_accepted must be positive, got {min_accepted}")
-    if rule == "bca" and min_accepted < 2:
-        raise ValueError("rule 'bca' needs min_accepted >= 2: its jackknife leaves one item out")
-    if not 0.0 < confidence_level < 1.0:
-        raise ValueError(f"confidence_level must be in (0, 1), got {confidence_level}")
-    _, t, s, order = _cascade_inputs(confidence, teacher, student, n_labels)
+    _check_rule_args(rule, target_kappa, min_accepted, confidence_level, RULES, "target_kappa")
     curve = coverage_curve(confidence, teacher, student, n_labels)
-    t_sorted, s_sorted = t[order], s[order]
+    found: tuple[int, float | None] | None
     if rule in COUNT_METHOD:
         found = count_choice(
             confidence,
@@ -475,44 +774,31 @@ def choose_threshold(
             min_accepted=min_accepted,
             confidence_level=confidence_level,
         )
-        if found is None:
-            return None
-        i, bound = found
-        p = curve[i]
-        return ThresholdChoice(
-            rule=rule,
-            target_kappa=target_kappa,
-            threshold=p.threshold,
-            accepted=p.accepted,
-            coverage=p.coverage,
-            kappa=p.kappa,
-            kappa_low=bound,
-            system_kappa=p.system_kappa,
+    else:
+        found = _scan(
+            confidence,
+            KappaStatistic(teacher, student, n_labels),
+            target_kappa,
+            rule,
+            min_accepted,
+            confidence_level,
+            n_resamples,
+            seed,
         )
-    for point in reversed(curve):
-        if point.accepted < min_accepted or point.kappa < target_kappa:
-            continue
-        low: float | None = None
-        if rule != "point":
-            k = point.accepted
-            method = BOUND_METHOD[rule]
-            idx = resample_indices(k, n_resamples, seed)
-            low = lower_bounds(
-                t_sorted[:k], s_sorted[:k], n_labels, idx, confidence_level, (method,)
-            )[method]
-            if low < target_kappa:
-                continue
-        return ThresholdChoice(
-            rule=rule,
-            target_kappa=target_kappa,
-            threshold=point.threshold,
-            accepted=point.accepted,
-            coverage=point.coverage,
-            kappa=point.kappa,
-            kappa_low=low,
-            system_kappa=point.system_kappa,
-        )
-    return None
+    if found is None:
+        return None
+    i, bound = found
+    p = curve[i]
+    return ThresholdChoice(
+        rule=rule,
+        target_kappa=target_kappa,
+        threshold=p.threshold,
+        accepted=p.accepted,
+        coverage=p.coverage,
+        kappa=p.kappa,
+        kappa_low=bound,
+        system_kappa=p.system_kappa,
+    )
 
 
 def serving_temperature(logits: ArrayLike2D, targets: npt.ArrayLike) -> tuple[float, bool]:
