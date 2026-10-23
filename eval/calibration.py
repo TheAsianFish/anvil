@@ -258,6 +258,128 @@ def ceiling_on_accepted(
     return {"asked": int(asked.sum()), "by_level": by_level, "served": served}
 
 
+GOLD_LEVELS = (0.9, 0.7, 0.5, 0.3)
+"""Coverage levels at which the cascade-against-gold table compares student and teacher."""
+
+
+def _paired_kappa(
+    ref: IntArray, a: IntArray, b: IntArray, n_labels: int, n_resamples: int, seed: int
+) -> dict[str, float]:
+    """kappa(ref, a) - kappa(ref, b) with its paired 95% percentile interval."""
+    idx = resample_indices(ref.size, n_resamples, seed)
+    reps = kappa_replicates(ref, a, n_labels, idx) - kappa_replicates(ref, b, n_labels, idx)
+    low, high = np.percentile(reps, [2.5, 97.5])
+    estimate = _kappa(ref, a, n_labels) - _kappa(ref, b, n_labels)
+    return {"estimate": estimate, "low": float(low), "high": float(high)}
+
+
+def _auroc_ci(
+    score: FloatArray, positive: npt.NDArray[np.bool_], n_resamples: int, seed: int
+) -> dict[str, float]:
+    from eval.shift import auroc
+
+    estimate = auroc(score[positive], score[~positive])
+    reps = []
+    for idx in resample_indices(score.size, n_resamples, seed):
+        pos = positive[idx]
+        if pos.any() and not pos.all():
+            reps.append(auroc(score[idx][pos], score[idx][~pos]))
+    low, high = np.percentile(reps, [2.5, 97.5])
+    return {"auroc": estimate, "low": float(low), "high": float(high)}
+
+
+def against_gold(
+    z: FloatArray,
+    y: IntArray,
+    gold: IntArray,
+    temperature: float,
+    thresholds: dict[str, float | None],
+    n_resamples: int,
+    seed: int,
+) -> dict[str, object]:
+    """The cascade built on a fallible teacher, scored against gold instead of the teacher.
+
+    The threshold is chosen for agreement with the teacher; this asks what that buys in
+    correctness. For each served threshold: on the answered inputs the student's kappa with
+    the teacher and with gold, the teacher's own kappa with gold on the same inputs (and the
+    paired difference), and the whole cascade (student where it answers, teacher elsewhere)
+    against gold next to the teacher alone. Then the same student-against-teacher comparison
+    at fixed coverage levels, and how well the student's confidence finds the inputs the
+    teacher got wrong: its max softmax and its probability of the teacher's own label."""
+    k = z.shape[1]
+    student = z.argmax(axis=1).astype(np.int64)
+    p = softmax(z, temperature)
+    conf = p.max(axis=1)
+    teacher_wrong = y != gold
+
+    def on(accepted: npt.NDArray[np.bool_]) -> dict[str, object]:
+        n = int(accepted.sum())
+        row: dict[str, object] = {"coverage": float(accepted.mean()), "n": n}
+        if n >= MIN_ACCEPTED:
+            g, s, t = gold[accepted], student[accepted], y[accepted]
+            row["student_vs_teacher"] = _kappa(t, s, k)
+            row["student_vs_gold"] = _kappa_ci(g, s, k, n_resamples, seed)
+            row["teacher_vs_gold"] = _kappa_ci(g, t, k, n_resamples, seed)
+            row["student_minus_teacher"] = _paired_kappa(g, s, t, k, n_resamples, seed)
+            row["teacher_wrong"] = int(teacher_wrong[accepted].sum())
+        return row
+
+    served: dict[str, object] = {}
+    for target, threshold in thresholds.items():
+        if threshold is None:
+            served[target] = None
+            continue
+        accepted = conf >= threshold
+        cascade = np.where(accepted, student, y)
+        served[target] = {
+            "threshold": threshold,
+            **on(accepted),
+            "cascade_vs_gold": _kappa_ci(gold, cascade, k, n_resamples, seed),
+            "cascade_minus_teacher": _paired_kappa(gold, cascade, y, k, n_resamples, seed),
+        }
+    ordered = np.sort(conf)[::-1]
+    by_level = []
+    for level in GOLD_LEVELS:
+        m = max(1, round(level * conf.size))
+        by_level.append({"level": level, **on(conf >= ordered[m - 1])})
+    return {
+        "n": int(gold.size),
+        "teacher_vs_gold": _kappa_ci(gold, y, k, n_resamples, seed),
+        "student_vs_gold": _kappa_ci(gold, student, k, n_resamples, seed),
+        "teacher_wrong": int(teacher_wrong.sum()),
+        "served": served,
+        "by_level": by_level,
+        "teacher_error_auroc": {
+            "max_softmax": _auroc_ci(-conf, teacher_wrong, n_resamples, seed),
+            "teacher_label_probability": _auroc_ci(
+                -p[np.arange(y.size), y], teacher_wrong, n_resamples, seed
+            ),
+        },
+    }
+
+
+def gold_codes(
+    dataset: str, teacher_model: str, input_ids: list[str], labels: list[str]
+) -> IntArray | None:
+    """Gold label codes for the held-out inputs, from the committed `eval.classify` report of
+    the same teacher (the logits file holds only the teacher's labels); None when there is no
+    such report, and the against-gold table is left out."""
+    path = RESULTS_DIR / f"classify-{dataset}-{file_safe(teacher_model)}" / "report.json"
+    if not path.exists():
+        logger.warning(
+            "no classify report for the gold labels; skipping the against-gold table",
+            extra={"path": str(path)},
+        )
+        return None
+    predictions = json.loads(path.read_text(encoding="utf-8"))["predictions"]
+    gold = dict(zip(predictions["input_id"], predictions["gold"], strict=True))
+    missing = [i for i in input_ids if i not in gold]
+    if missing:
+        raise ConfigError(f"{path} has no gold label for {len(missing)} held-out inputs")
+    index = {lab: i for i, lab in enumerate(labels)}
+    return np.array([index[gold[i]] for i in input_ids], dtype=np.int64)
+
+
 def analyse(
     z: FloatArray,
     y: IntArray,
@@ -265,9 +387,11 @@ def analyse(
     n_resamples: int,
     seed: int,
     repeat: IntArray | None = None,
+    gold: IntArray | None = None,
 ) -> dict[str, object]:
     """Every number of the report from held-out logits and teacher label codes (and, when
-    the teacher labelled some inputs twice, the second labels as `repeat`)."""
+    the teacher labelled some inputs twice, the second labels as `repeat`; when the teacher
+    is not gold, the gold label codes as `gold`)."""
     full = {
         str(t): calibrate(
             z,
@@ -300,11 +424,15 @@ def analyse(
             }
     temperature = calibrate(z, y, target_kappa=None).temperature
     extra: dict[str, object] = {}
+    thresholds: dict[str, float | None] = {}
+    for t, cal in full.items():
+        value = cal.get("threshold")
+        thresholds[t] = float(value) if isinstance(value, int | float) else None
+    if gold is not None:
+        extra["against_gold"] = against_gold(
+            z, y, gold, temperature, thresholds, n_resamples, seed
+        )
     if repeat is not None and (repeat >= 0).any():
-        thresholds: dict[str, float | None] = {}
-        for t, cal in full.items():
-            value = cal.get("threshold")
-            thresholds[t] = float(value) if isinstance(value, int | float) else None
         extra["ceiling"] = ceiling_on_accepted(
             z, y, repeat, temperature, thresholds, n_resamples, seed
         )
@@ -435,7 +563,16 @@ def main(argv: list[str] | None = None) -> int:
                     "trained_here": ts.trained_here,
                     "scoring_seconds": round(scored.seconds, 1),
                 }
-            analysis = analyse(z, y, args.splits, args.resamples, args.seed, repeat)
+            gold: IntArray | None = None
+            if source.get("teacher_kind", "gold") != "gold":
+                if args.logits is not None:
+                    ids = [str(i) for i in saved["input_ids"]]
+                    names = [str(x) for x in saved["labels"]]
+                else:
+                    assert scored is not None
+                    ids, names = scored.input_ids, scored.labels
+                gold = gold_codes(name, teacher_model, ids, names)
+            analysis = analyse(z, y, args.splits, args.resamples, args.seed, repeat, gold)
             report = {"source": source, **analysis}
             full = analysis["full"]
             assert isinstance(full, dict)

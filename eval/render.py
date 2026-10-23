@@ -1274,6 +1274,70 @@ _METHOD_NAMES = {
 }
 
 
+def _against_gold_lines(runs: list[tuple[str, Report, Report]]) -> list[str]:
+    """The fallible-teacher cascade scored against gold, one row per served threshold."""
+    rows = [(r, r["against_gold"]) for _, r, _ in runs if r.get("against_gold")]
+    if not rows:
+        return []
+    out = [
+        "The cascade on a fallible teacher, scored against gold (the threshold is the one"
+        " served, rule `exact`, chosen for agreement with the teacher; the cascade answers with"
+        " the student above it and the teacher below):",
+        "",
+        "| Dataset | Teacher | Target | Coverage | Answered: student vs teacher"
+        " | Answered: student vs gold | Answered: teacher vs gold | Student minus teacher"
+        " (paired) | Cascade vs gold | Teacher alone vs gold | Cascade minus teacher |",
+        "|---|---|---|---|---|---|---|---|---|---|---|",
+    ]
+    for r, g in rows:
+        src = r["source"]
+        for target, row in g["served"].items():
+            if not row:
+                out.append(
+                    f"| {src['dataset']} | {src['teacher_model']} | {target} | no threshold"
+                    f" | | | | | | {_kci(g['teacher_vs_gold'])} | |"
+                )
+                continue
+            out.append(
+                f"| {src['dataset']} | {src['teacher_model']} | {target}"
+                f" | {_pct(row['coverage'])} ({row['n']}) | {_f(row.get('student_vs_teacher'))}"
+                f" | {_kci(row.get('student_vs_gold'))} | {_kci(row.get('teacher_vs_gold'))}"
+                f" | {_diff(row.get('student_minus_teacher'))} | {_kci(row['cascade_vs_gold'])}"
+                f" | {_kci(g['teacher_vs_gold'])} | {_diff(row['cascade_minus_teacher'])} |"
+            )
+    out += [
+        "",
+        "The same comparison at fixed coverage (the most confident inputs), and how well the"
+        " student's confidence finds the inputs the teacher got wrong:",
+        "",
+        "| Dataset | Coverage | Inputs | Student vs gold | Teacher vs gold"
+        " | Student minus teacher (paired) |",
+        "|---|---|---|---|---|---|",
+    ]
+    for r, g in rows:
+        for row in g["by_level"]:
+            out.append(
+                f"| {r['source']['dataset']} | {_pct(row['level'])} | {row['n']}"
+                f" | {_kci(row.get('student_vs_gold'))} | {_kci(row.get('teacher_vs_gold'))}"
+                f" | {_diff(row.get('student_minus_teacher'))} |"
+            )
+    out += [
+        "",
+        "| Dataset | Teacher wrong (held-out) | AUROC, max softmax"
+        " | AUROC, probability of the teacher's label |",
+        "|---|---|---|---|",
+    ]
+    for r, g in rows:
+        auc = g["teacher_error_auroc"]
+        out.append(
+            f"| {r['source']['dataset']} | {_share(g['teacher_wrong'], g['n'])}"
+            f" | {_auroc_cell(auc['max_softmax'])}"
+            f" | {_auroc_cell(auc['teacher_label_probability'])} |"
+        )
+    out.append("")
+    return out
+
+
 def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
     """Temperature scaling, the served threshold, and the split study of whether a threshold
     chosen on one half of the held-out split keeps its kappa on the other half."""
@@ -1296,6 +1360,7 @@ def render_calibration(runs: list[tuple[str, Report, Report]]) -> str:
             f" | {_pct(f9.get('coverage'))} | {_pct(f95.get('coverage'))} |"
         )
     out.append("")
+    out += _against_gold_lines(runs)
     for name, r, meta in runs:
         src, ss = r["source"], r["split_study"]
         out += [
