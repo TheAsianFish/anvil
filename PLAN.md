@@ -637,6 +637,148 @@ best of many thresholds and a fixed-threshold coverage study would miss that sel
 effect. The pilot's note and raw rows moved out of this change (a plan change touches only
 PLAN.md and the roadmap); the method is above.
 
+## Evolution round 2 (2026-10-23)
+
+Round 1 is merged (M8-M10). Before calling the project finished I re-ran everything the
+repository can measure without a key, read the three new result sections against the questions
+they set out to answer, and spent an afternoon of throwaway scripts on the questions they left
+open (nothing from those scripts is committed; the method of each is below, and each milestone
+re-measures it properly).
+
+**Evidence.**
+
+- `make check`: 1070 passed, 1 skipped, 24 xfailed (the owner's selection strategies), 1 min 57 s.
+  `make demo`: 68 s, output identical to the README. `python -m eval.coverage --check`: 0 of 144
+  counts differ, 16 s on 4 cores. `make eval-select`, the four `eval.calibration --logits`
+  analyses and `eval.shift --scores` reproduce their committed reports (a handful of floats
+  differ in the sixteenth digit on this CPU; the shift report is byte-identical).
+- Still no key, so no Claude number exists: 23 committed runs, $0. The parity question the project
+  is named for has one answer so far, the M8 teacher, and that answer is the problem. The student
+  agrees with `qwen2.5:3b` at 0.847 and 0.687 but with gold at 0.696 and 0.540, so the cascade's
+  "coverage at kappa 0.9" is coverage at agreement with a teacher that is wrong on 21% and 45% of
+  held-out inputs. Joining the committed `logits.npz` of the two M8 students to the gold labels (a
+  few minutes, no model) says what that means at the served threshold. On Banking77 the student
+  agrees with the teacher at 0.934 on the 32% of inputs it answers and with gold at 0.754, and the
+  teacher itself scores 0.721 with gold on those inputs; the cascade (student where it answers,
+  teacher elsewhere) scores 0.554 against gold, the teacher alone 0.544 (the report's temperature
+  and 0.9 threshold). At coverages of 90%, 70%, 50% and 30%, student-vs-gold and teacher-vs-gold
+  on the same inputs are within 0.035 of each other on both datasets. The student's max softmax separates "the teacher is wrong here" from
+  "right" with an AUROC of 0.668 (Banking77) and 0.799 (AG News); the student's probability of the
+  teacher's own label does a little better (0.736 and 0.812). RESULTS.md's conclusion ("telling
+  consistency from correctness needs gold labels or a better teacher") was stated, not measured,
+  and the noise control left one thread: the teacher's labels cost what its confusion matrix
+  costs, yet the student copies 77% of its held-out mistakes against 52% for the same confusions
+  dealt at random, so the errors follow the inputs. Nothing has asked whether a student trained on
+  those labels can see them coming.
+- M10 closed with a named next step: both bootstrap bounds cover 93% rather than 95%, the
+  estimator is unbiased, and "a bound built on the disagreement count itself, such as an exact
+  binomial bound on 1 - agreement, is the next thing to try". A throwaway simulation of that bound
+  (one-sided Clopper-Pearson on the agreement count, kappa through the sample's chance term; the
+  population of `eval/coverage.py`, 300 replications per cell, 16 s) covered at least 94.0% in
+  every one of the 18 cells and 95.3-98.7% in sixteen of them, against 90.0-96.3% for the
+  percentile bound on the same samples; a Wilson score bound did the same except at 4 labels and
+  100 items, where it covered 94.7-96.0% to Clopper-Pearson's 98.0%. The bounds sit 0.002 (500
+  items) to 0.020 (4 labels, 100 items) of kappa below the percentile one. Applied to the four
+  committed `logits.npz` with the rule's shape (largest coverage with at least 30 accepted inputs
+  whose bound clears the target), that costs 1.5 points of served coverage on Banking77 (gold) at
+  0.9 (82.3% to 80.8%) and 0.8 at 0.95, but 8.8 points on AG News (gold) at 0.9 (75.7% to 66.9%;
+  Wilson 72.7%), and on AG News at 0.95 neither exact bound finds any threshold where the
+  percentile rule serves 41.9%, the same setting where the M5 split study saw the percentile
+  rule hold its target on only 82.0% of unseen halves. So the honest bound is cheap at 77 labels
+  and expensive at 4, and whether the percentile rule's 4-label coverage was ever real is open.
+- The cascade exists for one of three students; the README lists "the extraction and generation
+  students in the cascade" as open. The extraction report already stores one confidence per
+  held-out sentence (the tagger's minimum token probability, `EncoderTagger.predict_with_confidence`)
+  next to the teacher's, the student's and the gold spans. Read today from `report.json`: that
+  confidence separates the 220 sentences with an error from the 280 clean ones with an AUROC of
+  0.841; the half the tagger is surest of has entity F1 0.896 against 0.727 overall and the top
+  40% 0.927; and boundary errors, the dominant failure (127 of 237 misses), are the more
+  detectable kind (AUROC 0.778 on 115 sentences) against type errors (0.682 on 38). The generator
+  stores completions only, no token probabilities, and its one free signal ("the query runs") is
+  dead at 4 errors in 300.
+- Unchanged from round 1: the 4-label shift study is under "To measure" with its command; the
+  export table predates the single-input int8 probes; students do not reproduce bit for bit
+  across CPU generations; `select.py` waits for the owner.
+
+**New milestones.**
+
+- **M11, a bound on the count itself.** Question: does a bound built on the agreement count
+  cover 95% where the bootstrap bounds cover 93%, and what does honesty cost in served coverage?
+  Two rules join `choose_threshold`: `exact` (one-sided Clopper-Pearson on the number of
+  agreements, mapped to kappa through the sample's chance term, which is treated as known) and
+  `wilson` (the score bound, the same mapping); neither resamples, so the simulation gets cheaper,
+  not slower. Hypotheses, from the pilot: pooled over the 18 fixed-sample cells both cover at
+  least 95% with no cell under 93%, and over-cover (above 96.5%) in the 4-label cells with 100
+  items, where the percentile bound covers under 92%; the threshold search's chosen threshold
+  truly keeps its target in at least 93% of searches with either (90.8% for percentile); on
+  Banking77 (gold) the served coverage at 0.9 drops at most 2 points and on AG News (gold) at
+  least 5, and no exact threshold exists at 0.95 on AG News; on the unseen AG News halves at
+  0.95, where the percentile rule held the target in 82.0% of splits, a rule that finds a
+  threshold holds it in at least 90% of the splits where it finds one (the share of splits with
+  no threshold is reported beside it, since "never answers" is the trivial way to hold a target),
+  so the percentile rule's 41.9% was coverage it could not keep. The chance term's own sampling error, which the plug-in ignores, shows up (if anywhere)
+  as under-coverage at 4 labels and 100 items; the pilot saw none. Default: whichever rule the
+  table justifies, by label count if the answer differs between 4 and 77, with the reason written
+  down; the model card names the rule. Command: `make eval-coverage` (still under the 60 s CI
+  check), then `python -m eval.calibration <dataset> --logits ...` on the four committed files.
+  Minutes of CPU, no retraining.
+- **M12, the tagger in the cascade.** Question: does the threshold rule port from kappa over
+  labels to entity F1 over sentences, and does the tagger's confidence see the errors it makes?
+  `choose_threshold` is generalised to a per-input statistic with sentence-resampled replicates
+  (`anvil/evaluate/extraction.py` already computes them); `eval.extract --predictions
+  <report.json>` re-runs the analysis from the committed predictions with no model: the
+  coverage-vs-F1 curve, the threshold at F1 0.9 and 0.95 under the point and lower-bound rules,
+  an M5-style split study on unseen halves, and F1 by error kind above and below the threshold,
+  with the kinds taken from M4's own span matcher (`wrong_boundary`, `wrong_type`, `wrong_both`,
+  `missed`, `spurious`) so the counts match the committed report. Hypotheses, from the pilot: the lower-bound rule gives 35-45% sentence
+  coverage at F1 0.9 (point estimate about 50%) and holds it on at least 85% of unseen halves;
+  the AUROC of the minimum token probability for "this sentence has a boundary error" exceeds
+  that for a type error by at least 0.05 (each kind against the same clean sentences, a
+  sentence-resampled interval on the difference), because the wavering edge token is exactly what
+  the minimum picks up; with only 38 type-error sentences the interval may well include zero, and
+  the result says so either way. `anvil calibrate` and `anvil serve` stay classify-only:
+  a threshold nothing serves is a checkbox, and the tagger's export is a later milestone if this
+  one says the confidence is worth serving. Minutes of CPU from the committed report; a 15-minute
+  retrain only if per-token probabilities turn out to be needed.
+- **M13, can the student flag its teacher's mistakes?** Question: M8 ended "telling consistency
+  from correctness needs gold labels or a better teacher"; is the student itself a third option?
+  `make eval-flag` trains the frontier's MiniLM student out of fold (3 folds) on the 2,000 pool
+  labels of each M8 dataset, three ways: the teacher's real labels, gold with uniform noise at
+  the teacher's error count, and gold with the teacher's confusions dealt at random (the
+  `eval/noise.py` controls, with the same seed-0 corruptions), and flags a training label when
+  the out-of-fold student gives it a low probability (the self-confidence score of confident
+  learning, Northcutt et al. 2021, which is the prior art this tests on a teacher whose errors
+  follow the inputs). Each condition reports precision and recall of the flags against the labels
+  that are really wrong, the AUROC, and what dropping the flagged 20% and retraining on the rest
+  does to student-vs-gold (one seed, paired bootstrap against the committed seed-0 `eval-noise`
+  student trained on the same labels unfiltered). The committed-logits table from the
+  evidence above (kappa with gold at the served threshold, the cascade against gold, the
+  teacher-error AUROCs) is added to the calibration section as a table, not a hypothesis.
+  Hypotheses: on uniform noise the flags reach recall 0.6 at precision 0.7 on both datasets; on
+  the real teacher recall at precision 0.7 is at most 0.35 on Banking77 and at least 0.15 below
+  the confusion-pair control, because input-tied errors are learned, not resisted (the held-out
+  AUROCs are 0.736 and 0.812, so AG News may do better); dropping the flagged 20% and retraining
+  moves student-vs-gold by less than +0.03, since what gets flagged is the boundary cases a
+  gold-trained student also disputes (22% of the teacher's AG News errors). Command:
+  `make eval-flag` (24 MiniLM trainings: 18 out of fold on two thirds of the pool, 6 retrains on
+  the kept 80%; the M8 control's trainings took about 510 s each, so about 2.5 h of CPU),
+  replaying `eval/labels/`; no Ollama, no key.
+
+**Rejected.**
+
+- Selective prediction for the generator (token log-probabilities as the confidence): needs a
+  91-minute retrain that M9 showed may not reproduce across CPUs, and "mean log-probability helps
+  somewhat" is the predictable half; once M12 has generalised the rule to any per-input statistic
+  it is a two-hour follow-on, so it waits for that.
+- The 4-label shift study: worth running, but it is already a "To measure" row with its exact
+  command and one YAML of work; it gets run in whichever PR has the idle hour, not a milestone.
+- Wiring `anvil calibrate` and `anvil serve` to the tagger now: cut from M12 until its numbers
+  say the confidence is worth serving.
+- The strategies in `anvil/select.py`: reserved, as before.
+- At review: M12's word-boundary snap of the stored spans. It is an extraction fix, not a
+  cascade question, and it would have shared a PR with a threshold rule it has nothing to do
+  with; it can ride along with the next extraction change.
+
 ## Milestones
 
 - [x] M1: Scaffold, CI and a thin vertical slice — package layout, `uv` lockfile, ruff + mypy strict + pytest + GitHub Actions (lint, type, test on 3.12), Dockerfile, Makefile, MIT licence; `anvil.yaml` spec; `Teacher` protocol with `ClaudeTeacher` (structured outputs, disk cache, cost accounting, recorded fixtures, live test skipped without a key) and `FakeTeacher`; store with hash splits; `anvil label | train | eval` end to end on a toy classify task with a tiny random-init encoder; ModernBERT ONNX export spike recorded in `docs/notes/`. Done when `make check` is green in CI and `make demo` runs the slice offline in under two minutes.
@@ -649,3 +791,6 @@ PLAN.md and the roadmap); the method is above.
 - [x] M8: The first fallible teacher — `OllamaTeacher` (`provider: ollama`, the same system prompt, JSON schema, parsing, disk cache and label files as the Claude teacher; tokens from Ollama's counts, dollars $0 with CPU seconds recorded, the model pinned by its digest in `meta.json`), `--teacher ollama` in the classification harness so the labels are committed under `eval/labels/` and replay for free, `make eval-classify TEACHER=ollama` on AG News and Banking77 with `qwen2.5:3b` (teacher-vs-gold, the paraphrase ceiling, student-vs-teacher and student-vs-gold with paired intervals, the teacher's confusions against the student's), `make eval-calibration TEACHER=ollama` on those labels (replayed from `eval/labels/`; the ceiling also reported on the accepted inputs), and `make eval-noise` (gold corrupted at the measured teacher error rate, uniform and confusion-pair, 3 seeds, the frontier's MiniLM student) as the control. Done when the first non-gold parity table is in RESULTS.md with its ceiling and teacher-vs-gold rows, the student-vs-gold against teacher-vs-gold comparison is stated with its paired interval, and the unit tests cover the Ollama teacher with a scripted transport.
 - [x] M9: The cascade off-distribution — `eval/shift.py` (`make eval-shift`) scores an exported bundle through `anvil/runtime.py` on Banking77's test split (coverage, kappa on the answered inputs, ECE), CLINC150's out-of-scope utterances and AG News sentences (acceptance rate above the served threshold, confidence histograms), and compares max-softmax with max-logit or energy and with distance to the training embeddings by AUROC and in-distribution coverage cost; the model card states that coverage was measured in-distribution. Done when RESULTS.md holds the shift table with the hypotheses answered, and the loaders are pinned by revision with licences recorded.
 - [x] M10: Does the interval cover? — BCa intervals in `anvil/evaluate/bootstrap.py` (jackknife from marginals, one-sided variant), `make eval-coverage` (a simulation over kappa {0.85, 0.9, 0.95}, items {100, 250, 500}, labels {4, 77}: coverage of the percentile and BCa bounds, point-estimate bias, and how often the threshold search's chosen threshold truly meets the target), `choose_threshold` on the BCa bound with the coverage cost measured from the committed `logits.npz`. Done when the simulation runs in CI in under a minute, RESULTS.md holds the coverage table and the re-run calibration tables, and the default rule is whichever the table justifies, with the reason written down.
+- [ ] M11: A bound on the count itself — `rule: exact` (one-sided Clopper-Pearson on the agreement count, kappa through the plug-in chance term) and `rule: wilson` in `choose_threshold`, the fixed-sample and threshold-search simulations of `make eval-coverage` (still under the 60 s CI check) and the split study of `make eval-calibration`, re-run from the four committed `logits.npz`; the default rule re-decided from the table with the reason written down and named on the model card. Done when the coverage table has the new columns, the calibration tables the new rows, RESULTS.md answers each hypothesis (pooled coverage, worst cell, search, the 77- against 4-label coverage cost, the AG News 0.95 halves with the share of splits where no threshold was found), and the new rules have unit tests against a brute-force binomial.
+- [ ] M12: The tagger in the cascade — `choose_threshold` generalised to a per-input statistic with sentence-resampled replicates (entity F1), `eval.extract --predictions <report.json>` re-running from the committed predictions without a model: coverage-vs-F1 curve, thresholds at F1 0.9 and 0.95 under the point and lower-bound rules, the unseen-halves split study, F1 by error kind (M4's `wrong_boundary`, `wrong_type`, `wrong_both`, `missed`, `spurious`) above and below the threshold, and the boundary-against-type AUROC comparison with its sentence-resampled interval. `anvil calibrate` and `anvil serve` stay classify-only. Done when RESULTS.md holds the extraction coverage table with the hypotheses answered and the generalised rule has tests on the classify path (unchanged results) and on F1.
+- [ ] M13: Can the student flag its teacher's mistakes? — `make eval-flag` (`eval/flag.py`): out-of-fold MiniLM (3 folds) on each M8 dataset's 2,000 pool labels under three conditions (the teacher's labels, uniform noise, confusion pairs at the teacher's error count, from `eval/noise.py`), flags by low out-of-fold probability of the given label, precision/recall and AUROC against the truly wrong labels, and student-vs-gold after dropping the flagged 20% (paired bootstrap against the committed seed-0 noise-control student); plus the committed-logits table of the fallible-teacher cascade against gold (kappa with gold at the served threshold, cascade vs teacher alone, teacher-error AUROCs) in the calibration section. Done when RESULTS.md holds both tables with the hypotheses answered, the run replays `eval/labels/` with no Ollama server, and the flagging code has unit tests on a scripted student.
