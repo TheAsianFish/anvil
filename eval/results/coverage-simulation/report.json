@@ -24,6 +24,17 @@
     "fixed_reps": 500,
     "search_reps": 30,
     "seed": 0,
+    "pointwise_sizes": [
+      30,
+      100,
+      250,
+      500
+    ],
+    "pointwise_rates": {
+      "low": 0.8,
+      "high": 0.999,
+      "points": 2000
+    },
     "search_population": {
       "beta": 0.8,
       "gamma": 4.0,
@@ -45,7 +56,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 468,
-        "bca": 467
+        "bca": 467,
+        "exact": 484,
+        "wilson": 481
       },
       "interval_covered": {
         "percentile": 472,
@@ -53,7 +66,9 @@
       },
       "mean_lower": {
         "percentile": 0.7750844565520475,
-        "bca": 0.7733361344925421
+        "bca": 0.7733361344925421,
+        "exact": 0.7604616730048515,
+        "wilson": 0.7650774322156917
       },
       "mean_bca_level": 0.046965526599796886,
       "mean_estimate": 0.8483720294165993,
@@ -69,7 +84,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 447,
-        "bca": 464
+        "bca": 464,
+        "exact": 491,
+        "wilson": 472
       },
       "interval_covered": {
         "percentile": 463,
@@ -77,7 +94,9 @@
       },
       "mean_lower": {
         "percentile": 0.8378719399139793,
-        "bca": 0.8351547805543658
+        "bca": 0.8351547805543658,
+        "exact": 0.8212476014932202,
+        "wilson": 0.8255913426689865
       },
       "mean_bca_level": 0.04459459174085827,
       "mean_estimate": 0.8991169374350855,
@@ -93,7 +112,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 453,
-        "bca": 464
+        "bca": 464,
+        "exact": 493,
+        "wilson": 493
       },
       "interval_covered": {
         "percentile": 447,
@@ -101,7 +122,9 @@
       },
       "mean_lower": {
         "percentile": 0.9032631069601104,
-        "bca": 0.8995603432847519
+        "bca": 0.8995603432847519,
+        "exact": 0.8835635721961836,
+        "wilson": 0.8876761359634586
       },
       "mean_bca_level": 0.04021242347892202,
       "mean_estimate": 0.9480464344571735,
@@ -117,7 +140,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 468,
-        "bca": 468
+        "bca": 468,
+        "exact": 477,
+        "wilson": 477
       },
       "interval_covered": {
         "percentile": 465,
@@ -125,7 +150,9 @@
       },
       "mean_lower": {
         "percentile": 0.8044430616151154,
-        "bca": 0.8036045586731256
+        "bca": 0.8036045586731256,
+        "exact": 0.7984966864246814,
+        "wilson": 0.8002020307265726
       },
       "mean_bca_level": 0.0476429281151852,
       "mean_estimate": 0.849606233998259,
@@ -141,7 +168,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 465,
-        "bca": 467
+        "bca": 467,
+        "exact": 483,
+        "wilson": 483
       },
       "interval_covered": {
         "percentile": 472,
@@ -149,7 +178,9 @@
       },
       "mean_lower": {
         "percentile": 0.8626903217100357,
-        "bca": 0.861690170276163
+        "bca": 0.861690170276163,
+        "exact": 0.8563257610351309,
+        "wilson": 0.8579164063304763
       },
       "mean_bca_level": 0.046635782775566244,
       "mean_estimate": 0.9005692076281119,
@@ -165,7 +196,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 448,
-        "bca": 453
+        "bca": 453,
+        "exact": 473,
+        "wilson": 473
       },
       "interval_covered": {
         "percentile": 467,
@@ -173,7 +206,9 @@
       },
       "mean_lower": {
         "percentile": 0.9230671348984425,
-        "bca": 0.9218266059094852
+        "bca": 0.9218266059094852,
+        "exact": 0.9156697393582338,
+        "wilson": 0.9171552107016331
       },
       "mean_bca_level": 0.04409019377972303,
       "mean_estimate": 0.9504181320700923,
@@ -189,7 +224,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 469,
-        "bca": 471
+        "bca": 471,
+        "exact": 481,
+        "wilson": 481
       },
       "interval_covered": {
         "percentile": 472,
@@ -197,7 +234,9 @@
       },
       "mean_lower": {
         "percentile": 0.8180490636264701,
-        "bca": 0.8177807586367758
+        "bca": 0.8177807586367758,
+        "exact": 0.8151422901318232,
+        "wilson": 0.8159618905150333
       },
       "mean_bca_level": 0.048977981317736015,
       "mean_estimate": 0.8497514308783378,
@@ -213,7 +252,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 462,
-        "bca": 463
+        "bca": 463,
+        "exact": 472,
+        "wilson": 472
       },
       "interval_covered": {
         "percentile": 465,
@@ -221,7 +262,9 @@
       },
       "mean_lower": {
         "percentile": 0.8738876490181359,
-        "bca": 0.8735030760041994
+        "bca": 0.8735030760041994,
+        "exact": 0.8706383188779161,
+        "wilson": 0.8714004541955664
       },
       "mean_bca_level": 0.04846709819387988,
       "mean_estimate": 0.9002972072554026,
@@ -237,7 +280,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 463,
-        "bca": 465
+        "bca": 465,
+        "exact": 477,
+        "wilson": 477
       },
       "interval_covered": {
         "percentile": 464,
@@ -245,7 +290,9 @@
       },
       "mean_lower": {
         "percentile": 0.9310096668496094,
-        "bca": 0.9304406586825725
+        "bca": 0.9304406586825725,
+        "exact": 0.9274357678165936,
+        "wilson": 0.9281436814371621
       },
       "mean_bca_level": 0.04601273866070107,
       "mean_estimate": 0.9502009950637609,
@@ -261,7 +308,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 471,
-        "bca": 468
+        "bca": 468,
+        "exact": 494,
+        "wilson": 494
       },
       "interval_covered": {
         "percentile": 484,
@@ -269,7 +318,9 @@
       },
       "mean_lower": {
         "percentile": 0.7876512208554217,
-        "bca": 0.7929329256463673
+        "bca": 0.7929329256463673,
+        "exact": 0.7773555495689318,
+        "wilson": 0.781051494715274
       },
       "mean_bca_level": 0.06660858082718535,
       "mean_estimate": 0.8495880189453566,
@@ -285,7 +336,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 467,
-        "bca": 458
+        "bca": 458,
+        "exact": 486,
+        "wilson": 486
       },
       "interval_covered": {
         "percentile": 469,
@@ -293,7 +346,9 @@
       },
       "mean_lower": {
         "percentile": 0.8494619645674273,
-        "bca": 0.8538927090000765
+        "bca": 0.8538927090000765,
+        "exact": 0.83751660454339,
+        "wilson": 0.8409348224450135
       },
       "mean_bca_level": 0.0665918651611069,
       "mean_estimate": 0.9013334254973233,
@@ -309,7 +364,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 462,
-        "bca": 443
+        "bca": 443,
+        "exact": 480,
+        "wilson": 480
       },
       "interval_covered": {
         "percentile": 472,
@@ -317,7 +374,9 @@
       },
       "mean_lower": {
         "percentile": 0.9119940444688525,
-        "bca": 0.9162673280305956
+        "bca": 0.9162673280305956,
+        "exact": 0.8977016184665991,
+        "wilson": 0.9008712353202332
       },
       "mean_bca_level": 0.07034315241150818,
       "mean_estimate": 0.950002995581587,
@@ -333,7 +392,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 473,
-        "bca": 472
+        "bca": 472,
+        "exact": 479,
+        "wilson": 479
       },
       "interval_covered": {
         "percentile": 472,
@@ -341,7 +402,9 @@
       },
       "mean_lower": {
         "percentile": 0.8112178562552023,
-        "bca": 0.8131539132880643
+        "bca": 0.8131539132880643,
+        "exact": 0.8070300569178039,
+        "wilson": 0.8084071126044794
       },
       "mean_bca_level": 0.060132611402053074,
       "mean_estimate": 0.8496314489667239,
@@ -357,7 +420,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 478,
-        "bca": 472
+        "bca": 472,
+        "exact": 490,
+        "wilson": 490
       },
       "interval_covered": {
         "percentile": 483,
@@ -365,7 +430,9 @@
       },
       "mean_lower": {
         "percentile": 0.866932915967624,
-        "bca": 0.868675096085753
+        "bca": 0.868675096085753,
+        "exact": 0.862380136763616,
+        "wilson": 0.86364485249372
       },
       "mean_bca_level": 0.059773295244108626,
       "mean_estimate": 0.8995402200447575,
@@ -381,7 +448,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 473,
-        "bca": 465
+        "bca": 465,
+        "exact": 488,
+        "wilson": 488
       },
       "interval_covered": {
         "percentile": 475,
@@ -389,7 +458,9 @@
       },
       "mean_lower": {
         "percentile": 0.9241975029187318,
-        "bca": 0.9257126257340896
+        "bca": 0.9257126257340896,
+        "exact": 0.9188736831912804,
+        "wilson": 0.9200301629079443
       },
       "mean_bca_level": 0.06131706961944539,
       "mean_estimate": 0.9483297500358226,
@@ -405,7 +476,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 482,
-        "bca": 481
+        "bca": 481,
+        "exact": 483,
+        "wilson": 483
       },
       "interval_covered": {
         "percentile": 475,
@@ -413,7 +486,9 @@
       },
       "mean_lower": {
         "percentile": 0.822241800044746,
-        "bca": 0.8232566535178045
+        "bca": 0.8232566535178045,
+        "exact": 0.8202452349953011,
+        "wilson": 0.8209095964306989
       },
       "mean_bca_level": 0.057201368566888976,
       "mean_estimate": 0.8493228007934113,
@@ -429,7 +504,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 464,
-        "bca": 462
+        "bca": 462,
+        "exact": 475,
+        "wilson": 475
       },
       "interval_covered": {
         "percentile": 476,
@@ -437,7 +514,9 @@
       },
       "mean_lower": {
         "percentile": 0.8781923843911209,
-        "bca": 0.8790852851788413
+        "bca": 0.8790852851788413,
+        "exact": 0.8759162214392422,
+        "wilson": 0.876521914749243
       },
       "mean_bca_level": 0.05664846592800049,
       "mean_estimate": 0.900874176237103,
@@ -453,7 +532,9 @@
       "reps": 500,
       "lower_covered": {
         "percentile": 468,
-        "bca": 463
+        "bca": 463,
+        "exact": 475,
+        "wilson": 475
       },
       "interval_covered": {
         "percentile": 464,
@@ -461,7 +542,9 @@
       },
       "mean_lower": {
         "percentile": 0.9332749829463943,
-        "bca": 0.9338829504497691
+        "bca": 0.9338829504497691,
+        "exact": 0.9306569597586515,
+        "wilson": 0.931207599545706
       },
       "mean_bca_level": 0.057166033939885764,
       "mean_estimate": 0.9498998238789639,
@@ -501,6 +584,22 @@
         "mean_coverage_given_up": 0.12360717786976035,
         "mean_true_kappa": 0.9397112884506684,
         "mean_shortfall_when_missed": 0.00750686728037725
+      },
+      "exact": {
+        "found": 27,
+        "met": 27,
+        "mean_true_coverage": 0.6784864408904923,
+        "mean_coverage_given_up": 0.2106532641289691,
+        "mean_true_kappa": 0.9592175387922782,
+        "mean_shortfall_when_missed": null
+      },
+      "wilson": {
+        "found": 29,
+        "met": 29,
+        "mean_true_coverage": 0.6824402833220357,
+        "mean_coverage_given_up": 0.20669942169742545,
+        "mean_true_kappa": 0.9564650080830507,
+        "mean_shortfall_when_missed": null
       }
     },
     {
@@ -532,6 +631,22 @@
         "mean_coverage_given_up": 0.1592366415817784,
         "mean_true_kappa": 0.9755684011663612,
         "mean_shortfall_when_missed": 0.02200384705898954
+      },
+      "exact": {
+        "found": 1,
+        "met": 0,
+        "mean_true_coverage": 0.8402236209320978,
+        "mean_coverage_given_up": -0.09254923032148732,
+        "mean_true_kappa": 0.9202557222675056,
+        "mean_shortfall_when_missed": 0.02974427773249433
+      },
+      "wilson": {
+        "found": 5,
+        "met": 3,
+        "mean_true_coverage": 0.7376670985012123,
+        "mean_coverage_given_up": 0.010007292109398236,
+        "mean_true_kappa": 0.9504028848480921,
+        "mean_shortfall_when_missed": 0.015704723890188677
       }
     },
     {
@@ -563,6 +678,22 @@
         "mean_coverage_given_up": 0.10958703379274211,
         "mean_true_kappa": 0.9372504418611114,
         "mean_shortfall_when_missed": 0.021391956539307755
+      },
+      "exact": {
+        "found": 30,
+        "met": 28,
+        "mean_true_coverage": 0.7589984649052504,
+        "mean_coverage_given_up": 0.13014124011421085,
+        "mean_true_kappa": 0.9432855167195531,
+        "mean_shortfall_when_missed": 0.003283355881264549
+      },
+      "wilson": {
+        "found": 30,
+        "met": 28,
+        "mean_true_coverage": 0.762700130712669,
+        "mean_coverage_given_up": 0.12643957430679237,
+        "mean_true_kappa": 0.9418849856009291,
+        "mean_shortfall_when_missed": 0.01820728193834603
       }
     },
     {
@@ -594,6 +725,22 @@
         "mean_coverage_given_up": 0.11145449932134986,
         "mean_true_kappa": 0.9714045970926021,
         "mean_shortfall_when_missed": 0.008858515930674993
+      },
+      "exact": {
+        "found": 28,
+        "met": 28,
+        "mean_true_coverage": 0.5742978097533818,
+        "mean_coverage_given_up": 0.1733765808572287,
+        "mean_true_kappa": 0.9807035265896562,
+        "mean_shortfall_when_missed": null
+      },
+      "wilson": {
+        "found": 30,
+        "met": 30,
+        "mean_true_coverage": 0.5661103612231546,
+        "mean_coverage_given_up": 0.18156402938745592,
+        "mean_true_kappa": 0.9805872303624981,
+        "mean_shortfall_when_missed": null
       }
     },
     {
@@ -625,6 +772,22 @@
         "mean_coverage_given_up": 0.06682031623554169,
         "mean_true_kappa": 0.9254383973146686,
         "mean_shortfall_when_missed": 0.007818131805851836
+      },
+      "exact": {
+        "found": 30,
+        "met": 30,
+        "mean_true_coverage": 0.8107408999333301,
+        "mean_coverage_given_up": 0.07839880508613119,
+        "mean_true_kappa": 0.9297138446170766,
+        "mean_shortfall_when_missed": null
+      },
+      "wilson": {
+        "found": 30,
+        "met": 30,
+        "mean_true_coverage": 0.8138179557887354,
+        "mean_coverage_given_up": 0.0753217492307258,
+        "mean_true_kappa": 0.9285834110348445,
+        "mean_shortfall_when_missed": null
       }
     },
     {
@@ -656,6 +819,22 @@
         "mean_coverage_given_up": 0.07012125439380269,
         "mean_true_kappa": 0.9651922631776001,
         "mean_shortfall_when_missed": 0.0017496950875083295
+      },
+      "exact": {
+        "found": 30,
+        "met": 30,
+        "mean_true_coverage": 0.6495094941780956,
+        "mean_coverage_given_up": 0.09816489643251487,
+        "mean_true_kappa": 0.9703908435199234,
+        "mean_shortfall_when_missed": null
+      },
+      "wilson": {
+        "found": 30,
+        "met": 29,
+        "mean_true_coverage": 0.6533848932340925,
+        "mean_coverage_given_up": 0.09428949737651791,
+        "mean_true_kappa": 0.9695840750493492,
+        "mean_shortfall_when_missed": 0.003452620359102765
       }
     },
     {
@@ -687,6 +866,22 @@
         "mean_coverage_given_up": 0.11212899331759948,
         "mean_true_kappa": 0.9371732587557923,
         "mean_shortfall_when_missed": 0.016868978810530066
+      },
+      "exact": {
+        "found": 30,
+        "met": 30,
+        "mean_true_coverage": 0.7043854135240957,
+        "mean_coverage_given_up": 0.18475429149536568,
+        "mean_true_kappa": 0.9565927560195855,
+        "mean_shortfall_when_missed": null
+      },
+      "wilson": {
+        "found": 30,
+        "met": 30,
+        "mean_true_coverage": 0.7229298088922255,
+        "mean_coverage_given_up": 0.1662098961272359,
+        "mean_true_kappa": 0.9519022027135536,
+        "mean_shortfall_when_missed": null
       }
     },
     {
@@ -718,6 +913,22 @@
         "mean_coverage_given_up": 0.14348491252313844,
         "mean_true_kappa": 0.975247485446276,
         "mean_shortfall_when_missed": 0.008424170707448312
+      },
+      "exact": {
+        "found": 8,
+        "met": 8,
+        "mean_true_coverage": 0.6662646907555743,
+        "mean_coverage_given_up": 0.08140969985503617,
+        "mean_true_kappa": 0.967983003618067,
+        "mean_shortfall_when_missed": null
+      },
+      "wilson": {
+        "found": 12,
+        "met": 12,
+        "mean_true_coverage": 0.6316639546261668,
+        "mean_coverage_given_up": 0.11601043598444372,
+        "mean_true_kappa": 0.9728632575429232,
+        "mean_shortfall_when_missed": null
       }
     },
     {
@@ -749,6 +960,22 @@
         "mean_coverage_given_up": 0.08397584501622618,
         "mean_true_kappa": 0.9302838458483905,
         "mean_shortfall_when_missed": 0.006885916993288443
+      },
+      "exact": {
+        "found": 30,
+        "met": 29,
+        "mean_true_coverage": 0.778954075149816,
+        "mean_coverage_given_up": 0.11018562986964527,
+        "mean_true_kappa": 0.938432045520887,
+        "mean_shortfall_when_missed": 0.005661122708795374
+      },
+      "wilson": {
+        "found": 30,
+        "met": 28,
+        "mean_true_coverage": 0.7806220434830595,
+        "mean_coverage_given_up": 0.10851766153640166,
+        "mean_true_kappa": 0.9377839689187901,
+        "mean_shortfall_when_missed": 0.00782792646069358
       }
     },
     {
@@ -780,6 +1007,22 @@
         "mean_coverage_given_up": 0.0789740672641229,
         "mean_true_kappa": 0.9649946672341776,
         "mean_shortfall_when_missed": 0.010548392835817433
+      },
+      "exact": {
+        "found": 29,
+        "met": 26,
+        "mean_true_coverage": 0.6243431301148801,
+        "mean_coverage_given_up": 0.12333126049573048,
+        "mean_true_kappa": 0.9722309092748848,
+        "mean_shortfall_when_missed": 0.009294660454046403
+      },
+      "wilson": {
+        "found": 30,
+        "met": 27,
+        "mean_true_coverage": 0.6220152164360115,
+        "mean_coverage_given_up": 0.12565917417459896,
+        "mean_true_kappa": 0.9724264655185505,
+        "mean_shortfall_when_missed": 0.009294660454046403
       }
     },
     {
@@ -811,6 +1054,22 @@
         "mean_coverage_given_up": 0.05095055738512647,
         "mean_true_kappa": 0.9200379464499776,
         "mean_shortfall_when_missed": 0.011218750929356702
+      },
+      "exact": {
+        "found": 30,
+        "met": 29,
+        "mean_true_coverage": 0.8266854169359691,
+        "mean_coverage_given_up": 0.0624542880834923,
+        "mean_true_kappa": 0.9243113669265931,
+        "mean_shortfall_when_missed": 0.013884564500673324
+      },
+      "wilson": {
+        "found": 30,
+        "met": 29,
+        "mean_true_coverage": 0.8277153869617148,
+        "mean_coverage_given_up": 0.0614243180577466,
+        "mean_true_kappa": 0.9239451409275158,
+        "mean_shortfall_when_missed": 0.01432082752803665
       }
     },
     {
@@ -842,7 +1101,89 @@
         "mean_coverage_given_up": 0.06570728349638001,
         "mean_true_kappa": 0.9639230985844497,
         "mean_shortfall_when_missed": 0.008364147250727058
+      },
+      "exact": {
+        "found": 30,
+        "met": 28,
+        "mean_true_coverage": 0.6581331894819694,
+        "mean_coverage_given_up": 0.08954120112864097,
+        "mean_true_kappa": 0.9686759596475966,
+        "mean_shortfall_when_missed": 0.005487561067593183
+      },
+      "wilson": {
+        "found": 30,
+        "met": 28,
+        "mean_true_coverage": 0.6612956348336573,
+        "mean_coverage_given_up": 0.08637875577695305,
+        "mean_true_kappa": 0.9680949070093187,
+        "mean_shortfall_when_missed": 0.006204866807084486
       }
+    }
+  ],
+  "pointwise": [
+    {
+      "n": 30,
+      "method": "exact",
+      "min": 0.9500518080177136,
+      "rate_at_min": 0.851367683841921,
+      "mean": 0.9862976068973717,
+      "share_below_nominal": 0.0
+    },
+    {
+      "n": 30,
+      "method": "wilson",
+      "min": 0.925026030117014,
+      "rate_at_min": 0.9172696348174088,
+      "mean": 0.9766356945128769,
+      "share_below_nominal": 0.1865
+    },
+    {
+      "n": 100,
+      "method": "exact",
+      "min": 0.9500161491806287,
+      "rate_at_min": 0.9107988994497249,
+      "mean": 0.9716526610690709,
+      "share_below_nominal": 0.0
+    },
+    {
+      "n": 100,
+      "method": "wilson",
+      "min": 0.9310209780644398,
+      "rate_at_min": 0.9736148074037019,
+      "mean": 0.9641541703931302,
+      "share_below_nominal": 0.2255
+    },
+    {
+      "n": 250,
+      "method": "exact",
+      "min": 0.950001109703149,
+      "rate_at_min": 0.9282201100550276,
+      "mean": 0.9640867440216714,
+      "share_below_nominal": 0.0
+    },
+    {
+      "n": 250,
+      "method": "wilson",
+      "min": 0.9330316485044029,
+      "rate_at_min": 0.9892441220610305,
+      "mean": 0.9585421461548729,
+      "share_below_nominal": 0.242
+    },
+    {
+      "n": 500,
+      "method": "exact",
+      "min": 0.9500036556515772,
+      "rate_at_min": 0.8685897948974488,
+      "mean": 0.9601075479601083,
+      "share_below_nominal": 0.0
+    },
+    {
+      "n": 500,
+      "method": "wilson",
+      "min": 0.9359059894955999,
+      "rate_at_min": 0.994520260130065,
+      "mean": 0.9557730761583161,
+      "share_below_nominal": 0.256
     }
   ]
 }

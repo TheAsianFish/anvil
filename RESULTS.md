@@ -28,7 +28,7 @@ directory under `eval/results/`.
 | `classify-banking77-gold` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold` | `d4f4016` | 56m 31s | $0.00 |
 | `classify-banking77-gold-seed1` | eval-classify | gold | `python -m eval.classify banking77 --teacher gold --seed 1` | `7c205b0` | 45m 20s | $0.00 |
 | `classify-banking77-qwen2.5-3b` | eval-classify | qwen2.5:3b | `python -m eval.classify ag_news banking77 --teacher ollama` | `e25575f` | 1h 07m 55s | $0.00 |
-| `coverage-simulation` | eval-coverage | n/a | `python -m eval.coverage` | `1eb2e25` | 0m 27s | $0.00 |
+| `coverage-simulation` | eval-coverage | n/a | `python -m eval.coverage --workers 2` | `e404ed4` | 0m 34s | $0.00 |
 | `export-ag_news-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 47m 30s | $0.00 |
 | `export-banking77-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 1h 03m 02s | $0.00 |
 | `extract-mit_restaurant-gold` | eval-extract | gold | `python -m eval.extract mit_restaurant --teacher gold` | `7dace8b` (uncommitted changes) | 15m 01s | $0.00 |
@@ -40,7 +40,7 @@ directory under `eval/results/`.
 | `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
 | `shift-banking77-gold` | eval-shift | gold | `python -m eval.shift --teacher gold` | `773e679` | 10m 59s | $0.00 |
 | `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
-| **Total (23 runs)** | | | | | 13h 48m 47s | $0.00 |
+| **Total (23 runs)** | | | | | 13h 48m 53s | $0.00 |
 
 Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
 <!-- END generated:ledger -->
@@ -874,58 +874,73 @@ thing to try.
 
 <!-- BEGIN generated:coverage -->
 - Raw output: `eval/results/coverage-simulation/` (`report.json`, `meta.json`)
-- Command: `python -m eval.coverage` at `1eb2e25`; 500 replications per fixed-sample cell, 30 per threshold-search cell; 1000 bootstrap resamples; 4 workers; wall 27 s; spent $0.00
+- Command: `python -m eval.coverage --workers 2` at `e404ed4`; 500 replications per fixed-sample cell, 30 per threshold-search cell; 1000 bootstrap resamples; 2 workers; wall 34 s; spent $0.00
 - Search population: agreement probability 1 - 0.8 * (1 - c) ** 4.0 for confidence c uniform on [0, 1]; population kappa at coverage (100.0% -> 0.840, 90.0% -> 0.895, 80.0% -> 0.934, 70.0% -> 0.962, 60.0% -> 0.979, 50.0% -> 0.990)
 
 #### Fixed sample: does the one-sided 95% lower bound cover the population kappa?
 
-| Labels | Items | Kappa | Percentile bound covers | BCa bound covers | Mean bound: Percentile / BCa | BCa level for the 5% bound (mean) | Two-sided 95%: percentile / BCa | Bias of the estimate (± s.e.) | SD of the estimate / bootstrap SD |
-|---|---|---|---|---|---|---|---|---|---|
-| 4 | 100 | 0.85 | 93.6% | 93.4% | 0.775 / 0.773 | 4.7% | 94.4% / 95.8% | -0.0016 ± 0.0019 | 0.0428 / 0.0422 |
-| 4 | 100 | 0.9 | 89.4% | 92.8% | 0.838 / 0.835 | 4.5% | 92.6% / 93.8% | -0.0009 ± 0.0016 | 0.0365 / 0.0349 |
-| 4 | 100 | 0.95 | 90.6% | 92.8% | 0.903 / 0.900 | 4.0% | 89.4% / 95.6% | -0.0020 ± 0.0012 | 0.0260 / 0.0251 |
-| 4 | 250 | 0.85 | 93.6% | 93.6% | 0.804 / 0.804 | 4.8% | 93.0% / 93.4% | -0.0004 ± 0.0012 | 0.0277 / 0.0266 |
-| 4 | 250 | 0.9 | 93.0% | 93.4% | 0.863 / 0.862 | 4.7% | 94.4% / 94.2% | +0.0006 ± 0.0010 | 0.0229 / 0.0221 |
-| 4 | 250 | 0.95 | 89.6% | 90.6% | 0.923 / 0.922 | 4.4% | 93.4% / 93.6% | +0.0004 ± 0.0007 | 0.0161 / 0.0158 |
-| 4 | 500 | 0.85 | 93.8% | 94.2% | 0.818 / 0.818 | 4.9% | 94.4% / 94.8% | -0.0002 ± 0.0009 | 0.0193 / 0.0189 |
-| 4 | 500 | 0.9 | 92.4% | 92.6% | 0.874 / 0.874 | 4.8% | 93.0% / 93.2% | +0.0003 ± 0.0007 | 0.0161 / 0.0156 |
-| 4 | 500 | 0.95 | 92.6% | 93.0% | 0.931 / 0.930 | 4.6% | 92.8% / 93.0% | +0.0002 ± 0.0005 | 0.0117 / 0.0112 |
-| 77 | 100 | 0.85 | 94.2% | 93.6% | 0.788 / 0.793 | 6.7% | 96.8% / 95.4% | -0.0004 ± 0.0015 | 0.0342 / 0.0359 |
-| 77 | 100 | 0.9 | 93.4% | 91.6% | 0.849 / 0.854 | 6.7% | 93.8% / 93.0% | +0.0013 ± 0.0013 | 0.0301 / 0.0299 |
-| 77 | 100 | 0.95 | 92.4% | 88.6% | 0.912 / 0.916 | 7.0% | 94.4% / 94.6% | +0.0000 ± 0.0010 | 0.0217 / 0.0216 |
-| 77 | 250 | 0.85 | 94.6% | 94.4% | 0.811 / 0.813 | 6.0% | 94.4% / 95.2% | -0.0004 ± 0.0010 | 0.0231 / 0.0228 |
-| 77 | 250 | 0.9 | 95.6% | 94.4% | 0.867 / 0.869 | 6.0% | 96.6% / 96.6% | -0.0005 ± 0.0008 | 0.0189 / 0.0191 |
-| 77 | 250 | 0.95 | 94.6% | 93.0% | 0.924 / 0.926 | 6.1% | 95.0% / 94.6% | -0.0017 ± 0.0006 | 0.0135 / 0.0140 |
-| 77 | 500 | 0.85 | 96.4% | 96.2% | 0.822 / 0.823 | 5.7% | 95.0% / 95.4% | -0.0007 ± 0.0007 | 0.0157 / 0.0161 |
-| 77 | 500 | 0.9 | 92.8% | 92.4% | 0.878 / 0.879 | 5.7% | 95.2% / 95.0% | +0.0009 ± 0.0006 | 0.0131 / 0.0134 |
-| 77 | 500 | 0.95 | 93.6% | 92.6% | 0.933 / 0.934 | 5.7% | 92.8% / 92.6% | -0.0001 ± 0.0004 | 0.0101 / 0.0098 |
+| Labels | Items | Kappa | Percentile bound covers | BCa bound covers | Exact bound covers | Wilson bound covers | Mean bound: Percentile / BCa / Exact / Wilson | BCa level for the 5% bound (mean) | Two-sided 95%: percentile / BCa | Bias of the estimate (± s.e.) | SD of the estimate / bootstrap SD |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 4 | 100 | 0.85 | 93.6% | 93.4% | 96.8% | 96.2% | 0.775 / 0.773 / 0.760 / 0.765 | 4.7% | 94.4% / 95.8% | -0.0016 ± 0.0019 | 0.0428 / 0.0422 |
+| 4 | 100 | 0.9 | 89.4% | 92.8% | 98.2% | 94.4% | 0.838 / 0.835 / 0.821 / 0.826 | 4.5% | 92.6% / 93.8% | -0.0009 ± 0.0016 | 0.0365 / 0.0349 |
+| 4 | 100 | 0.95 | 90.6% | 92.8% | 98.6% | 98.6% | 0.903 / 0.900 / 0.884 / 0.888 | 4.0% | 89.4% / 95.6% | -0.0020 ± 0.0012 | 0.0260 / 0.0251 |
+| 4 | 250 | 0.85 | 93.6% | 93.6% | 95.4% | 95.4% | 0.804 / 0.804 / 0.798 / 0.800 | 4.8% | 93.0% / 93.4% | -0.0004 ± 0.0012 | 0.0277 / 0.0266 |
+| 4 | 250 | 0.9 | 93.0% | 93.4% | 96.6% | 96.6% | 0.863 / 0.862 / 0.856 / 0.858 | 4.7% | 94.4% / 94.2% | +0.0006 ± 0.0010 | 0.0229 / 0.0221 |
+| 4 | 250 | 0.95 | 89.6% | 90.6% | 94.6% | 94.6% | 0.923 / 0.922 / 0.916 / 0.917 | 4.4% | 93.4% / 93.6% | +0.0004 ± 0.0007 | 0.0161 / 0.0158 |
+| 4 | 500 | 0.85 | 93.8% | 94.2% | 96.2% | 96.2% | 0.818 / 0.818 / 0.815 / 0.816 | 4.9% | 94.4% / 94.8% | -0.0002 ± 0.0009 | 0.0193 / 0.0189 |
+| 4 | 500 | 0.9 | 92.4% | 92.6% | 94.4% | 94.4% | 0.874 / 0.874 / 0.871 / 0.871 | 4.8% | 93.0% / 93.2% | +0.0003 ± 0.0007 | 0.0161 / 0.0156 |
+| 4 | 500 | 0.95 | 92.6% | 93.0% | 95.4% | 95.4% | 0.931 / 0.930 / 0.927 / 0.928 | 4.6% | 92.8% / 93.0% | +0.0002 ± 0.0005 | 0.0117 / 0.0112 |
+| 77 | 100 | 0.85 | 94.2% | 93.6% | 98.8% | 98.8% | 0.788 / 0.793 / 0.777 / 0.781 | 6.7% | 96.8% / 95.4% | -0.0004 ± 0.0015 | 0.0342 / 0.0359 |
+| 77 | 100 | 0.9 | 93.4% | 91.6% | 97.2% | 97.2% | 0.849 / 0.854 / 0.838 / 0.841 | 6.7% | 93.8% / 93.0% | +0.0013 ± 0.0013 | 0.0301 / 0.0299 |
+| 77 | 100 | 0.95 | 92.4% | 88.6% | 96.0% | 96.0% | 0.912 / 0.916 / 0.898 / 0.901 | 7.0% | 94.4% / 94.6% | +0.0000 ± 0.0010 | 0.0217 / 0.0216 |
+| 77 | 250 | 0.85 | 94.6% | 94.4% | 95.8% | 95.8% | 0.811 / 0.813 / 0.807 / 0.808 | 6.0% | 94.4% / 95.2% | -0.0004 ± 0.0010 | 0.0231 / 0.0228 |
+| 77 | 250 | 0.9 | 95.6% | 94.4% | 98.0% | 98.0% | 0.867 / 0.869 / 0.862 / 0.864 | 6.0% | 96.6% / 96.6% | -0.0005 ± 0.0008 | 0.0189 / 0.0191 |
+| 77 | 250 | 0.95 | 94.6% | 93.0% | 97.6% | 97.6% | 0.924 / 0.926 / 0.919 / 0.920 | 6.1% | 95.0% / 94.6% | -0.0017 ± 0.0006 | 0.0135 / 0.0140 |
+| 77 | 500 | 0.85 | 96.4% | 96.2% | 96.6% | 96.6% | 0.822 / 0.823 / 0.820 / 0.821 | 5.7% | 95.0% / 95.4% | -0.0007 ± 0.0007 | 0.0157 / 0.0161 |
+| 77 | 500 | 0.9 | 92.8% | 92.4% | 95.0% | 95.0% | 0.878 / 0.879 / 0.876 / 0.877 | 5.7% | 95.2% / 95.0% | +0.0009 ± 0.0006 | 0.0131 / 0.0134 |
+| 77 | 500 | 0.95 | 93.6% | 92.6% | 95.0% | 95.0% | 0.933 / 0.934 / 0.931 / 0.931 | 5.7% | 92.8% / 92.6% | -0.0001 ± 0.0004 | 0.0101 / 0.0098 |
 
-Pooled over all 18 cells (9000 replications), the one-sided bound covers: Percentile 93.1%, BCa 93.0%.
-- 4 labels: Percentile 92.1%, BCa 92.9%
-- 77 labels: Percentile 94.2%, BCa 93.0%
-- Worst cell: Percentile 89.4% (4 labels, 100 items, kappa 0.9); BCa 88.6% (77 labels, 100 items, kappa 0.95)
+Pooled over all 18 cells (9000 replications), the one-sided bound covers: Percentile 93.1%, BCa 93.0%, Exact 96.5%, Wilson 96.2%.
+- 4 labels: Percentile 92.1%, BCa 92.9%, Exact 96.2%, Wilson 95.8%
+- 77 labels: Percentile 94.2%, BCa 93.0%, Exact 96.7%, Wilson 96.7%
+- Worst cell: Percentile 89.4% (4 labels, 100 items, kappa 0.9); BCa 88.6% (77 labels, 100 items, kappa 0.95); Exact 94.4% (4 labels, 500 items, kappa 0.9); Wilson 94.4% (4 labels, 100 items, kappa 0.9)
 
 #### Threshold search: how often does the chosen threshold truly keep the target?
 
-| Labels | Items | Target | Oracle coverage | Point: met | Percentile: met | BCa: met | Point: true coverage | Percentile: true coverage | BCa: true coverage |
-|---|---|---|---|---|---|---|---|---|---|
-| 4 | 100 | 0.9 | 88.9% | 15/30 (50.0%) | 27/30 (90.0%) | 26/30 (86.7%) | 89.1% | 74.9% | 76.6% |
-| 4 | 100 | 0.95 | 74.8% | 14/30 (46.7%) | 25/28 (89.3%) | 26/29 (89.7%) | 74.9% | 58.2% | 58.8% |
-| 4 | 250 | 0.9 | 88.9% | 17/30 (56.7%) | 27/30 (90.0%) | 28/30 (93.3%) | 87.8% | 78.2% | 78.0% |
-| 4 | 250 | 0.95 | 74.8% | 14/30 (46.7%) | 27/30 (90.0%) | 28/30 (93.3%) | 74.8% | 64.3% | 63.6% |
-| 4 | 500 | 0.9 | 88.9% | 14/30 (46.7%) | 28/30 (93.3%) | 28/30 (93.3%) | 88.8% | 82.2% | 82.2% |
-| 4 | 500 | 0.95 | 74.8% | 14/30 (46.7%) | 27/30 (90.0%) | 27/30 (90.0%) | 75.2% | 68.2% | 67.8% |
-| 77 | 100 | 0.9 | 88.9% | 13/30 (43.3%) | 28/30 (93.3%) | 27/30 (90.0%) | 88.0% | 76.5% | 77.7% |
-| 77 | 100 | 0.95 | 74.8% | 14/30 (46.7%) | 27/30 (90.0%) | 27/30 (90.0%) | 74.6% | 53.1% | 60.4% |
-| 77 | 250 | 0.9 | 88.9% | 18/30 (60.0%) | 27/30 (90.0%) | 27/30 (90.0%) | 88.5% | 79.8% | 80.5% |
-| 77 | 250 | 0.95 | 74.8% | 15/30 (50.0%) | 27/30 (90.0%) | 25/30 (83.3%) | 74.9% | 65.4% | 66.9% |
-| 77 | 500 | 0.9 | 88.9% | 16/30 (53.3%) | 28/30 (93.3%) | 28/30 (93.3%) | 88.9% | 83.5% | 83.8% |
-| 77 | 500 | 0.95 | 74.8% | 15/30 (50.0%) | 27/30 (90.0%) | 27/30 (90.0%) | 74.7% | 67.4% | 68.2% |
+| Labels | Items | Target | Oracle coverage | Point: met | Percentile: met | BCa: met | Exact: met | Wilson: met | Point: true coverage | Percentile: true coverage | BCa: true coverage | Exact: true coverage | Wilson: true coverage |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| 4 | 100 | 0.9 | 88.9% | 15/30 (50.0%) | 27/30 (90.0%) | 26/30 (86.7%) | 27/27 (100.0%) | 29/29 (100.0%) | 89.1% | 74.9% | 76.6% | 67.8% | 68.2% |
+| 4 | 100 | 0.95 | 74.8% | 14/30 (46.7%) | 25/28 (89.3%) | 26/29 (89.7%) | 0/1 (0.0%) | 3/5 (60.0%) | 74.9% | 58.2% | 58.8% | 84.0% | 73.8% |
+| 4 | 250 | 0.9 | 88.9% | 17/30 (56.7%) | 27/30 (90.0%) | 28/30 (93.3%) | 28/30 (93.3%) | 28/30 (93.3%) | 87.8% | 78.2% | 78.0% | 75.9% | 76.3% |
+| 4 | 250 | 0.95 | 74.8% | 14/30 (46.7%) | 27/30 (90.0%) | 28/30 (93.3%) | 28/28 (100.0%) | 30/30 (100.0%) | 74.8% | 64.3% | 63.6% | 57.4% | 56.6% |
+| 4 | 500 | 0.9 | 88.9% | 14/30 (46.7%) | 28/30 (93.3%) | 28/30 (93.3%) | 30/30 (100.0%) | 30/30 (100.0%) | 88.8% | 82.2% | 82.2% | 81.1% | 81.4% |
+| 4 | 500 | 0.95 | 74.8% | 14/30 (46.7%) | 27/30 (90.0%) | 27/30 (90.0%) | 30/30 (100.0%) | 29/30 (96.7%) | 75.2% | 68.2% | 67.8% | 65.0% | 65.3% |
+| 77 | 100 | 0.9 | 88.9% | 13/30 (43.3%) | 28/30 (93.3%) | 27/30 (90.0%) | 30/30 (100.0%) | 30/30 (100.0%) | 88.0% | 76.5% | 77.7% | 70.4% | 72.3% |
+| 77 | 100 | 0.95 | 74.8% | 14/30 (46.7%) | 27/30 (90.0%) | 27/30 (90.0%) | 8/8 (100.0%) | 12/12 (100.0%) | 74.6% | 53.1% | 60.4% | 66.6% | 63.2% |
+| 77 | 250 | 0.9 | 88.9% | 18/30 (60.0%) | 27/30 (90.0%) | 27/30 (90.0%) | 29/30 (96.7%) | 28/30 (93.3%) | 88.5% | 79.8% | 80.5% | 77.9% | 78.1% |
+| 77 | 250 | 0.95 | 74.8% | 15/30 (50.0%) | 27/30 (90.0%) | 25/30 (83.3%) | 26/29 (89.7%) | 27/30 (90.0%) | 74.9% | 65.4% | 66.9% | 62.4% | 62.2% |
+| 77 | 500 | 0.9 | 88.9% | 16/30 (53.3%) | 28/30 (93.3%) | 28/30 (93.3%) | 29/30 (96.7%) | 29/30 (96.7%) | 88.9% | 83.5% | 83.8% | 82.7% | 82.8% |
+| 77 | 500 | 0.95 | 74.8% | 15/30 (50.0%) | 27/30 (90.0%) | 27/30 (90.0%) | 28/30 (93.3%) | 28/30 (93.3%) | 74.7% | 67.4% | 68.2% | 65.8% | 66.1% |
 
-Pooled over all 12 cells: point estimate met 179/360 (49.7%), coverage given up versus the oracle 0.2%; 95% percentile lower bound met 325/358 (90.8%), coverage given up versus the oracle 10.8%; 95% BCa lower bound met 324/359 (90.3%), coverage given up versus the oracle 9.8%.
+Pooled over all 12 cells: point estimate met 179/360 (49.7%), coverage given up versus the oracle 0.2%; 95% percentile lower bound met 325/358 (90.8%), coverage given up versus the oracle 10.8%; 95% BCa lower bound met 324/359 (90.3%), coverage given up versus the oracle 9.8%; 95% exact (Clopper-Pearson) count bound met 293/303 (96.7%), coverage given up versus the oracle 12.3%; 95% Wilson count bound met 303/316 (95.9%), coverage given up versus the oracle 12.1%.
 
-- 4 labels: Point found a threshold in 180/180, met 48.9%, true coverage 81.8%; Percentile found a threshold in 178/180, met 90.4%, true coverage 71.1%; BCa found a threshold in 179/180, met 91.1%, true coverage 71.2%.
-- 77 labels: Point found a threshold in 180/180, met 50.6%, true coverage 81.6%; Percentile found a threshold in 180/180, met 91.1%, true coverage 71.0%; BCa found a threshold in 180/180, met 89.4%, true coverage 72.9%.
+- 4 labels: Point found a threshold in 180/180, met 48.9%, true coverage 81.8%; Percentile found a threshold in 178/180, met 90.4%, true coverage 71.1%; BCa found a threshold in 179/180, met 91.1%, true coverage 71.2%; Exact found a threshold in 146/180, met 97.9%, true coverage 69.7%; Wilson found a threshold in 154/180, met 96.8%, true coverage 69.7%.
+- 77 labels: Point found a threshold in 180/180, met 50.6%, true coverage 81.6%; Percentile found a threshold in 180/180, met 91.1%, true coverage 71.0%; BCa found a threshold in 180/180, met 89.4%, true coverage 72.9%; Exact found a threshold in 157/180, met 95.5%, true coverage 71.6%; Wilson found a threshold in 162/180, met 95.1%, true coverage 71.6%.
+
+#### Pointwise: how often does each count bound cover the agreement rate itself?
+
+Exact binomial sums, no sampling: for m answered inputs and each of 2000 agreement rates p from 0.8 to 0.999, the probability that the 95% bound on p_o is at or below p.
+
+| Answered inputs | Bound | Worst coverage | At agreement rate | Mean coverage | Share of rates under 95% |
+|---|---|---|---|---|---|
+| 30 | Exact | 95.01% | 0.851 | 98.63% | 0.0% |
+| 30 | Wilson | 92.50% | 0.917 | 97.66% | 18.6% |
+| 100 | Exact | 95.00% | 0.911 | 97.17% | 0.0% |
+| 100 | Wilson | 93.10% | 0.974 | 96.42% | 22.6% |
+| 250 | Exact | 95.00% | 0.928 | 96.41% | 0.0% |
+| 250 | Wilson | 93.30% | 0.989 | 95.85% | 24.2% |
+| 500 | Exact | 95.00% | 0.869 | 96.01% | 0.0% |
+| 500 | Wilson | 93.59% | 0.995 | 95.58% | 25.6% |
 <!-- END generated:coverage -->
 
 ### ONNX export: fp32 and int8 parity on the trained students (M5)
