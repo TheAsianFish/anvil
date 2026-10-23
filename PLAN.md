@@ -789,6 +789,23 @@ re-measures it properly).
   `make eval-flag` (24 MiniLM trainings: 18 out of fold on two thirds of the pool, 6 retrains on
   the kept 80%; the M8 control's trainings took about 510 s each, so about 2.5 h of CPU),
   replaying `eval/labels/`; no Ollama, no key.
+  Outcome (M13 built). The cascade table: at the served `exact` threshold the student agrees
+  with the teacher at 0.969 (Banking77, 13.7% coverage) and 0.931 (AG News, 82.4%), but with
+  gold at 0.725 and 0.772, where the teacher scores 0.710 and 0.776 on the same inputs. The
+  cascade against gold is the teacher alone to within 0.003 (paired). Flagging: uniform noise
+  flags at AUROC 0.938 and 0.898, the teacher's labels at 0.682 and 0.711. Recall at
+  precision 0.7 under uniform noise is 0.977 on Banking77 (held) but 0.471 on AG News (not
+  held). The input-tied hypothesis was refuted: the teacher's labels flag about as well as the
+  confusion-pair control (recall at precision 0.7 is 0.475 against 0.499 on Banking77, above
+  the predicted 0.35 ceiling; 0.015 against 0.000 on AG News). Class-level confusions, not
+  input-tied errors, are what the out-of-fold student cannot see. Retraining on the unflagged
+  80% gains +0.033 [0.002, 0.065] over the unfiltered student on Banking77 (+0.053 over a
+  random drop), borderline on the +0.03 hypothesis, and -0.025 [-0.060, 0.009] on AG News.
+  I added two controls beyond the plan's 24 trainings: a random-drop student and an
+  unfiltered student retrained alongside. The second showed that the committed reference
+  doesn't reproduce: on AG News the same seed and labels score 0.697 against 0.655. So the
+  readable comparisons are the same-invocation ones, and single-seed differences of a few
+  hundredths are training noise.
 
 **Rejected.**
 
@@ -819,4 +836,4 @@ re-measures it properly).
 - [x] M10: Does the interval cover? — BCa intervals in `anvil/evaluate/bootstrap.py` (jackknife from marginals, one-sided variant), `make eval-coverage` (a simulation over kappa {0.85, 0.9, 0.95}, items {100, 250, 500}, labels {4, 77}: coverage of the percentile and BCa bounds, point-estimate bias, and how often the threshold search's chosen threshold truly meets the target), `choose_threshold` on the BCa bound with the coverage cost measured from the committed `logits.npz`. Done when the simulation runs in CI in under a minute, RESULTS.md holds the coverage table and the re-run calibration tables, and the default rule is whichever the table justifies, with the reason written down.
 - [x] M11: A bound on the count itself — `rule: exact` (one-sided Clopper-Pearson on the agreement count, kappa through the plug-in chance term) and `rule: wilson` in `choose_threshold`, the fixed-sample and threshold-search simulations of `make eval-coverage` (still under the 60 s CI check) and the split study of `make eval-calibration`, re-run from the four committed `logits.npz`; the default rule re-decided from the table with the reason written down and named on the model card. Done when the coverage table has the new columns, the calibration tables the new rows, RESULTS.md answers each hypothesis (pooled coverage, worst cell, search, the 77- against 4-label coverage cost, the AG News 0.95 halves with the share of splits where no threshold was found), and the new rules have unit tests against a brute-force binomial.
 - [x] M12: The tagger in the cascade — `choose_threshold` generalised to a per-input statistic with sentence-resampled replicates (entity F1), `eval.extract --predictions <report.json>` re-running from the committed predictions without a model: coverage-vs-F1 curve, thresholds at F1 0.9 and 0.95 under the point and lower-bound rules, the unseen-halves split study, F1 by error kind (M4's `wrong_boundary`, `wrong_type`, `wrong_both`, `missed`, `spurious`) above and below the threshold, and the boundary-against-type AUROC comparison with its sentence-resampled interval. `anvil calibrate` and `anvil serve` stay classify-only. Done when RESULTS.md holds the extraction coverage table with the hypotheses answered and the generalised rule has tests on the classify path (unchanged results) and on F1.
-- [ ] M13: Can the student flag its teacher's mistakes? — `make eval-flag` (`eval/flag.py`): out-of-fold MiniLM (3 folds) on each M8 dataset's 2,000 pool labels under three conditions (the teacher's labels, uniform noise, confusion pairs at the teacher's error count, from `eval/noise.py`), flags by low out-of-fold probability of the given label, precision/recall and AUROC against the truly wrong labels, and student-vs-gold after dropping the flagged 20% (paired bootstrap against the committed seed-0 noise-control student); plus the committed-logits table of the fallible-teacher cascade against gold (kappa with gold at the served threshold, cascade vs teacher alone, teacher-error AUROCs) in the calibration section. Done when RESULTS.md holds both tables with the hypotheses answered, the run replays `eval/labels/` with no Ollama server, and the flagging code has unit tests on a scripted student.
+- [x] M13: Can the student flag its teacher's mistakes? — `make eval-flag` (`eval/flag.py`): out-of-fold MiniLM (3 folds) on each M8 dataset's 2,000 pool labels under three conditions (the teacher's labels, uniform noise, confusion pairs at the teacher's error count, from `eval/noise.py`), flags by low out-of-fold probability of the given label, precision/recall and AUROC against the truly wrong labels, and student-vs-gold after dropping the flagged 20% (paired bootstrap against the committed seed-0 noise-control student); plus the committed-logits table of the fallible-teacher cascade against gold (kappa with gold at the served threshold, cascade vs teacher alone, teacher-error AUROCs) in the calibration section. Done when RESULTS.md holds both tables with the hypotheses answered, the run replays `eval/labels/` with no Ollama server, and the flagging code has unit tests on a scripted student.
