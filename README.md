@@ -619,6 +619,18 @@ Planned in PLAN.md, evolution round 1 (all built):
   (both cover about 93%; the threshold search keeps its target 91% of the time; BCa is
   worse at 77 labels, so the percentile bound stays the default; see Results)
 
+Planned in PLAN.md, evolution round 2:
+
+- [ ] M11: a bound on the count itself: `exact` (Clopper-Pearson on the agreement count) and
+  `wilson` rules for the cascade threshold, their coverage and served-coverage cost against the
+  percentile bootstrap at 4 and 77 labels, and the default re-decided
+- [ ] M12: the tagger in the cascade: the threshold rule on entity F1 from the committed
+  extraction predictions (coverage at F1 0.9, unseen halves, boundary against type errors by
+  confidence, a word-boundary snap)
+- [ ] M13: can the student flag its teacher's mistakes? Out-of-fold flagging of the local
+  teacher's labels against the uniform and confusion-pair controls, and the fallible-teacher
+  cascade measured against gold
+
 Still open, each needing a key or the owner's own code:
 
 - **Claude parity.** Buy the labels (about $0.65 with Haiku 5.5 for classification and
@@ -629,7 +641,7 @@ Still open, each needing a key or the owner's own code:
   `anvil/select.py`, measured on the frontier against the random curve (24 tests in
   `tests/test_select.py`, expected failures today, wait for them).
 - **The extraction and generation students in the cascade.** `loop`, `calibrate` and
-  `serve` are classify-only today.
+  `serve` are classify-only today; M12 measures whether the tagger's confidence is worth serving.
 - **A GPU frontier** on the Colab notebook, and a published Banking77 student distilled from
   Claude labels.
 
