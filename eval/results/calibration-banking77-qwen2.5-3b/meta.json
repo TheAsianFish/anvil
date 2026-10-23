@@ -1,6 +1,6 @@
 {
   "command": "python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz",
-  "git_sha": "ec18671195d2a1343693364a5b204b74efbd564e",
+  "git_sha": "52dd15a4e0a74395eb529678689dda6f58051877",
   "git_dirty": false,
   "anvil": "0.1.0",
   "python": "3.12.3",
@@ -10,8 +10,8 @@
   "splits": 200,
   "n_resamples": 1000,
   "teacher_model": "qwen2.5:3b",
-  "wall_seconds": 46.8,
+  "wall_seconds": 51.1,
   "spent_usd": 0.0,
-  "finished_at": "2026-10-22T17:43:38Z",
+  "finished_at": "2026-10-23T07:00:13Z",
   "from_logits": "eval/results/calibration-banking77-qwen2.5-3b/logits.npz"
 }

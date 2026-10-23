@@ -18,10 +18,10 @@ directory under `eval/results/`.
 | Run | Eval | Teacher | Command | Commit | Wall time | Teacher $ |
 |---|---|---|---|---|---|---|
 | `bench-banking77-gold` | bench | gold | `python -m eval.bench --teacher gold` | `d0cfa4c` | 19m 27s | $0.00 |
-| `calibration-ag_news-gold` | eval-calibration | gold | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-gold/logits.npz` | `ec18671` | 1m 35s | $0.00 |
-| `calibration-ag_news-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` | `ec18671` | 1m 06s | $0.00 |
-| `calibration-banking77-gold` | eval-calibration | gold | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-gold/logits.npz` | `ec18671` | 0m 59s | $0.00 |
-| `calibration-banking77-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` | `ec18671` | 0m 47s | $0.00 |
+| `calibration-ag_news-gold` | eval-calibration | gold | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-gold/logits.npz` | `52dd15a` | 1m 33s | $0.00 |
+| `calibration-ag_news-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` | `52dd15a` | 1m 06s | $0.00 |
+| `calibration-banking77-gold` | eval-calibration | gold | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-gold/logits.npz` | `52dd15a` | 0m 57s | $0.00 |
+| `calibration-banking77-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` | `52dd15a` | 0m 51s | $0.00 |
 | `classify-ag_news-gold` | eval-classify | gold | `python -m eval.classify ag_news banking77 --teacher gold` | `74cca5e` | 36m 10s | $0.00 |
 | `classify-ag_news-gold-seed1` | eval-classify | gold | `python -m eval.classify ag_news --teacher gold --seed 1` | `1c900f7` | 47m 59s | $0.00 |
 | `classify-ag_news-qwen2.5-3b` | eval-classify | qwen2.5:3b | `python -m eval.classify ag_news banking77 --teacher ollama` | `e25575f` | 41m 06s | $0.00 |
@@ -40,7 +40,7 @@ directory under `eval/results/`.
 | `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
 | `shift-banking77-gold` | eval-shift | gold | `python -m eval.shift --teacher gold` | `773e679` | 10m 59s | $0.00 |
 | `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
-| **Total (23 runs)** | | | | | 13h 48m 53s | $0.00 |
+| **Total (23 runs)** | | | | | 13h 48m 54s | $0.00 |
 
 Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
 <!-- END generated:ledger -->
@@ -561,15 +561,15 @@ Findings:
 <!-- BEGIN generated:calibration -->
 | Dataset | Teacher | Student | Held-out | Kappa (all inputs) | Temperature | ECE before -> after (all) | ECE before -> after (unseen half, median) | Coverage at kappa 0.9 | Coverage at kappa 0.95 |
 |---|---|---|---|---|---|---|---|---|---|
-| ag_news | gold | ModernBERT-base | 477 | 0.844 | 1.22 | 0.035 -> 0.031 | 0.051 -> 0.047 | 75.7% | 41.9% |
-| ag_news | qwen2.5:3b | ModernBERT-base | 477 | 0.847 | 1.01 | 0.038 -> 0.040 | 0.046 -> 0.048 | 84.5% | 74.6% |
-| banking77 | gold | ModernBERT-base | 496 | 0.842 | 1.24 | 0.062 -> 0.043 | 0.070 -> 0.054 | 82.3% | 70.8% |
-| banking77 | qwen2.5:3b | ModernBERT-base | 496 | 0.687 | 1.60 | 0.160 -> 0.079 | 0.165 -> 0.091 | 31.9% | 13.3% |
+| ag_news | gold | ModernBERT-base | 477 | 0.844 | 1.22 | 0.035 -> 0.031 | 0.051 -> 0.047 | 66.9% | n/a |
+| ag_news | qwen2.5:3b | ModernBERT-base | 477 | 0.847 | 1.01 | 0.038 -> 0.040 | 0.046 -> 0.048 | 82.4% | 68.8% |
+| banking77 | gold | ModernBERT-base | 496 | 0.842 | 1.24 | 0.062 -> 0.043 | 0.070 -> 0.054 | 80.8% | 70.0% |
+| banking77 | qwen2.5:3b | ModernBERT-base | 496 | 0.687 | 1.60 | 0.160 -> 0.079 | 0.165 -> 0.091 | 13.7% | n/a |
 
 #### ag_news, teacher `gold`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-ag_news-gold/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-gold/logits.npz` at `ec18671`; student run `20261020-012041-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 95 s; spent $0.00
+- Command: `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-gold/logits.npz` at `52dd15a`; student run `20261020-012041-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 93 s; spent $0.00
 - Fitted temperature over the splits: 1.22 [1.10, 1.34]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
@@ -577,10 +577,14 @@ Findings:
 | 0.9 | point estimate, calibrated | 100.0% | 46.0% | 88.3% [75.7%, 95.4%] | 0.897 [0.847, 0.948] | 0.911 [0.855, 0.961] |
 | 0.9 | 95% percentile lower bound, calibrated | 100.0% | 87.0% | 65.1% [46.4%, 85.5%] | 0.932 [0.873, 0.988] | 0.961 [0.889, 0.994] |
 | 0.9 | 95% BCa lower bound, calibrated | 100.0% | 87.5% | 58.6% [43.9%, 85.4%] | 0.933 [0.883, 1.000] | 0.961 [0.904, 1.000] |
+| 0.9 | 95% exact count bound, calibrated | 92.0% | 87.5% | 52.9% [40.3%, 81.9%] | 0.946 [0.893, 0.985] | 0.972 [0.916, 0.994] |
+| 0.9 | 95% Wilson count bound, calibrated | 95.0% | 88.4% | 54.0% [39.9%, 83.5%] | 0.946 [0.893, 0.986] | 0.972 [0.913, 0.994] |
 | 0.9 | point estimate, uncalibrated | 100.0% | 50.0% | 88.3% [76.6%, 95.4%] | 0.900 [0.847, 0.948] | 0.913 [0.855, 0.961] |
 | 0.95 | point estimate, calibrated | 100.0% | 50.5% | 54.0% [43.9%, 77.0%] | 0.951 [0.901, 0.987] | 0.977 [0.927, 0.994] |
 | 0.95 | 95% percentile lower bound, calibrated | 100.0% | 82.0% | 36.6% [17.2%, 55.6%] | 0.970 [0.926, 1.000] | 0.992 [0.966, 1.000] |
 | 0.95 | 95% BCa lower bound, calibrated | 100.0% | 85.5% | 23.8% [16.7%, 52.7%] | 0.969 [0.930, 1.000] | 0.994 [0.966, 1.000] |
+| 0.95 | 95% exact count bound, calibrated | 16.0% | 75.0% | 40.8% [33.9%, 48.8%] | 0.957 [0.935, 0.966] | 0.983 [0.972, 0.989] |
+| 0.95 | 95% Wilson count bound, calibrated | 25.0% | 80.0% | 38.9% [34.3%, 51.8%] | 0.962 [0.932, 0.968] | 0.989 [0.969, 0.989] |
 | 0.95 | point estimate, uncalibrated | 100.0% | 50.5% | 54.8% [44.3%, 77.1%] | 0.952 [0.901, 0.987] | 0.977 [0.927, 0.994] |
 
 Threshold each rule serves on all held-out inputs:
@@ -593,6 +597,10 @@ Threshold each rule serves on all held-out inputs:
 | 0.95 | 95% percentile lower bound | 0.964 | 41.9% | 0.978 | 0.955 |
 | 0.9 | 95% BCa lower bound | 0.836 | 75.5% | 0.928 | 0.900 |
 | 0.95 | 95% BCa lower bound | 0.966 | 40.9% | 0.977 | 0.954 |
+| 0.9 | 95% exact (Clopper-Pearson) count bound | 0.901 | 66.9% | 0.938 | 0.905 |
+| 0.95 | 95% exact (Clopper-Pearson) count bound | none | n/a | n/a | n/a |
+| 0.9 | 95% Wilson count bound | 0.862 | 72.7% | 0.932 | 0.901 |
+| 0.95 | 95% Wilson count bound | none | n/a | n/a | n/a |
 
 Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
 
@@ -613,7 +621,7 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 #### ag_news, teacher `qwen2.5:3b`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-ag_news-qwen2.5-3b/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` at `ec18671`; student run `20261022-000137-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 66 s; spent $0.00
+- Command: `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` at `52dd15a`; student run `20261022-000137-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 66 s; spent $0.00
 - Fitted temperature over the splits: 0.99 [0.87, 1.10]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
@@ -621,10 +629,14 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 | 0.9 | point estimate, calibrated | 100.0% | 42.0% | 91.6% [84.9%, 96.7%] | 0.893 [0.846, 0.945] | 0.903 [0.854, 0.954] |
 | 0.9 | 95% percentile lower bound, calibrated | 100.0% | 81.0% | 81.2% [74.5%, 90.0%] | 0.933 [0.880, 0.976] | 0.948 [0.896, 0.983] |
 | 0.9 | 95% BCa lower bound, calibrated | 100.0% | 84.5% | 80.8% [74.5%, 89.1%] | 0.935 [0.880, 0.977] | 0.948 [0.896, 0.983] |
+| 0.9 | 95% exact count bound, calibrated | 100.0% | 89.5% | 78.2% [73.6%, 87.9%] | 0.945 [0.891, 0.984] | 0.959 [0.907, 0.988] |
+| 0.9 | 95% Wilson count bound, calibrated | 100.0% | 88.0% | 79.1% [73.6%, 88.3%] | 0.939 [0.890, 0.983] | 0.954 [0.906, 0.988] |
 | 0.9 | point estimate, uncalibrated | 100.0% | 42.0% | 91.6% [84.5%, 96.7%] | 0.893 [0.851, 0.945] | 0.903 [0.857, 0.954] |
 | 0.95 | point estimate, calibrated | 100.0% | 49.0% | 77.8% [72.8%, 85.8%] | 0.946 [0.895, 0.984] | 0.960 [0.914, 0.988] |
 | 0.95 | 95% percentile lower bound, calibrated | 100.0% | 80.0% | 69.5% [60.2%, 78.2%] | 0.973 [0.929, 1.000] | 0.983 [0.948, 1.000] |
 | 0.95 | 95% BCa lower bound, calibrated | 100.0% | 87.0% | 68.4% [53.1%, 77.4%] | 0.974 [0.936, 1.000] | 0.983 [0.954, 1.000] |
+| 0.95 | 95% exact count bound, calibrated | 100.0% | 90.5% | 62.3% [45.2%, 75.4%] | 0.980 [0.943, 1.000] | 0.989 [0.960, 1.000] |
+| 0.95 | 95% Wilson count bound, calibrated | 100.0% | 88.5% | 63.6% [45.6%, 77.0%] | 0.980 [0.937, 1.000] | 0.989 [0.954, 1.000] |
 | 0.95 | point estimate, uncalibrated | 100.0% | 47.0% | 77.8% [73.2%, 85.4%] | 0.946 [0.896, 0.984] | 0.960 [0.914, 0.988] |
 
 Threshold each rule serves on all held-out inputs:
@@ -637,6 +649,10 @@ Threshold each rule serves on all held-out inputs:
 | 0.95 | 95% percentile lower bound | 0.844 | 74.6% | 0.967 | 0.950 |
 | 0.9 | 95% BCa lower bound | 0.698 | 82.8% | 0.928 | 0.902 |
 | 0.95 | 95% BCa lower bound | 0.865 | 73.0% | 0.971 | 0.950 |
+| 0.9 | 95% exact (Clopper-Pearson) count bound | 0.707 | 82.4% | 0.931 | 0.900 |
+| 0.95 | 95% exact (Clopper-Pearson) count bound | 0.903 | 68.8% | 0.978 | 0.953 |
+| 0.9 | 95% Wilson count bound | 0.707 | 82.4% | 0.931 | 0.901 |
+| 0.95 | 95% Wilson count bound | 0.879 | 71.7% | 0.974 | 0.951 |
 
 Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
 
@@ -665,13 +681,13 @@ The ceiling on the inputs the cascade answers: of the 200 held-out inputs the te
 | top 70.0% | 70.0% | 147 | 0.970 [0.938, 1.000] | 0.970 [0.931, 1.000] |
 | top 60.0% | 60.0% | 124 | 0.988 [0.962, 1.000] | 0.988 [0.962, 1.000] |
 | top 50.0% | 49.9% | 101 | 0.984 [0.949, 1.000] | 0.984 [0.949, 1.000] |
-| served at kappa 0.9 | 84.5% | 168 | 0.966 [0.930, 0.992] | 0.940 [0.891, 0.982] |
-| served at kappa 0.95 | 74.6% | 154 | 0.972 [0.935, 1.000] | 0.962 [0.924, 0.991] |
+| served at kappa 0.9 | 82.4% | 166 | 0.965 [0.930, 0.991] | 0.939 [0.894, 0.974] |
+| served at kappa 0.95 | 68.8% | 143 | 0.969 [0.928, 1.000] | 0.979 [0.949, 1.000] |
 
 #### banking77, teacher `gold`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-banking77-gold/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-gold/logits.npz` at `ec18671`; student run `20261020-001737-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 59 s; spent $0.00
+- Command: `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-gold/logits.npz` at `52dd15a`; student run `20261020-001737-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 57 s; spent $0.00
 - Fitted temperature over the splits: 1.24 [1.15, 1.31]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
@@ -679,10 +695,14 @@ The ceiling on the inputs the cascade answers: of the 200 held-out inputs the te
 | 0.9 | point estimate, calibrated | 100.0% | 55.5% | 87.1% [81.0%, 92.8%] | 0.905 [0.857, 0.942] | 0.918 [0.869, 0.955] |
 | 0.9 | 95% percentile lower bound, calibrated | 100.0% | 90.5% | 80.2% [75.8%, 85.9%] | 0.933 [0.887, 0.968] | 0.947 [0.905, 0.976] |
 | 0.9 | 95% BCa lower bound, calibrated | 100.0% | 88.0% | 81.0% [75.8%, 85.9%] | 0.930 [0.887, 0.963] | 0.945 [0.905, 0.971] |
+| 0.9 | 95% exact count bound, calibrated | 100.0% | 94.5% | 79.4% [74.2%, 84.3%] | 0.937 [0.899, 0.972] | 0.951 [0.918, 0.979] |
+| 0.9 | 95% Wilson count bound, calibrated | 100.0% | 93.5% | 79.4% [74.2%, 84.7%] | 0.937 [0.897, 0.973] | 0.951 [0.914, 0.979] |
 | 0.9 | point estimate, uncalibrated | 100.0% | 53.0% | 87.9% [81.0%, 92.7%] | 0.901 [0.856, 0.943] | 0.914 [0.868, 0.955] |
 | 0.95 | point estimate, calibrated | 100.0% | 56.5% | 76.6% [69.4%, 81.5%] | 0.952 [0.918, 0.982] | 0.963 [0.934, 0.988] |
 | 0.95 | 95% percentile lower bound, calibrated | 100.0% | 89.5% | 69.0% [64.1%, 75.8%] | 0.975 [0.940, 0.994] | 0.984 [0.955, 0.996] |
 | 0.95 | 95% BCa lower bound, calibrated | 100.0% | 85.5% | 69.8% [64.9%, 76.6%] | 0.970 [0.940, 0.994] | 0.979 [0.955, 0.996] |
+| 0.95 | 95% exact count bound, calibrated | 100.0% | 96.0% | 67.1% [59.7%, 73.0%] | 0.981 [0.954, 1.000] | 0.988 [0.967, 1.000] |
+| 0.95 | 95% Wilson count bound, calibrated | 100.0% | 93.0% | 67.7% [60.1%, 73.4%] | 0.981 [0.945, 1.000] | 0.988 [0.959, 1.000] |
 | 0.95 | point estimate, uncalibrated | 100.0% | 50.0% | 75.4% [71.0%, 81.0%] | 0.950 [0.917, 0.978] | 0.963 [0.934, 0.984] |
 
 Threshold each rule serves on all held-out inputs:
@@ -695,6 +715,10 @@ Threshold each rule serves on all held-out inputs:
 | 0.95 | 95% percentile lower bound | 0.832 | 70.8% | 0.965 | 0.950 |
 | 0.9 | 95% BCa lower bound | 0.639 | 82.3% | 0.923 | 0.903 |
 | 0.95 | 95% BCa lower bound | 0.830 | 71.4% | 0.966 | 0.951 |
+| 0.9 | 95% exact (Clopper-Pearson) count bound | 0.663 | 80.8% | 0.926 | 0.901 |
+| 0.95 | 95% exact (Clopper-Pearson) count bound | 0.844 | 70.0% | 0.971 | 0.951 |
+| 0.9 | 95% Wilson count bound | 0.663 | 80.8% | 0.926 | 0.902 |
+| 0.95 | 95% Wilson count bound | 0.844 | 70.0% | 0.971 | 0.952 |
 
 Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
 
@@ -715,7 +739,7 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 #### banking77, teacher `qwen2.5:3b`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-banking77-qwen2.5-3b/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` at `ec18671`; student run `20261022-004245-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 47 s; spent $0.00
+- Command: `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` at `52dd15a`; student run `20261022-004245-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 51 s; spent $0.00
 - Fitted temperature over the splits: 1.61 [1.53, 1.67]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
@@ -723,10 +747,14 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 | 0.9 | point estimate, calibrated | 99.5% | 39.7% | 39.5% [30.2%, 56.6%] | 0.894 [0.834, 0.960] | 0.959 [0.905, 0.988] |
 | 0.9 | 95% percentile lower bound, calibrated | 75.0% | 82.7% | 29.8% [11.1%, 36.7%] | 0.926 [0.855, 1.000] | 0.979 [0.950, 1.000] |
 | 0.9 | 95% BCa lower bound, calibrated | 92.5% | 83.2% | 29.0% [11.7%, 37.0%] | 0.932 [0.857, 1.000] | 0.979 [0.950, 1.000] |
+| 0.9 | 95% exact count bound, calibrated | 46.5% | 88.2% | 14.5% [8.1%, 33.7%] | 0.923 [0.893, 1.000] | 0.988 [0.965, 1.000] |
+| 0.9 | 95% Wilson count bound, calibrated | 53.5% | 88.8% | 26.2% [8.1%, 35.0%] | 0.921 [0.864, 1.000] | 0.979 [0.957, 1.000] |
 | 0.9 | point estimate, uncalibrated | 100.0% | 42.0% | 40.1% [29.8%, 57.7%] | 0.893 [0.824, 0.960] | 0.959 [0.905, 0.988] |
 | 0.95 | point estimate, calibrated | 91.5% | 38.8% | 18.5% [11.3%, 34.6%] | 0.932 [0.893, 1.000] | 0.988 [0.963, 1.000] |
 | 0.95 | 95% percentile lower bound, calibrated | 45.5% | 53.8% | 12.9% [8.1%, 21.0%] | 0.959 [0.891, 1.000] | 0.996 [0.979, 1.000] |
 | 0.95 | 95% BCa lower bound, calibrated | 46.5% | 50.5% | 13.3% [8.1%, 24.6%] | 0.955 [0.896, 1.000] | 0.996 [0.975, 1.000] |
+| 0.95 | 95% exact count bound, calibrated | 0.0% | n/a | n/a | n/a | n/a |
+| 0.95 | 95% Wilson count bound, calibrated | 0.5% | 0.0% | 28.6% [28.6%, 28.6%] | 0.897 [0.897, 0.897] | 0.971 [0.971, 0.971] |
 | 0.95 | point estimate, uncalibrated | 98.0% | 40.3% | 22.6% [13.7%, 34.3%] | 0.942 [0.879, 1.000] | 0.988 [0.962, 1.000] |
 
 Threshold each rule serves on all held-out inputs:
@@ -739,6 +767,10 @@ Threshold each rule serves on all held-out inputs:
 | 0.95 | 95% percentile lower bound | 0.973 | 13.3% | 0.984 | 0.951 |
 | 0.9 | 95% BCa lower bound | 0.918 | 31.9% | 0.934 | 0.902 |
 | 0.95 | 95% BCa lower bound | 0.973 | 13.3% | 0.984 | 0.951 |
+| 0.9 | 95% exact (Clopper-Pearson) count bound | 0.973 | 13.7% | 0.969 | 0.905 |
+| 0.95 | 95% exact (Clopper-Pearson) count bound | none | n/a | n/a | n/a |
+| 0.9 | 95% Wilson count bound | 0.973 | 13.7% | 0.969 | 0.910 |
+| 0.95 | 95% Wilson count bound | none | n/a | n/a | n/a |
 
 Coverage-vs-parity curve on all held-out inputs (calibrated confidence; the cascade kappa counts escalated inputs as answered by the teacher):
 
@@ -767,8 +799,8 @@ The ceiling on the inputs the cascade answers: of the 200 held-out inputs the te
 | top 70.0% | 70.0% | 133 | 0.892 [0.836, 0.945] | 0.799 [0.720, 0.868] |
 | top 60.0% | 60.1% | 117 | 0.885 [0.823, 0.938] | 0.868 [0.804, 0.929] |
 | top 50.0% | 50.0% | 101 | 0.898 [0.826, 0.948] | 0.908 [0.836, 0.959] |
-| served at kappa 0.9 | 31.9% | 66 | 0.936 [0.872, 0.984] | 0.952 [0.889, 1.000] |
-| served at kappa 0.95 | 13.3% | 32 | 0.966 [0.894, 1.000] | 0.966 [0.894, 1.000] |
+| served at kappa 0.9 | 13.7% | 34 | 0.968 [0.900, 1.000] | 0.936 [0.837, 1.000] |
+| served at kappa 0.95 | no threshold found | | | |
 <!-- END generated:calibration -->
 
 With the local teacher (M8, `make eval-calibration TEACHER=ollama`, on the students of the
