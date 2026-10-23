@@ -1,6 +1,6 @@
 {
   "command": "python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz",
-  "git_sha": "52dd15a4e0a74395eb529678689dda6f58051877",
+  "git_sha": "c388f6d33966f6176e27a7ceec0c4782817f226b",
   "git_dirty": false,
   "anvil": "0.1.0",
   "python": "3.12.3",
@@ -10,8 +10,8 @@
   "splits": 200,
   "n_resamples": 1000,
   "teacher_model": "qwen2.5:3b",
-  "wall_seconds": 66.5,
+  "wall_seconds": 73.8,
   "spent_usd": 0.0,
-  "finished_at": "2026-10-23T07:00:29Z",
+  "finished_at": "2026-10-23T20:27:04Z",
   "from_logits": "eval/results/calibration-ag_news-qwen2.5-3b/logits.npz"
 }
