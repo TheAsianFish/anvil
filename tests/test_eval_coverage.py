@@ -81,11 +81,14 @@ def test_cells_report_their_counts() -> None:
     fixed = fixed_cell(Cell("fixed", 0, 0.9, 60, 4, 8, 0))
     covered = fixed["lower_covered"]
     assert isinstance(covered, dict)
-    assert set(covered) == {"percentile", "bca"}
+    assert set(covered) == {"percentile", "bca", "exact", "wilson"}
     assert all(0 <= v <= 8 for v in covered.values())
+    interval = fixed["interval_covered"]
+    assert isinstance(interval, dict)
+    assert set(interval) == {"percentile", "bca"}  # the count bounds are one-sided only
     assert isinstance(fixed["mean_bca_level"], float)
     search = search_cell(Cell("search", 0, 0.9, 80, 4, 3, 0))
-    for rule in ("point", "lower", "bca"):
+    for rule in ("point", "lower", "bca", "exact", "wilson"):
         row = search[rule]
         assert isinstance(row, dict)
         assert 0 <= row["met"] <= row["found"] <= 3
@@ -99,7 +102,8 @@ def test_simulation_is_the_same_for_any_number_of_workers() -> None:
     config = one["config"]
     assert isinstance(config, dict)
     assert config["n_resamples"] == 1000  # what choose_threshold draws
-    assert len(counts(one)) == 18 * 4 + 12 * 6  # 2 methods x 2 bounds; 3 rules x 2 counts
+    # 4 one-sided + 2 two-sided per fixed cell; 5 rules x (found, met) per search cell
+    assert len(counts(one)) == 18 * 6 + 12 * 10
 
 
 def test_main_writes_and_checks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
