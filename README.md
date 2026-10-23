@@ -626,7 +626,7 @@ Planned in PLAN.md, evolution round 2:
   percentile bootstrap at 4 and 77 labels, and the default re-decided
 - [ ] M12: the tagger in the cascade: the threshold rule on entity F1 from the committed
   extraction predictions (coverage at F1 0.9, unseen halves, boundary against type errors by
-  confidence, a word-boundary snap)
+  confidence)
 - [ ] M13: can the student flag its teacher's mistakes? Out-of-fold flagging of the local
   teacher's labels against the uniform and confusion-pair controls, and the fallible-teacher
   cascade measured against gold
