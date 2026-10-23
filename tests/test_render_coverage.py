@@ -120,8 +120,14 @@ def test_render_coverage_tables() -> None:
         "95% BCa lower bound met 52/56 (92.9%), coverage given up versus the oracle 12.0%" in text
     )
     assert "95% Wilson count bound met 48/50 (96.0%)" in text
-    assert "- 4 labels: Point found a threshold in 30/30, met 50.0%, true coverage 89.0%;" in text
-    assert "Exact found a threshold in 20/30, met 100.0%, true coverage 70.0%" in text
+    assert (
+        "- 4 labels: Point found a threshold in 30/30, met 50.0%, true coverage 89.0% (89.0%"
+        in text
+    )
+    assert (
+        "Exact found a threshold in 20/30, met 100.0%, true coverage 70.0%"
+        " (46.7% counting a search with no threshold as 0)" in text
+    )
     assert "100.0% -> 0.840, 50.0% -> 0.990" in text
 
 

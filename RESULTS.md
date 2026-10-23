@@ -532,7 +532,8 @@ Findings:
   target, so fresh inputs land on either side about equally. Requiring the 95% bootstrap lower
   bound to clear it held the target in 90.5% and 87.0% of splits, for 7 points less coverage on
   Banking77 (median 80.2% against 87.1%) and 23 on AG News (65.1% against 88.3%). That is why
-  `anvil calibrate` uses the lower bound by default. It still falls short of the nominal 95%,
+  `anvil calibrate` used the percentile lower bound by default through M10 (since M11 it uses
+  the exact count bound, see "A bound on the count itself"). It still falls short of the nominal 95%,
   and the gap is mostly in what the study scores: whether the kappa realised on about 240
   fresh inputs clears the target, a statement about one noisy sample rather than the
   population statement a lower confidence bound makes, so a threshold whose true kappa sits
@@ -549,14 +550,15 @@ Findings:
   uncalibrated, 87.1% and 55.5% calibrated), because the threshold only uses the order of
   the confidences, which one temperature barely changes. Calibration matters for reading a
   confidence as a probability, not for the cascade's coverage.
-- **The product number.** At the served setting (target 0.9, lower bound) the Banking77
-  student answers 82.3% of held-out inputs at kappa 0.923 (lower bound 0.900) and escalates
-  the other 17.7%; for
-  0.95 it answers 70.8%. AG News, whose student has almost the same overall kappa (0.844
-  against 0.842), keeps less
-  (75.7% and 41.9%): its errors are spread further up the confidence range (agreement on its
-  most confident half is 0.971, against 0.992 for Banking77), so a strict target has to give
-  up more inputs to reach it. The same overall kappa can mean very different cascades.
+- **The product number.** At the served setting (target 0.9, the percentile lower bound in
+  M5) the Banking77 student answers 82.3% of held-out inputs at kappa 0.923 (lower bound
+  0.900) and escalates the other 17.7%; for 0.95 it answers 70.8%. AG News, whose student has
+  almost the same overall kappa (0.844 against 0.842), keeps less (75.7% and 41.9%): its
+  errors are spread further up the confidence range (agreement on its most confident half is
+  0.971, against 0.992 for Banking77), so a strict target has to give up more inputs to reach
+  it. The same overall kappa can mean very different cascades. Under the M11 default (the
+  exact count bound) the served coverage is 80.8% and 70.0% on Banking77 and 66.9% and none
+  on AG News; the summary table below shows the served rule, the per-rule tables every rule.
 
 <!-- BEGIN generated:calibration -->
 | Dataset | Teacher | Student | Held-out | Kappa (all inputs) | Temperature | ECE before -> after (all) | ECE before -> after (unseen half, median) | Coverage at kappa 0.9 | Coverage at kappa 0.95 |
@@ -809,12 +811,14 @@ against gold on 21% of AG News and 45% of Banking77 held-out inputs.
 
 - **The plan's prediction failed: a kappa-0.9 threshold exists on Banking77.** The plan
   expected none, since the teacher's self-agreement over all 200 ceiling inputs is 0.831. The
-  lower-bound rule finds one at 31.9% coverage, because the teacher is more consistent on the
-  inputs the student is sure of. On the 66 ceiling inputs above the served threshold, its
-  self-agreement is 0.936 [0.872, 0.984], and the student's agreement with it is 0.952. The
-  ceiling has to be read on the inputs the cascade answers, not on the whole split.
-- **The rule holds up less well against a noisier teacher.** At kappa 0.9, the lower-bound
-  threshold kept the target on the unseen half in 82.7% of the splits where it found one on
+  percentile rule (M8's default) finds one at 31.9% coverage and the exact rule (M11's) at
+  13.7%, because the teacher is more consistent on the inputs the student is sure of. On the
+  34 ceiling inputs above the exact rule's served threshold, its self-agreement is 0.968
+  [0.900, 1.000], and the student's agreement with it is 0.936. (M8 read the same on the 66
+  inputs above the percentile threshold: 0.936 and 0.952.) The ceiling has to be read on the
+  inputs the cascade answers, not on the whole split.
+- **The rule holds up less well against a noisier teacher.** At kappa 0.9, the percentile
+  lower-bound threshold kept the target on the unseen half in 82.7% of the splits where it found one on
   Banking77 (it found one in 75.0% of the 200, so 62% of all splits) and 81.0% on AG News, against 90.5% and 87.0% with gold. The
   point-estimate threshold kept it in 39.7% and 42.0%.
 - **This is consistency with the teacher, not correctness.** Inputs that a confident student
@@ -894,7 +898,8 @@ Findings, against the plan's hypotheses:
   against 87.0%; 85.5% against 82.0%), but paid in coverage: median 58.6% against 65.1% at
   0.9, and 23.8% against 36.6% at 0.95.
 
-**The default stays the percentile bound (`rule: lower`).** Pooled, the table shows no
+**The default stayed the percentile bound in M10 (`rule: lower`; M11 below replaced it).**
+Pooled, the table shows no
 coverage gain from BCa (93.0% against 93.1%) and no gain in the search (90.3% against 90.8%).
 In the regime the served Banking77 cascade lives in (77 labels, kappa 0.9-0.95), BCa is the
 worse bound in the simulation and on the gold Banking77 splits. Its advantage is confined to
@@ -956,8 +961,8 @@ Pooled over all 18 cells (9000 replications), the one-sided bound covers: Percen
 
 Pooled over all 12 cells: point estimate met 179/360 (49.7%), coverage given up versus the oracle 0.2%; 95% percentile lower bound met 325/358 (90.8%), coverage given up versus the oracle 10.8%; 95% BCa lower bound met 324/359 (90.3%), coverage given up versus the oracle 9.8%; 95% exact (Clopper-Pearson) count bound met 293/303 (96.7%), coverage given up versus the oracle 12.3%; 95% Wilson count bound met 303/316 (95.9%), coverage given up versus the oracle 12.1%.
 
-- 4 labels: Point found a threshold in 180/180, met 48.9%, true coverage 81.8%; Percentile found a threshold in 178/180, met 90.4%, true coverage 71.1%; BCa found a threshold in 179/180, met 91.1%, true coverage 71.2%; Exact found a threshold in 146/180, met 97.9%, true coverage 69.7%; Wilson found a threshold in 154/180, met 96.8%, true coverage 69.7%.
-- 77 labels: Point found a threshold in 180/180, met 50.6%, true coverage 81.6%; Percentile found a threshold in 180/180, met 91.1%, true coverage 71.0%; BCa found a threshold in 180/180, met 89.4%, true coverage 72.9%; Exact found a threshold in 157/180, met 95.5%, true coverage 71.6%; Wilson found a threshold in 162/180, met 95.1%, true coverage 71.6%.
+- 4 labels: Point found a threshold in 180/180, met 48.9%, true coverage 81.8% (81.8% counting a search with no threshold as 0); Percentile found a threshold in 178/180, met 90.4%, true coverage 71.1% (70.4% counting a search with no threshold as 0); BCa found a threshold in 179/180, met 91.1%, true coverage 71.2% (70.8% counting a search with no threshold as 0); Exact found a threshold in 146/180, met 97.9%, true coverage 69.7% (56.6% counting a search with no threshold as 0); Wilson found a threshold in 154/180, met 96.8%, true coverage 69.7% (59.6% counting a search with no threshold as 0).
+- 77 labels: Point found a threshold in 180/180, met 50.6%, true coverage 81.6% (81.6% counting a search with no threshold as 0); Percentile found a threshold in 180/180, met 91.1%, true coverage 71.0% (71.0% counting a search with no threshold as 0); BCa found a threshold in 180/180, met 89.4%, true coverage 72.9% (72.9% counting a search with no threshold as 0); Exact found a threshold in 157/180, met 95.5%, true coverage 71.6% (62.5% counting a search with no threshold as 0); Wilson found a threshold in 162/180, met 95.1%, true coverage 71.6% (64.5% counting a search with no threshold as 0).
 
 #### Pointwise: how often does each count bound cover the agreement rate itself?
 
@@ -974,6 +979,100 @@ Exact binomial sums, no sampling: for m answered inputs and each of 2000 agreeme
 | 500 | Exact | 95.00% | 0.869 | 96.01% | 0.0% |
 | 500 | Wilson | 93.59% | 0.995 | 95.58% | 25.6% |
 <!-- END generated:coverage -->
+
+### A bound on the count itself (M11)
+
+M10 ended with both bootstrap bounds covering 93% where they claim 95%, an unbiased estimator,
+and a named next step: bound the agreement count directly. On the m inputs a threshold accepts,
+the student agrees with the teacher on A of them; if each agrees with probability p_o, A is
+binomial, and the binomial distribution gives a lower bound on p_o with no resampling. Two
+rules join `choose_threshold` (`anvil/evaluate/binomial.py`):
+
+- `exact`: the one-sided Clopper-Pearson bound, the p at which seeing A or more agreements has
+  probability 5%. It inverts the binomial test itself, so it covers p_o at least 95% at every p.
+- `wilson`: the one-sided Wilson score bound, the normal approximation to the same test.
+
+Both map the bound L on p_o to kappa as (L - p_e) / (1 - p_e), where p_e is the chance term of
+the accepted inputs themselves, treated as known (the plug-in). Kappa is a different statistic
+from p_o, so the guarantee does not transfer exactly: the chance term's own sampling error is
+ignored, and the simulation checks whether that matters.
+
+- Command: `make eval-coverage` (the same simulation as M10, with the count bounds computed on
+  the same samples; the bootstrap columns are unchanged count for count), then
+  `python -m eval.calibration <dataset> --logits eval/results/calibration-<dataset>-<teacher>/logits.npz`
+  on the four committed files. The simulation takes 34 s on 2 workers (31 s under `--check`,
+  inside CI's 60 s); the four analyses take 30-75 s each. No model, $0.
+- The pointwise table (above) is new: exact binomial sums over 2,000 agreement rates from 0.8
+  to 0.999 at 30, 100, 250 and 500 answered inputs, so it has no Monte Carlo error.
+
+Findings, against the plan's hypotheses:
+
+- **Both count bounds reach 95% (hypothesis confirmed).** Pooled over the 18 fixed-sample cells
+  (9,000 replications), the exact bound covers 96.5% and Wilson 96.2%, against 93.1% for the
+  percentile bound on the same samples. No cell is under 93%: the worst is 94.4% for both
+  (exact at 4 labels, 500 items, kappa 0.9; Wilson at 4 labels, 100 items, kappa 0.9), less
+  than one Monte Carlo standard error (1.0 point per cell) under 95%. The price is a bound
+  0.002-0.004 (500 items) to 0.010-0.020 (100 items) of kappa below the percentile one on
+  average.
+- **The 4-label, 100-item cells over-cover, as predicted, but only with exact.** Exact covers
+  96.8%, 98.2% and 98.6% there (kappa 0.85, 0.9, 0.95), above the plan's 96.5%. Wilson covers
+  96.2%, 94.4% and 98.6%, so the prediction holds for it in one cell of three. The percentile
+  bound covers 93.6%, 89.4% and 90.6%, under the plan's 92% in two of the three.
+- **The plug-in chance term costs no visible coverage.** If ignoring the chance term's
+  sampling error mattered, it would show where p_e is largest and noisiest, at 4 labels and
+  100 items. Those are the cells where exact over-covers most. The pilot saw no
+  under-coverage either.
+- **Wilson is not exact, and the pointwise table shows where.** Clopper-Pearson's worst
+  coverage of p_o is 95.00% at every size. Wilson's dips to 92.50% (30 inputs) to 93.59%
+  (500), and it is under 95% at 19-26% of the agreement rates. Its worst rates move toward 1
+  as m grows (0.917 at 30 inputs, 0.995 at 500), which is where a cascade answers. On average
+  Wilson is close to nominal (95.6-97.7%), and that is what the kappa simulation sees.
+- **The threshold search keeps its target (hypothesis confirmed).** The chosen threshold truly
+  kept the target in 293 of 303 searches with exact (96.7%) and 303 of 316 with Wilson
+  (95.9%), against 325 of 358 (90.8%) for the percentile rule. The count rules find no
+  threshold more often (57 and 44 of 360 searches, against 2), mostly at 100 items and target
+  0.95, where 30-100 accepted inputs cannot support a lower bound of 0.95. At 4 balanced
+  labels the exact rule needs at least 79 of 79 agreements before kappa's bound reaches 0.95. Counting those searches as answering nothing, the
+  expected served coverage at 4 labels is 56.6% (exact), 59.6% (Wilson) and 70.4%
+  (percentile). At 77 labels it is 62.5%, 64.4% and 71.0%, against an oracle 81.8% for both.
+- **The served coverage cost depends on the curve's slope near the target, not on the label
+  count.** At 0.9, the exact threshold answers 80.8% of Banking77 (gold), against 82.3% for
+  the percentile rule, 1.4 points less (hypothesis: at most 2). On AG News (gold) it answers
+  66.9% against 75.7%, 8.8 points less (hypothesis: at least 5); Wilson is 72.7%. At 0.95 on
+  AG News neither count rule finds any threshold, where the percentile rule serves 41.9%
+  (hypothesis confirmed). The `qwen2.5:3b` students separate slope from labels. Banking77
+  with that teacher loses 18.1 points at 0.9 (31.9% to 13.7%, both count rules) and finds
+  nothing at 0.95. AG News with that teacher loses only 2.1 at 0.9 (84.5% to 82.4%). Where the
+  kappa-vs-coverage curve is flat near the target, a bound 0.01 lower moves the threshold a
+  long way. That is AG News (gold) at 0.9 (agreement on its most confident half is 0.971) and
+  Banking77 (`qwen2.5:3b`). Where it is steep, the honest bound is nearly free.
+- **On the unseen AG News halves at 0.95, the count rules decline instead of missing
+  (hypothesis on the conditional rate refuted).** The percentile rule found a threshold on
+  every fitting half and kept 0.95 on the unseen half in 82.0% of them, so 18% of splits
+  served a cascade that missed. The exact rule found a threshold in 16.0% of splits and kept
+  the target in 75.0% of those; Wilson found one in 25.0% and kept it in 80.0%. Both fall
+  short of the predicted 90%, for two reasons. A fitting half on which a 0.95 bound clears is
+  a lucky half, so conditioning on "found" selects samples that overstate. And "kept" is
+  scored on the other half's own estimate from about 100 answered inputs, which misses often
+  even when the true kappa sits just above 0.95. Unconditionally, the exact rule served a
+  missing cascade in 4.0% of splits (16.0% x 25.0%), Wilson in 5.0% and the percentile rule
+  in 18.0%. So most of the percentile rule's 41.9% was coverage that 238 labelled inputs
+  could not certify. At 0.9 on Banking77 (gold), exact kept the target in 94.5% of splits
+  against 90.5%, at a median unseen-half coverage of 79.4% against 80.2%.
+
+**The default is now `rule: exact`, for both label counts.** It is the only rule whose
+coverage of the agreement rate is guaranteed at every rate. Through the plug-in chance term it
+also covers kappa in every simulated cell (pooled 96.5%, worst 94.4%), and its chosen threshold
+keeps the target in 96.7% of searches. At 77 labels it costs exactly what Wilson costs (the two
+serve the same Banking77 threshold at both targets) and 1.4 points over the percentile rule.
+The answer only differs between the two count rules at 4 labels. There Wilson is cheaper
+(72.7% against 66.9% on AG News at 0.9), but it buys that by covering p_o as little as 92.5%
+at some agreement rates, the shortfall this milestone set out to remove. `anvil calibrate
+--rule wilson` keeps the cheaper rule for a user who accepts that, and `--rule lower` keeps
+the M5-M10 behaviour. The model card names the rule its threshold was chosen with. The
+committed bundle, its export and bench reports and the M9 shift study were measured on the
+percentile threshold (0.6395), because the students are not committed and do not reproduce
+bit for bit across CPUs. Re-exporting under the exact rule is under "To measure".
 
 ### ONNX export: fp32 and int8 parity on the trained students (M5)
 
@@ -1366,6 +1465,7 @@ What the numbers say (all from the table above):
 | The 100-item judge sample: `claude-haiku-5-5` judges whether the student's query answers the question as the teacher's does, compared with execution match item by item (how often a small table makes execution match wrong) | any `make eval-generate` run with `ANTHROPIC_API_KEY` set; the verdicts are written to `eval/labels/wikisql/judge-*.jsonl` and replay for free | key | about $0.01 (100 requests at ~500 input and ~80 output tokens) |
 | The generation run on a GPU (fp16 autocast on a T4): wall time and whether mixed precision changes the measured parity | `notebooks/anvil_gpu.ipynb` on Colab, then commit the downloaded `eval/results/generate-*` | a Colab T4 | $0 on the free tier |
 | The shift study on a 4-label student: does a threshold that filters out-of-scope inputs for 77 intents still filter them for AG News's 4 topics? | copy `eval/shift.yaml` with `dataset: ag_news`, AG News's test split as the in-distribution set and CLINC150 out-of-scope plus Banking77's test split as the others, then `uv run --group eval python -m eval.shift --teacher gold --config <file>` | about 1 h CPU for the AG News student if the workspace lacks it, 15 min for the study | $0 |
+| The export, bench and shift reports on the M11 threshold (the committed bundle carries the percentile rule's 0.6395; the exact rule serves 0.6635 on the same logits) | `make eval-calibration TEACHER=gold` (retrains the students if the workspace lacks them, writing the exact rule's `calibration.json`), then `make eval-export TEACHER=gold`, `make bench TEACHER=gold` and `make eval-shift` | about 4.5 h CPU | $0 |
 | A third training seed on both datasets (seeds 0 and 1 are in the table above) | `uv run --group eval python -m eval.classify ag_news banking77 --teacher gold --seed 2`, then `make results` | about 1.5 h CPU (2 ModernBERT-base runs) | $0 |
 
 The toy task is synthetic and only exercises the pipeline; real parity numbers come from the

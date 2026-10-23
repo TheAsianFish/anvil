@@ -1193,9 +1193,11 @@ def render_coverage(report: Report, meta: Report) -> str:
             found = sum(c[rule]["found"] for c in cells)
             met = sum(c[rule]["met"] for c in cells)
             reps = sum(c["reps"] for c in cells)
+            served = sum(c[rule]["found"] * (c[rule]["mean_true_coverage"] or 0) for c in cells)
             parts.append(
                 f"{_SEARCH_RULES[rule]} found a threshold in {found}/{reps}, met"
                 f" {_rate(met, found)}, true coverage {_pct(_weighted(cells, rule))}"
+                f" ({_pct(served / reps)} counting a search with no threshold as 0)"
             )
         out.append(f"- {labels} labels: " + "; ".join(parts) + ".")
     out.append("")
