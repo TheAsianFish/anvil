@@ -1197,48 +1197,47 @@ def render_flag(runs: list[tuple[str, Report, Report]]) -> str:
         variants = {
             "filtered": f"the {_pct(1 - float(r['flag_fraction']))} not flagged",
             "random": "a random share of the same size",
-            "unfiltered": "everything (the reference, retrained here)",
+            "unfiltered": "everything, retrained here",
         }
+        notes: list[str] = []
         for condition, entry in r["conditions"].items():
             retrain = entry["retrain"]
+            name_ = _CONDITION_NAMES.get(condition, condition)
             ref = retrain.get("reference_vs_gold")
             if ref:
                 out.append(
-                    f"| {_CONDITION_NAMES.get(condition, condition)} | everything (committed"
-                    f" reference) | {entry['train_labels_wrong']} | {_ci(ref)} | |"
+                    f"| {name_} | everything (committed reference) | {entry['train_labels_wrong']}"
+                    f" | {_ci(ref)} | |"
                 )
             for key, label in variants.items():
                 row = retrain.get(key)
                 if not row:
                     continue
                 out.append(
-                    f"| {_CONDITION_NAMES.get(condition, condition)} | {label} ({row['n_train']})"
+                    f"| {name_} | {label} ({row['n_train']})"
                     f" | {row['train_labels_wrong']} | {_ci(row['vs_gold'])}"
                     f" | {_diff(row.get('minus_unfiltered'))} |"
                 )
-            name_ = _CONDITION_NAMES.get(condition, condition)
-            name_ = name_[0].upper() + name_[1:]
+            title = name_[0].upper() + name_[1:]
             if retrain.get("filtered_minus_random"):
-                out += [
-                    "",
-                    f"- {name_}: kappa with gold, filtered minus random drop"
-                    f" (paired, both trained here): {_diff(retrain['filtered_minus_random'])}",
-                ]
+                notes.append(
+                    f"- {title}: kappa with gold, filtered minus random drop (paired, both trained"
+                    f" here): {_diff(retrain['filtered_minus_random'])}"
+                )
             if retrain.get("filtered_minus_unfiltered_here"):
-                out.append(
-                    f"- {name_}: kappa with gold, filtered minus unfiltered"
-                    " (paired, both trained here):"
-                    f" {_diff(retrain['filtered_minus_unfiltered_here'])}"
+                notes.append(
+                    f"- {title}: kappa with gold, filtered minus unfiltered (paired, both trained"
+                    f" here): {_diff(retrain['filtered_minus_unfiltered_here'])}"
                 )
             repro = retrain.get("reproduces_reference")
             if repro:
-                out.append(
+                notes.append(
                     "- The unfiltered student retrained here predicts the same label as the"
                     f" committed reference on {repro['same_predictions']} of {repro['n']}"
                     " held-out inputs"
                 )
-            if retrain.get("filtered_minus_random") or repro:
-                out.append("")
+        if notes:
+            out += ["", *notes]
         out.append("")
     return "\n".join(out)
 
