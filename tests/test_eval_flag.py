@@ -268,7 +268,13 @@ def test_run_dataset_trains_each_student_once_and_writes_a_reanalysable_report(
     assert teacher["train_labels_wrong"] == n_wrong
     assert teacher["flags"]["auroc"]["auroc"] == 1.0
     retrain = teacher["retrain"]
-    assert set(retrain) == {"filtered", "random", "unfiltered", "filtered_minus_random"}
+    assert set(retrain) == {
+        "filtered",
+        "random",
+        "unfiltered",
+        "filtered_minus_random",
+        "filtered_minus_unfiltered_here",
+    }
     assert retrain["filtered"]["n_train"] == 128
     assert retrain["filtered"]["train_labels_wrong"] == 0  # the flagged 32 held every error
     assert "minus_unfiltered" not in retrain["filtered"]
@@ -310,7 +316,7 @@ def test_reanalyse_needs_its_report(tmp_path: Path) -> None:
 
 
 def test_main_rejects_bad_arguments(capsys: pytest.CaptureFixture[str]) -> None:
-    for argv in (["--resamples", "0"], ["--size", "3"]):
+    for argv in (["--resamples", "0"], ["--size", "3"], ["toy", "--oof", "x.npz"]):
         with pytest.raises(SystemExit) as exc:
             flag.main(argv)
         assert exc.value.code == 2

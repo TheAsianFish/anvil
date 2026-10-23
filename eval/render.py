@@ -1216,13 +1216,20 @@ def render_flag(runs: list[tuple[str, Report, Report]]) -> str:
                     f" | {row['train_labels_wrong']} | {_ci(row['vs_gold'])}"
                     f" | {_diff(row.get('minus_unfiltered'))} |"
                 )
+            name_ = _CONDITION_NAMES.get(condition, condition)
+            name_ = name_[0].upper() + name_[1:]
             if retrain.get("filtered_minus_random"):
                 out += [
                     "",
-                    f"- {_CONDITION_NAMES.get(condition, condition).capitalize()}: kappa with"
-                    " gold, filtered minus random drop (paired):"
-                    f" {_diff(retrain['filtered_minus_random'])}",
+                    f"- {name_}: kappa with gold, filtered minus random drop"
+                    f" (paired, both trained here): {_diff(retrain['filtered_minus_random'])}",
                 ]
+            if retrain.get("filtered_minus_unfiltered_here"):
+                out.append(
+                    f"- {name_}: kappa with gold, filtered minus unfiltered"
+                    " (paired, both trained here):"
+                    f" {_diff(retrain['filtered_minus_unfiltered_here'])}"
+                )
             repro = retrain.get("reproduces_reference")
             if repro:
                 out.append(

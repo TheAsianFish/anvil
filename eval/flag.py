@@ -411,20 +411,26 @@ def run_dataset(
             random_keep[rng.choice(len(items), size=int(flagged.sum()), replace=False)] = False
             retrains["random"] = retrain(random_keep, "random-teacher")
             retrains["unfiltered"] = retrain(np.ones(len(items), dtype=bool), "unfiltered-teacher")
-            a = retrains["filtered"]
-            b = retrains["random"]
+            a, b, c = retrains["filtered"], retrains["random"], retrains["unfiltered"]
             assert isinstance(a, dict)
             assert isinstance(b, dict)
-            retrains["filtered_minus_random"] = asdict(
-                bootstrap_difference_ci(
-                    h_gold,
-                    a["predicted"],
-                    b["predicted"],
-                    "kappa",
-                    n_resamples=n_resamples,
-                    seed=SEED,
+            assert isinstance(c, dict)
+            # Against students trained here: the committed reference comes from another
+            # invocation, and students do not reproduce bit for bit across runs.
+            for key, other in (
+                ("filtered_minus_random", b),
+                ("filtered_minus_unfiltered_here", c),
+            ):
+                retrains[key] = asdict(
+                    bootstrap_difference_ci(
+                        h_gold,
+                        a["predicted"],
+                        other["predicted"],
+                        "kappa",
+                        n_resamples=n_resamples,
+                        seed=SEED,
+                    )
                 )
-            )
             if reference is not None and "teacher" in reference:
                 unf = retrains["unfiltered"]
                 assert isinstance(unf, dict)
@@ -522,7 +528,7 @@ def summary_line(report: Mapping[str, object], out: Path) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m eval.flag", description=__doc__)
-    parser.add_argument("datasets", nargs="*", default=list(DATASETS))
+    parser.add_argument("datasets", nargs="*", help=f"default: {' '.join(DATASETS)}")
     parser.add_argument("--size", type=int, help="smaller sample (smoke run)")
     parser.add_argument("--epochs", type=int, help="override the student's epochs (smoke run)")
     parser.add_argument("--resamples", type=int, default=DEFAULT_RESAMPLES)
@@ -536,8 +542,8 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--resamples must be at least 1")
     if args.size is not None and args.size < 10:
         parser.error("--size must be at least 10")
-    if args.oof is not None and args.datasets != list(DATASETS) and len(args.datasets) != 1:
-        parser.error("--oof re-runs one report; pass no dataset")
+    if args.oof is not None and args.datasets:
+        parser.error("--oof re-runs the report next to the file; it takes no dataset")
     settings = Settings.from_env()
     log.configure(settings.log_level)
     args_shown = " ".join(argv if argv is not None else sys.argv[1:])
@@ -568,7 +574,7 @@ def main(argv: list[str] | None = None) -> int:
             (out / "meta.json").write_text(json.dumps(meta, indent=2) + "\n", "utf-8")
             print(summary_line(report, out))  # noqa: T201 - the final summary
             return 0
-        for name in args.datasets:
+        for name in args.datasets or DATASETS:
             started = time.perf_counter()
             report, arrays = run_dataset(
                 name, settings, CONDITIONS, args.resamples, args.size, args.epochs
