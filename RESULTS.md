@@ -1041,7 +1041,7 @@ Findings, against the plan's hypotheses:
   agreeing inputs give about 0.970. Counting the searches with no threshold as answering
   nothing, the
   expected served coverage at 4 labels is 56.6% (exact), 59.6% (Wilson) and 70.4%
-  (percentile). At 77 labels it is 62.5%, 64.4% and 71.0%, against an oracle 81.8% for both.
+  (percentile). At 77 labels it is 62.5%, 64.5% and 71.0%, against an oracle 81.8% for both.
 - **The served coverage cost does not follow the label count; it looks like the curve's shape
   near the target.** At 0.9, the exact threshold answers 80.8% of Banking77 (gold), against 82.3% for
   the percentile rule, 1.4 points less (hypothesis: at most 2). On AG News (gold) it answers
@@ -1053,8 +1053,8 @@ Findings, against the plan's hypotheses:
   reading is that where the kappa-vs-coverage curve is flat near the target, a bound 0.01
   lower moves the threshold a long way, and where it is steep the honest bound is nearly free.
   That is a hypothesis from four curves, not a measurement, and the qwen Banking77 case is
-  confounded: its threshold accepts about 158 inputs against about 400 for gold, so its bound
-  is also wider because m is smaller.
+  confounded: its percentile threshold accepts 158 inputs (the exact one 68) against about
+  400 for gold under either rule, so its bound is also wider because m is smaller.
 - **On the unseen AG News halves at 0.95, the count rules decline instead of missing
   (hypothesis on the conditional rate refuted).** The percentile rule found a threshold on
   every fitting half and kept 0.95 on the unseen half in 82.0% of them, so 18% of splits
