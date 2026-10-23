@@ -144,3 +144,13 @@ def test_pointwise_exact_never_under_covers_and_wilson_does() -> None:
             assert r["share_below_nominal"] == 0.0
         else:  # Wilson is not exact: the discrete count makes it dip under nominal somewhere
             assert r["min"] < coverage.CONFIDENCE
+
+
+def test_pointwise_matches_catches_a_changed_row() -> None:
+    rows = coverage.pointwise()
+    assert coverage.pointwise_matches(rows, rows)
+    changed = [dict(r) for r in rows]
+    changed[1]["min"] = float(changed[1]["min"]) + 1e-6  # type: ignore[arg-type]
+    assert not coverage.pointwise_matches(rows, changed)
+    assert not coverage.pointwise_matches(None, rows)
+    assert not coverage.pointwise_matches(rows[:-1], rows)

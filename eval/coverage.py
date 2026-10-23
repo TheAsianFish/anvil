@@ -391,6 +391,22 @@ def counts(report: dict[str, object]) -> list[int]:
     return out
 
 
+def pointwise_matches(committed: object, fresh: object, tolerance: float = 1e-9) -> bool:
+    """`--check` for the pointwise table: exact sums with no sampling, so the same rows and
+    every value within `tolerance` (summation order may differ across CPUs)."""
+    if not isinstance(committed, list) or not isinstance(fresh, list):
+        return False
+    if len(committed) != len(fresh):
+        return False
+    for a, b in zip(committed, fresh, strict=True):
+        if (a["n"], a["method"]) != (b["n"], b["method"]):
+            return False
+        keys = ("min", "rate_at_min", "mean", "share_below_nominal")
+        if any(abs(float(a[k]) - float(b[k])) > tolerance for k in keys):
+            return False
+    return True
+
+
 CHECK_TOLERANCE = 1
 """`--check` accepts a count that differs by one: another CPU may sum in another order, and a
 bound that lands within an ulp of the population kappa can then flip one replication. A
@@ -436,8 +452,14 @@ def main(argv: list[str] | None = None) -> int:
     report = simulate(args.fixed_reps, args.search_reps, args.seed, args.workers)
     wall = time.perf_counter() - started
     if args.check:
-        committed = counts(json.loads((out / "report.json").read_text(encoding="utf-8")))
+        saved = json.loads((out / "report.json").read_text(encoding="utf-8"))
+        committed = counts(saved)
         fresh = counts(report)
+        if not pointwise_matches(saved.get("pointwise"), report["pointwise"]):
+            print(  # noqa: T201 - the CLI's error line
+                f"error: the pointwise table differs from {out / 'report.json'}", file=sys.stderr
+            )
+            return 1
         if len(committed) != len(fresh):
             print(f"error: {out / 'report.json'} holds another grid", file=sys.stderr)  # noqa: T201
             return 1
