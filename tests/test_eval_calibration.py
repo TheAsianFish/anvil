@@ -340,6 +340,34 @@ def test_against_gold_scores_the_cascade_and_the_teacher_on_the_same_inputs() ->
     assert auc["teacher_label_probability"]["auroc"] == pytest.approx(1.0)
 
 
+def test_against_gold_answers_with_the_student_above_the_threshold_and_the_teacher_below() -> None:
+    # The teacher is wrong on the first 20 inputs (the most confident) and the last 40; the
+    # student is right everywhere. Above the threshold the cascade takes the student's answer
+    # and fixes the first 20; below it keeps the teacher's errors.
+    n, k = 200, 4
+    gold = (np.arange(n) % k).astype(np.int64)
+    teacher = gold.copy()
+    teacher[:20] = (gold[:20] + 1) % k
+    teacher[-40:] = (gold[-40:] + 1) % k
+    z = np.zeros((n, k))
+    z[np.arange(n), gold] = np.linspace(4.0, 0.2, n)
+    p = softmax(z, 1.0).max(axis=1)
+    half = float(np.sort(p)[::-1][n // 2 - 1])
+    out: Any = calibration.against_gold(z, teacher, gold, 1.0, {"0.9": half}, 200, 0)
+
+    row = out["served"]["0.9"]
+    assert row["n"] == 100
+    assert row["teacher_wrong"] == 20
+    assert row["student_vs_gold"]["kappa"] == pytest.approx(1.0)
+    assert row["student_minus_teacher"]["estimate"] > 0
+    cascade = np.where(np.arange(n) < 100, gold, teacher)
+    assert row["cascade_vs_gold"]["kappa"] == pytest.approx(calibration._kappa(gold, cascade, k))
+    assert row["cascade_minus_teacher"]["estimate"] == pytest.approx(
+        calibration._kappa(gold, cascade, k) - calibration._kappa(gold, teacher, k)
+    )
+    assert row["cascade_minus_teacher"]["low"] > 0
+
+
 def test_gold_codes_follow_the_classify_report(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
