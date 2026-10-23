@@ -1139,6 +1139,103 @@ def render_noise(runs: list[tuple[str, Report, Report]]) -> str:
     return "\n".join(out)
 
 
+def _auroc_cell(stats: Mapping[str, Any] | None) -> str:
+    if not stats:
+        return "n/a"
+    return f"{_f(stats['auroc'])} [{_f(stats['low'])}, {_f(stats['high'])}]"
+
+
+def render_flag(runs: list[tuple[str, Report, Report]]) -> str:
+    """Out-of-fold flagging of the training labels (`eval.flag`): how well the student's
+    probability of each given label finds the wrong ones, and what dropping the flagged share
+    and retraining does to the student's kappa with gold."""
+    if not runs:
+        return "No flagging run yet: `make eval-flag`.\n"
+    out: list[str] = []
+    for name, r, meta in runs:
+        pool, held = r["pool"], r["heldout"]
+        share = _pct(r["flag_fraction"])
+        target = r["target_precision"]
+        out += [
+            f"#### {r['dataset']['name']}, teacher `{r['teacher']['model']}`, student"
+            f" `{_student_name(r['student']['model'])}`",
+            "",
+            f"- Raw output: `eval/results/{name}/` (`report.json`, `meta.json`, `oof.npz` with"
+            " every out-of-fold probability)",
+            f"- Command: `{meta.get('command', '?')}` at {_commit(meta)}; {pool['n']} pool"
+            f" labels, {pool['folds']} folds (seed {pool['fold_seed']}); {r['students_trained']}"
+            f" students trained in this invocation; {meta.get('cpus')} CPUs; wall"
+            f" {_duration(float(meta.get('wall_seconds', 0)))}; $0",
+            "",
+            "| Training labels | Wrong | Out-of-fold AUROC for wrong labels"
+            f" | Lowest {share} flagged: precision | Recall (of all wrong)"
+            f" | Recall at precision >= {target} (share flagged) | Flagged wrong labels where"
+            " the student's top class is gold |",
+            "|---|---|---|---|---|---|---|",
+        ]
+        for condition, entry in r["conditions"].items():
+            f = entry["flags"]
+            at, best = f["at_fraction"], f["at_precision"]
+            out.append(
+                f"| {_CONDITION_NAMES.get(condition, condition)}"
+                f" | {_share(f['wrong'], f['n'])} | {_auroc_cell(f['auroc'])}"
+                f" | {_f(at['precision'])} | {_f(at['recall'])} (at most"
+                f" {_f(f['best_possible_recall'])})"
+                f" | {_f(best['recall'])} ({_pct(best['flagged_share'])})"
+                f" | {_pct(f['caught_argmax_is_gold'])} |"
+            )
+        out += [
+            "",
+            f"Retrained on what was not flagged, scored against gold on {held['n']} held-out"
+            " inputs (seed 0; the reference is the committed seed-0 `eval-noise` student trained"
+            " on the same labels unfiltered):",
+            "",
+            "| Training labels | Trained on | Wrong among them | Kappa with gold"
+            " | Minus the unfiltered reference (paired) |",
+            "|---|---|---|---|---|",
+        ]
+        variants = {
+            "filtered": f"the {_pct(1 - float(r['flag_fraction']))} not flagged",
+            "random": "a random share of the same size",
+            "unfiltered": "everything (the reference, retrained here)",
+        }
+        for condition, entry in r["conditions"].items():
+            retrain = entry["retrain"]
+            ref = retrain.get("reference_vs_gold")
+            if ref:
+                out.append(
+                    f"| {_CONDITION_NAMES.get(condition, condition)} | everything (committed"
+                    f" reference) | {entry['train_labels_wrong']} | {_ci(ref)} | |"
+                )
+            for key, label in variants.items():
+                row = retrain.get(key)
+                if not row:
+                    continue
+                out.append(
+                    f"| {_CONDITION_NAMES.get(condition, condition)} | {label} ({row['n_train']})"
+                    f" | {row['train_labels_wrong']} | {_ci(row['vs_gold'])}"
+                    f" | {_diff(row.get('minus_unfiltered'))} |"
+                )
+            if retrain.get("filtered_minus_random"):
+                out += [
+                    "",
+                    f"- {_CONDITION_NAMES.get(condition, condition).capitalize()}: kappa with"
+                    " gold, filtered minus random drop (paired):"
+                    f" {_diff(retrain['filtered_minus_random'])}",
+                ]
+            repro = retrain.get("reproduces_reference")
+            if repro:
+                out.append(
+                    "- The unfiltered student retrained here predicts the same label as the"
+                    f" committed reference on {repro['same_predictions']} of {repro['n']}"
+                    " held-out inputs"
+                )
+            if retrain.get("filtered_minus_random") or repro:
+                out.append("")
+        out.append("")
+    return "\n".join(out)
+
+
 def _q(stats: Mapping[str, Any] | None, digits: int = 3) -> str:
     """`median [p5, p95]` of a split-study quantile summary."""
     if not stats:
@@ -1672,6 +1769,7 @@ LEDGER_EVALS = (
     ("export-", "eval-export"),
     ("bench-", "bench"),
     ("noise-", "eval-noise"),
+    ("flag-", "eval-flag"),
     ("coverage-", "eval-coverage"),
     ("shift-", "eval-shift"),
     ("spike-onnx", "spike-onnx"),
@@ -1980,6 +2078,7 @@ def blocks_for(results_dir: Path) -> dict[str, str]:
         "classify-seeds": render_seed_spread(load_runs(results_dir, seeds=True)),
         "classify-teacher": render_fallible(load_runs(results_dir)),
         "noise": render_noise(load_runs(results_dir, prefix="noise-")),
+        "flag": render_flag(load_runs(results_dir, prefix="flag-")),
         "select": render_select(load_select(results_dir)),
         "frontier": render_frontier(load_frontiers(results_dir)),
         "extract": render_extract(load_runs(results_dir, prefix="extract-")),
