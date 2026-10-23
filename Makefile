@@ -81,7 +81,7 @@ eval-shift: ## M9 the served Banking77 bundle on its test split, CLINC150 out-of
 	$(RUN) --group eval python -m eval.shift --teacher $(TEACHER)
 	$(RUN) python -m eval.render
 
-eval-coverage: ## M10 coverage of the percentile and BCa bounds and of the threshold search (simulation, offline, under a minute), then RESULTS.md
+eval-coverage: ## M10/M11 coverage of the bootstrap and count bounds and of the threshold search (simulation, offline, under a minute), then RESULTS.md
 	$(RUN) python -m eval.coverage
 	$(RUN) python -m eval.render
 
