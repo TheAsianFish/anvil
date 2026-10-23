@@ -11,6 +11,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 from anvil.evaluate.binomial import (
+    binomial_pmf,
     binomial_upper_tail,
     clopper_pearson_lower,
     kappa_lower_bound,
@@ -291,3 +292,20 @@ def test_kappa_lower_bound_validation() -> None:
         kappa_lower_bound(a[:0], a[:0], 2, "exact")
     with pytest.raises(ValueError, match=r"\[0, 2\)"):
         kappa_lower_bound(a, np.array([0, 1, 2], dtype=np.int64), 2, "exact")
+
+
+@pytest.mark.parametrize("n", [1, 7, 60])
+def test_binomial_pmf_matches_brute_force(n: int) -> None:
+    rates = [0.0, 0.03, 0.5, 0.97, 1.0]
+    table = binomial_pmf(n, rates)
+    assert table.shape == (len(rates), n + 1)
+    for row, p in zip(table, rates, strict=True):
+        assert row == pytest.approx([pmf(j, n, p) for j in range(n + 1)], abs=1e-12)
+        assert row.sum() == pytest.approx(1.0, abs=1e-12)
+
+
+def test_binomial_pmf_rejects_bad_inputs() -> None:
+    with pytest.raises(ValueError, match="trials"):
+        binomial_pmf(0, [0.5])
+    with pytest.raises(ValueError, match="probabilities"):
+        binomial_pmf(5, [1.5])

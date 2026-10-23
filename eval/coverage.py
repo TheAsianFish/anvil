@@ -27,6 +27,13 @@ rule applies it:
    against the target: the selection effect of picking the best of many thresholds, which a
    fixed-threshold coverage study misses.
 
+3. Pointwise (`pointwise`): no sampling at all. Both count bounds bound p_o, the agreement
+   rate, before the chance term maps it to kappa; for m answered inputs and every agreement
+   rate p on a fine grid over the range a cascade answers at, the probability that the bound
+   is at or below p is summed exactly over the binomial distribution of the count. The
+   Clopper-Pearson bound is at least 95% at every p by construction; the Wilson bound is not,
+   and this says by how much and how often it falls short.
+
 The search shares one bootstrap per candidate threshold between the two bootstrap rules, and
 computes both count bounds for every candidate in one vectorised call (`search_all`); a test
 checks it picks exactly what `choose_threshold` picks for each rule.
@@ -65,7 +72,12 @@ from anvil.calibrate import (
     count_bounds,
     coverage_curve,
 )
-from anvil.evaluate.binomial import CountMethod, kappa_lower_from_counts
+from anvil.evaluate.binomial import (
+    COUNT_BOUNDS,
+    CountMethod,
+    binomial_pmf,
+    kappa_lower_from_counts,
+)
 from anvil.evaluate.bootstrap import (
     bca_levels,
     kappa_jackknife,
@@ -93,6 +105,11 @@ COUNT_METHODS: tuple[CountMethod, ...] = ("exact", "wilson")
 METHODS = BOOTSTRAP_METHODS + COUNT_METHODS
 BETA = 0.8
 GAMMA = 4.0
+POINTWISE_SIZES = (30, 100, 250, 500)
+"""30 is `min_accepted`, the fewest inputs a threshold may answer."""
+POINTWISE_RATES = (0.8, 0.999, 2000)
+"""Agreement rates from 0.8 to 0.999 (2,000 points): kappa 0.85 at 4 labels is p_o 0.89, and a
+cascade at kappa 0.95 with 77 labels answers where p_o is above 0.95."""
 DEFAULT_FIXED_REPS = 500
 DEFAULT_SEARCH_REPS = 30
 DEFAULT_SEED = 0
@@ -273,6 +290,30 @@ def search_cell(cell: Cell) -> dict[str, object]:
     return out
 
 
+def pointwise() -> list[dict[str, object]]:
+    """Exact coverage of p_o by each count bound at every agreement rate of the grid."""
+    rates = np.linspace(*POINTWISE_RATES[:2], int(POINTWISE_RATES[2]))
+    out: list[dict[str, object]] = []
+    for m in POINTWISE_SIZES:
+        pmf = binomial_pmf(m, rates)
+        counts = np.arange(m + 1, dtype=np.int64)
+        for method in COUNT_METHODS:
+            bound = COUNT_BOUNDS[method](counts, np.full(m + 1, m), CONFIDENCE)
+            coverage = (pmf * (bound[None, :] <= rates[:, None])).sum(axis=1)
+            worst = int(coverage.argmin())
+            out.append(
+                {
+                    "n": m,
+                    "method": method,
+                    "min": float(coverage.min()),
+                    "rate_at_min": float(rates[worst]),
+                    "mean": float(coverage.mean()),
+                    "share_below_nominal": float((coverage < CONFIDENCE - 1e-12).mean()),
+                }
+            )
+    return out
+
+
 def _run_cell(cell: Cell) -> dict[str, object]:
     return fixed_cell(cell) if cell.part == "fixed" else search_cell(cell)
 
@@ -306,6 +347,12 @@ def simulate(fixed_reps: int, search_reps: int, seed: int, workers: int) -> dict
             "fixed_reps": fixed_reps,
             "search_reps": search_reps,
             "seed": seed,
+            "pointwise_sizes": list(POINTWISE_SIZES),
+            "pointwise_rates": {
+                "low": POINTWISE_RATES[0],
+                "high": POINTWISE_RATES[1],
+                "points": int(POINTWISE_RATES[2]),
+            },
             "search_population": {
                 "beta": BETA,
                 "gamma": GAMMA,
@@ -316,6 +363,7 @@ def simulate(fixed_reps: int, search_reps: int, seed: int, workers: int) -> dict
         },
         "fixed": [r for c, r in done if c.part == "fixed"],
         "search": [r for c, r in done if c.part == "search"],
+        "pointwise": pointwise(),
     }
 
 

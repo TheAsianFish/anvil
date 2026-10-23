@@ -88,6 +88,31 @@ def binomial_upper_tail(
     return out
 
 
+def binomial_pmf(trials: int, p: npt.ArrayLike) -> FloatArray:
+    """P(X = k) for X ~ Binomial(trials, p) at every k in 0..trials (columns) and every p in
+    the 1-d `p` (rows), from log factorials; p must lie in [0, 1]."""
+    if trials < 1:
+        raise ValueError(f"trials must be positive, got {trials}")
+    prob = np.atleast_1d(np.asarray(p, dtype=np.float64))
+    if prob.ndim != 1 or not np.isfinite(prob).all() or prob.min() < 0 or prob.max() > 1:
+        raise ValueError("p must be a 1-d array of probabilities in [0, 1]")
+    k = np.arange(trials + 1, dtype=np.float64)[None, :]
+    lf = _log_factorials(trials)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        log_pmf = (
+            lf[trials]
+            - lf[None, :]
+            - lf[::-1][None, :]
+            + k * np.log(prob)[:, None]
+            + (trials - k) * np.log1p(-prob)[:, None]
+        )
+    out: FloatArray = np.exp(log_pmf)
+    # 0 * log(0) is 0 here: at p == 0 all the mass is on k == 0, at p == 1 on k == trials.
+    out[prob == 0] = np.eye(1, trials + 1, 0)[0]
+    out[prob == 1] = np.eye(1, trials + 1, trials)[0]
+    return out
+
+
 def _tail(k: IntArray, n: IntArray, p: FloatArray) -> FloatArray:
     """The tail for 0 < k <= n and 0 < p < 1: a padded (batch, n - k + 1) sum of the pmf."""
     width = int((n - k).max()) + 1

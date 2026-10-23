@@ -125,6 +125,25 @@ def test_render_coverage_tables() -> None:
     assert "100.0% -> 0.840, 50.0% -> 0.990" in text
 
 
+def test_render_coverage_pointwise_table() -> None:
+    report = coverage_report()
+    report["config"]["pointwise_rates"] = {"low": 0.8, "high": 0.999, "points": 2000}
+    report["pointwise"] = [
+        {
+            "n": 30,
+            "method": "wilson",
+            "min": 0.92503,
+            "rate_at_min": 0.9173,
+            "mean": 0.97664,
+            "share_below_nominal": 0.1865,
+        }
+    ]
+    text = render.render_coverage(report, META)
+    assert "2000 agreement rates p from 0.8 to 0.999" in text
+    assert "| 30 | Wilson | 92.50% | 0.917 | 97.66% | 18.6% |" in text
+    assert "Pointwise" not in render.render_coverage(coverage_report(), META)
+
+
 def test_render_coverage_of_a_report_without_the_count_bounds() -> None:
     text = render.render_coverage(coverage_report(counts=False), META)
     assert "Exact" not in text

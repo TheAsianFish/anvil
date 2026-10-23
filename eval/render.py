@@ -1199,7 +1199,34 @@ def render_coverage(report: Report, meta: Report) -> str:
             )
         out.append(f"- {labels} labels: " + "; ".join(parts) + ".")
     out.append("")
+    out += _pointwise_lines(report.get("pointwise"), cfg)
     return "\n".join(out)
+
+
+def _pointwise_lines(rows: list[Mapping[str, Any]] | None, cfg: Mapping[str, Any]) -> list[str]:
+    """The exact pointwise coverage of p_o by the count bounds (no sampling)."""
+    if not rows:
+        return []
+    grid = cfg.get("pointwise_rates") or {}
+    out = [
+        "#### Pointwise: how often does each count bound cover the agreement rate itself?",
+        "",
+        f"Exact binomial sums, no sampling: for m answered inputs and each of"
+        f" {grid.get('points', '?')} agreement rates p from {grid.get('low', '?')} to"
+        f" {grid.get('high', '?')}, the probability that the 95% bound on p_o is at or below p.",
+        "",
+        "| Answered inputs | Bound | Worst coverage | At agreement rate | Mean coverage"
+        " | Share of rates under 95% |",
+        "|---|---|---|---|---|---|",
+    ]
+    for r in rows:
+        out.append(
+            f"| {r['n']} | {_COVERAGE_METHODS.get(r['method'], r['method'])}"
+            f" | {100 * r['min']:.2f}% | {_f(r['rate_at_min'])} | {100 * r['mean']:.2f}%"
+            f" | {_pct(r['share_below_nominal'])} |"
+        )
+    out.append("")
+    return out
 
 
 def _weighted(cells: list[Mapping[str, Any]], rule: str) -> float | None:

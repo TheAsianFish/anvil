@@ -130,3 +130,17 @@ def test_main_writes_and_checks(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 def test_main_rejects_non_positive_reps() -> None:
     with pytest.raises(SystemExit):
         coverage.main(["--fixed-reps", "0"])
+
+
+def test_pointwise_exact_never_under_covers_and_wilson_does() -> None:
+    rows = coverage.pointwise()
+    assert {(r["n"], r["method"]) for r in rows} == {
+        (m, method) for m in coverage.POINTWISE_SIZES for method in ("exact", "wilson")
+    }
+    for r in rows:
+        assert isinstance(r["min"], float)
+        if r["method"] == "exact":
+            assert r["min"] >= coverage.CONFIDENCE - 1e-12
+            assert r["share_below_nominal"] == 0.0
+        else:  # Wilson is not exact: the discrete count makes it dip under nominal somewhere
+            assert r["min"] < coverage.CONFIDENCE
