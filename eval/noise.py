@@ -38,7 +38,7 @@ import sys
 import time
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -48,13 +48,15 @@ from anvil.errors import AnvilError, ConfigError
 from anvil.evaluate.bootstrap import bootstrap_difference_ci
 from anvil.pipeline import Workspace, label, train
 from anvil.settings import Settings
+from anvil.spec import TaskSpec
 from anvil.store import Split
 from anvil.students.encoder import EncoderClassifier
-from anvil.teacher.base import Label
+from anvil.teacher.base import Item, Label
 from anvil.teacher.labelfile import LabelFileTeacher
 from eval.classify import (
     CONFIG_DIR,
     RESULTS_DIR,
+    EvalConfig,
     _pair_stats,
     _versions,
     file_safe,
@@ -65,7 +67,7 @@ from eval.classify import (
     teacher_errors,
     workspace,
 )
-from eval.data import load_rows, sample, write_inputs
+from eval.data import Sample, load_rows, sample, write_inputs
 from eval.frontier import load_frontier_config
 from eval.render import SMOKE_SUFFIX
 from eval.student import find_student
@@ -143,22 +145,36 @@ def _summary(values: Sequence[float]) -> dict[str, float]:
     return {"mean": float(np.mean(values)), "min": min(values), "max": max(values)}
 
 
-def run_dataset(
-    name: str,
-    settings: Settings,
-    seeds: Sequence[int],
-    conditions: Sequence[str],
-    n_resamples: int,
-    size: int | None = None,
-    epochs: int | None = None,
-) -> dict[str, object]:
+@dataclass(frozen=True)
+class Pool:
+    """The M8 sample's pool and held-out inputs with the teacher's recorded labels and gold."""
+
+    config: EvalConfig
+    spec: TaskSpec
+    data: Sample
+    teacher_model: str
+    pool: list[tuple[Item, str]]
+    """(input, teacher label) in store order: the order every corruption is drawn in."""
+    heldout: list[tuple[Item, str]]
+
+    @property
+    def pool_gold(self) -> list[str]:
+        return [self.data.gold[it.id] for it, _ in self.pool]
+
+    @property
+    def pool_teacher(self) -> list[str]:
+        return [lab for _, lab in self.pool]
+
+
+def load_pool(name: str, settings: Settings, size: int | None = None) -> Pool:
+    """The local teacher's labels for dataset `name`, replayed from `eval/labels/` into the
+    classify eval's workspace (never labelled live), with the gold labels next to them."""
     config = load_config(CONFIG_DIR / f"{name}.yaml").with_local_teacher()
     n = size or config.sample.size
     data = sample(name, *load_rows(config.dataset.ref()), n=n, seed=config.sample.seed)
     spec = config.spec
     pool_labels = config.sample.pool_labels if size is None else round(0.8 * n)
     heldout_labels = config.sample.heldout_labels if size is None else n
-    # The teacher's labels, replayed from `eval/labels/` into the classify eval's workspace.
     ws = workspace(settings, spec, data)
     inputs = ws.root / "inputs.jsonl"
     write_inputs(inputs, data.items)
@@ -180,9 +196,28 @@ def run_dataset(
         heldout = store.labelled(recorded.model_id, spec.prompt_hash, Split.HELDOUT)
     if not pool or not heldout:
         raise ConfigError(f"no recorded {recorded.model_id} labels for {name}")
+    return Pool(config, spec, data, recorded.model_id, pool, heldout)
 
-    pool_gold = [data.gold[it.id] for it, _ in pool]
-    pool_teacher = [lab for _, lab in pool]
+
+def run_dataset(
+    name: str,
+    settings: Settings,
+    seeds: Sequence[int],
+    conditions: Sequence[str],
+    n_resamples: int,
+    size: int | None = None,
+    epochs: int | None = None,
+) -> dict[str, object]:
+    loaded = load_pool(name, settings, size)
+    config, spec, data, pool, heldout = (
+        loaded.config,
+        loaded.spec,
+        loaded.data,
+        loaded.pool,
+        loaded.heldout,
+    )
+    pool_gold = loaded.pool_gold
+    pool_teacher = loaded.pool_teacher
     h_texts = [it.text for it, _ in heldout]
     h_gold = [data.gold[it.id] for it, _ in heldout]
     h_teacher = [lab for _, lab in heldout]
@@ -253,7 +288,7 @@ def run_dataset(
             "sample_sha256": data.sha256,
         },
         "teacher": {
-            "model": recorded.model_id,
+            "model": loaded.teacher_model,
             "digest": spec.teacher.digest,
             "prompt_hash": spec.prompt_hash,
         },
