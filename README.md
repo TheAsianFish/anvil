@@ -29,15 +29,17 @@ with a LoRA adapter, trained on its own chat template and scored by
 execution match: the student's query and the teacher's run against the
 question's table in a sandboxed SQLite and must return the same rows.
 
-Status: **0.1.0, release-ready** (all seven milestones in [PLAN.md](PLAN.md)).
-The package builds a wheel that installs into a clean venv and runs the demo
+Status: **0.1.0, release-ready** (all thirteen milestones in [PLAN.md](PLAN.md):
+the seven that built the tool and six studies of its measurements). The
+package builds a wheel that installs into a clean venv and runs the demo
 (`make wheel-check`); the release workflow publishes to PyPI and GHCR when a
 GitHub release is published, and `anvil push` uploads a student to the
 Hugging Face Hub with a model card written from its measured numbers
-([RELEASE.md](RELEASE.md)). Every number below was measured with the
-dataset's gold labels standing in for the teacher: no Claude label has been
-bought yet, and the runs that need one are listed with their cost under
-"To measure" in [RESULTS.md](RESULTS.md).
+([RELEASE.md](RELEASE.md)). No Claude label has been bought yet: most numbers
+below were measured with the dataset's gold labels standing in for the
+teacher, and the fallible-teacher rows (M8, M13) with `qwen2.5:3b`, a local
+open model served by Ollama. The runs that need a key are listed with their
+cost under "To measure" in [RESULTS.md](RESULTS.md).
 
 ## Demo
 
@@ -101,9 +103,9 @@ reproduce its answers exactly. The demo finishes in about a minute and a half
 on a laptop CPU, most of it Python start-up for each command. Its numbers are a
 smoke check of the pipeline, not results.
 
-<!-- GIF placeholder: record `anvil label/train/eval` against Claude with
-`vhs docs/demo.tape` (or asciinema + agg) once real labels exist, save it as
-docs/screenshots/demo.gif and link it here. -->
+<!-- GIF placeholder: once a key exists, record `anvil label/train/eval` against
+Claude on the toy task with `vhs docs/demo.tape` (writes docs/screenshots/demo.gif;
+asciinema + agg works too) and link the GIF here. -->
 
 ## Quickstart
 
@@ -661,7 +663,7 @@ Planned in PLAN.md, evolution round 1 (all built):
 - [x] M10: does the interval cover? A coverage simulation of the percentile and BCa bootstrap
   bounds at the kappa, sample size and label count where the threshold rule applies them
   (both cover about 93%; the threshold search keeps its target 91% of the time; BCa is
-  worse at 77 labels, so the percentile bound stays the default; see Results)
+  worse at 77 labels, so the percentile bound stayed the default until M11; see Results)
 - [x] M11: a bound on the count itself: `exact` (Clopper-Pearson on the agreement count) and
   `wilson` rules for the cascade threshold (both cover about 96%, the search keeps its target
   96-97% of the time; the cost in served coverage is 1.4 points on Banking77 and 8.8 on AG
