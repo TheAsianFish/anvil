@@ -530,6 +530,18 @@ mistakes than one trained on its confusions placed at random (77% vs 52% on
 AG News), so part of the noise follows the inputs. The teacher's errors are
 systematic, so more labels from it would not fix them (RESULTS.md, M8).
 
+Measured against gold, the cascade built on that teacher is exactly as correct as the
+teacher. At the served threshold the student agrees with `qwen2.5:3b` at 0.969 on
+Banking77 but with gold at 0.725, where the teacher itself scores 0.710 on the same
+inputs. The whole cascade is within 0.003 of the teacher alone on both datasets (M13). So
+can the student at least flag its teacher's mistakes? Trained out of fold, it ranks the
+teacher's wrong labels at AUROC 0.682 (Banking77) and 0.711 (AG News), against 0.938 and
+0.898 when the same number of errors is spread uniformly. It does about as badly on the
+teacher's confusions dealt to random inputs (0.729, 0.724), so it is the class-level
+confusion, not its tie to particular inputs, that hides the errors. Dropping the most
+suspect 20% and retraining gains +0.033 kappa with gold on Banking77 (+0.053 over dropping
+a random 20%) and nothing on AG News.
+
 Span extraction on MIT Restaurant (8 slot types, ~9-word queries), the same
 setup with a ModernBERT-base BIO tagger on 1,442 gold-teacher labels, scored
 on 500 held-out sentences with intervals that resample sentences:
@@ -661,9 +673,11 @@ Planned in PLAN.md, evolution round 2:
   over inputs, run on entity F1 from the committed extraction predictions (41.8% coverage at
   F1 0.9 under the lower bound, kept on 84% of unseen halves; boundary and type errors equally
   visible against clean sentences, missed entities least; see Results)
-- [ ] M13: can the student flag its teacher's mistakes? Out-of-fold flagging of the local
+- [x] M13: can the student flag its teacher's mistakes? Out-of-fold flagging of the local
   teacher's labels against the uniform and confusion-pair controls, and the fallible-teacher
-  cascade measured against gold
+  cascade measured against gold (the cascade is exactly as correct as its teacher; the
+  student flags the teacher's errors at AUROC about 0.7 against 0.9 for uniform noise,
+  because systematic class confusions look like real labels; see Results)
 
 Still open, each needing a key or the owner's own code:
 

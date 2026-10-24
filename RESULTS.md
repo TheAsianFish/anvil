@@ -19,9 +19,9 @@ directory under `eval/results/`.
 |---|---|---|---|---|---|---|
 | `bench-banking77-gold` | bench | gold | `python -m eval.bench --teacher gold` | `d0cfa4c` | 19m 27s | $0.00 |
 | `calibration-ag_news-gold` | eval-calibration | gold | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-gold/logits.npz` | `52dd15a` | 1m 33s | $0.00 |
-| `calibration-ag_news-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` | `52dd15a` | 1m 06s | $0.00 |
+| `calibration-ag_news-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` | `c388f6d` | 1m 14s | $0.00 |
 | `calibration-banking77-gold` | eval-calibration | gold | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-gold/logits.npz` | `52dd15a` | 0m 57s | $0.00 |
-| `calibration-banking77-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` | `52dd15a` | 0m 51s | $0.00 |
+| `calibration-banking77-qwen2.5-3b` | eval-calibration | qwen2.5:3b | `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` | `c388f6d` | 0m 46s | $0.00 |
 | `cascade-extract-mit_restaurant-gold` | eval-extract-cascade | gold | `python -m eval.extract --predictions eval/results/extract-mit_restaurant-gold/report.json` | `fe621a5` | 0m 20s | $0.00 |
 | `classify-ag_news-gold` | eval-classify | gold | `python -m eval.classify ag_news banking77 --teacher gold` | `74cca5e` | 36m 10s | $0.00 |
 | `classify-ag_news-gold-seed1` | eval-classify | gold | `python -m eval.classify ag_news --teacher gold --seed 1` | `1c900f7` | 47m 59s | $0.00 |
@@ -33,6 +33,8 @@ directory under `eval/results/`.
 | `export-ag_news-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 47m 30s | $0.00 |
 | `export-banking77-gold` | eval-export | gold | `python -m eval.export --teacher gold` | `e65c998` (uncommitted changes) | 1h 03m 02s | $0.00 |
 | `extract-mit_restaurant-gold` | eval-extract | gold | `python -m eval.extract mit_restaurant --teacher gold` | `7dace8b` (uncommitted changes) | 15m 01s | $0.00 |
+| `flag-ag_news-qwen2.5-3b` | eval-flag | qwen2.5:3b | `python -m eval.flag` | `1dfc2df` | 0m 04s | $0.00 |
+| `flag-banking77-qwen2.5-3b` | eval-flag | qwen2.5:3b | `python -m eval.flag` | `1dfc2df` | 0m 02s | $0.00 |
 | `frontier-ag_news-gold` | eval-frontier | gold | `python -m eval.frontier --teacher gold` | `f929d74` | 1h 27m 18s | $0.00 |
 | `frontier-banking77-gold` | eval-frontier | gold | `python -m eval.frontier banking77 --teacher gold` | `278462c` | 27m 58s | $0.00 |
 | `generate-wikisql-gold` | eval-generate | gold | `python -m eval.generate wikisql --teacher gold` | `795cc7d` | 1h 43m 21s | $0.00 |
@@ -41,7 +43,7 @@ directory under `eval/results/`.
 | `select-synthetic` | eval-select | n/a | `python -m eval.select_study` | `c1a7a44` | 0m 25s | $0.00 |
 | `shift-banking77-gold` | eval-shift | gold | `python -m eval.shift --teacher gold` | `773e679` | 10m 59s | $0.00 |
 | `spike-onnx-export` | spike-onnx | n/a | `uv run python eval/spikes/onnx_export_spike.py --out eval/results/spike-onnx-export` | `94389b5` | 5m 10s | $0.00 |
-| **Total (24 runs)** | | | | | 13h 49m 14s | $0.00 |
+| **Total (26 runs)** | | | | | 13h 49m 21s | $0.00 |
 
 Dollars are the sum of the `usage` of each teacher call, priced in `anvil/teacher/pricing.py`; a run whose teacher is `gold` makes no calls and costs $0. Wall time is the invocation's `wall_seconds`; for the frontier runs that is the figure the frontier section below treats as the run's time, and the training + selection time it also lists is not added again. A run that resumed an earlier invocation counts only its own. Totals skip runs that did not record a field.
 <!-- END generated:ledger -->
@@ -291,6 +293,142 @@ Findings:
   trained on gold disagree with the gold label in the same way.
 - The control's wall times include contention: it shared the 4 cores with the ModernBERT
   training of the table above.
+
+### Can the student flag its teacher's mistakes? (M13)
+
+`make eval-flag` (`python -m eval.flag`): the frontier's MiniLM-L6 student trained out of fold
+(3 folds, one random split shared by every condition) on each M8 dataset's 2,000 pool labels,
+three ways: the teacher's labels, and the `eval-noise` seed-0 corruptions of gold at the
+teacher's error count (uniform, and the teacher's confusions dealt to random inputs of each
+class). Each label is scored by the probability the student gives it without having trained on
+it (the self-confidence of confident learning, Northcutt et al. 2021); low means suspect. The
+flags are scored against the labels that really are wrong (given label differs from gold), and
+the student is retrained on the 80% not flagged and scored against gold on the held-out split,
+paired with the committed seed-0 `eval-noise` student trained on the same labels unfiltered.
+For the teacher's labels two more students make that comparison readable: one on a random 80%
+(is a change the filtering, or just less data?) and the unfiltered one retrained here (does the
+committed reference reproduce?). `python -m eval.flag --oof eval/results/flag-<dataset>-qwen2.5-3b/oof.npz`
+re-runs the flag analysis from the committed probabilities without a model.
+
+<!-- BEGIN generated:flag -->
+#### ag_news, teacher `qwen2.5:3b`, student `all-MiniLM-L6-v2`
+
+- Raw output: `eval/results/flag-ag_news-qwen2.5-3b/` (`report.json`, `meta.json`, `oof.npz` with every out-of-fold probability)
+- Command: `python -m eval.flag` at `1dfc2df`; 2000 pool labels, 3 folds (seed 0); 0 students trained in this invocation; 4 CPUs; wall 0m 04s; $0
+
+| Training labels | Wrong | Out-of-fold AUROC for wrong labels | Lowest 20.0% flagged: precision | Recall (of all wrong) | Recall at precision >= 0.7 (share flagged) | Flagged wrong labels where the student's top class is gold |
+|---|---|---|---|---|---|---|
+| the teacher's labels | 476 (24%) | 0.711 [0.686, 0.738] | 0.490 | 0.412 (at most 0.840) | 0.015 (0.4%) | 52.6% |
+| gold with uniform noise | 476 (24%) | 0.898 [0.883, 0.913] | 0.693 | 0.582 (at most 0.840) | 0.471 (16.0%) | 88.1% |
+| gold with the teacher's confusions | 476 (24%) | 0.724 [0.696, 0.753] | 0.480 | 0.403 (at most 0.840) | 0.000 (0.0%) | 64.1% |
+
+Retrained on what was not flagged, scored against gold on 477 held-out inputs (seed 0; the reference is the committed seed-0 `eval-noise` student trained on the same labels unfiltered):
+
+| Training labels | Trained on | Wrong among them | Kappa with gold | Minus the unfiltered reference (paired) |
+|---|---|---|---|---|
+| the teacher's labels | everything (committed reference) | 476 | 0.655 [0.604, 0.706] | |
+| the teacher's labels | the 80.0% not flagged (1600) | 280 | 0.672 [0.621, 0.721] | +0.017 [-0.019, 0.053] |
+| the teacher's labels | a random share of the same size (1600) | 384 | 0.688 [0.638, 0.735] | +0.033 [0.006, 0.061] |
+| the teacher's labels | everything, retrained here (2000) | 476 | 0.697 [0.649, 0.742] | +0.042 [0.017, 0.068] |
+| gold with uniform noise | everything (committed reference) | 476 | 0.785 [0.739, 0.826] | |
+| gold with uniform noise | the 80.0% not flagged (1600) | 199 | 0.838 [0.796, 0.876] | +0.053 [0.015, 0.096] |
+| gold with the teacher's confusions | everything (committed reference) | 476 | 0.678 [0.630, 0.727] | |
+| gold with the teacher's confusions | the 80.0% not flagged (1600) | 284 | 0.640 [0.592, 0.689] | -0.038 [-0.074, -0.004] |
+
+- The teacher's labels: kappa with gold, filtered minus random drop (paired, both trained here): -0.016 [-0.046, 0.014]
+- The teacher's labels: kappa with gold, filtered minus unfiltered (paired, both trained here): -0.025 [-0.060, 0.009]
+- The unfiltered student retrained here predicts the same label as the committed reference on 450 of 477 held-out inputs
+
+#### banking77, teacher `qwen2.5:3b`, student `all-MiniLM-L6-v2`
+
+- Raw output: `eval/results/flag-banking77-qwen2.5-3b/` (`report.json`, `meta.json`, `oof.npz` with every out-of-fold probability)
+- Command: `python -m eval.flag` at `1dfc2df`; 2000 pool labels, 3 folds (seed 0); 0 students trained in this invocation; 4 CPUs; wall 0m 02s; $0
+
+| Training labels | Wrong | Out-of-fold AUROC for wrong labels | Lowest 20.0% flagged: precision | Recall (of all wrong) | Recall at precision >= 0.7 (share flagged) | Flagged wrong labels where the student's top class is gold |
+|---|---|---|---|---|---|---|
+| the teacher's labels | 868 (43%) | 0.682 [0.659, 0.706] | 0.765 | 0.353 (at most 0.461) | 0.475 (29.4%) | 35.0% |
+| gold with uniform noise | 868 (43%) | 0.938 [0.927, 0.947] | 0.927 | 0.427 (at most 0.461) | 0.977 (60.6%) | 56.1% |
+| gold with the teacher's confusions | 868 (43%) | 0.729 [0.705, 0.754] | 0.748 | 0.344 (at most 0.461) | 0.499 (30.9%) | 34.1% |
+
+Retrained on what was not flagged, scored against gold on 496 held-out inputs (seed 0; the reference is the committed seed-0 `eval-noise` student trained on the same labels unfiltered):
+
+| Training labels | Trained on | Wrong among them | Kappa with gold | Minus the unfiltered reference (paired) |
+|---|---|---|---|---|
+| the teacher's labels | everything (committed reference) | 868 | 0.501 [0.457, 0.547] | |
+| the teacher's labels | the 80.0% not flagged (1600) | 562 | 0.542 [0.501, 0.586] | +0.041 [0.012, 0.070] |
+| the teacher's labels | a random share of the same size (1600) | 692 | 0.488 [0.445, 0.533] | -0.012 [-0.041, 0.014] |
+| the teacher's labels | everything, retrained here (2000) | 868 | 0.509 [0.466, 0.554] | +0.008 [-0.016, 0.031] |
+| gold with uniform noise | everything (committed reference) | 868 | 0.570 [0.523, 0.614] | |
+| gold with uniform noise | the 80.0% not flagged (1600) | 497 | 0.615 [0.568, 0.654] | +0.045 [0.004, 0.086] |
+| gold with the teacher's confusions | everything (committed reference) | 868 | 0.484 [0.439, 0.527] | |
+| gold with the teacher's confusions | the 80.0% not flagged (1600) | 569 | 0.486 [0.444, 0.528] | +0.002 [-0.029, 0.035] |
+
+- The teacher's labels: kappa with gold, filtered minus random drop (paired, both trained here): +0.053 [0.025, 0.084]
+- The teacher's labels: kappa with gold, filtered minus unfiltered (paired, both trained here): +0.033 [0.002, 0.065]
+- The unfiltered student retrained here predicts the same label as the committed reference on 426 of 496 held-out inputs
+<!-- END generated:flag -->
+
+Provenance: the 28 trainings ran in two earlier invocations of this harness, `python -m
+eval.flag` for Banking77 (1h 33m wall, started at `a00f163` with `eval/flag.py` not yet
+committed) and `python -m eval.flag ag_news` at `a5f11b8` (2h 00m wall, sharing the 4 vCPUs
+with the first, since torch used about two of them). Every prediction is cached by its inputs,
+so the committed reports are a re-run at a clean commit that trained nothing. Its reports are
+identical to the two originals, except for the filtered-minus-unfiltered line, which was added
+afterwards. $0.
+
+Findings, against the plan's hypotheses:
+
+- **Uniform noise is easy to flag; the teacher's noise is not (hypothesis held on Banking77,
+  not on AG News).** At the same error count, the out-of-fold self-confidence finds uniformly
+  placed wrong labels with AUROC 0.938 (Banking77) and 0.898 (AG News), and the teacher's own
+  wrong labels with 0.682 and 0.711. Recall at precision 0.7 is 0.977 under uniform noise on
+  Banking77, above the predicted 0.6, but 0.471 on AG News. With 24% of labels wrong there,
+  precision 0.7 is a stricter bar than with 43%, so the plan's "both datasets" did not hold.
+- **The hypothesis that input-tied errors are what defeats the flags was refuted.** The plan
+  predicted the teacher's labels would flag at least 0.15 worse in recall than the same
+  confusions dealt at random. They flag about the same: recall at precision 0.7 is 0.475
+  against 0.499 on Banking77 (the predicted ceiling was 0.35), and 0.015 against 0.000 on
+  AG News. The AUROCs are 0.682 against 0.729 and 0.711 against 0.724. The teacher's labels
+  are a little harder to flag on Banking77, but nowhere near the gap to uniform noise. What
+  defeats confident learning here is the class-level structure. When one class is
+  systematically labelled as another, the other folds carry the same confusion, the student
+  learns it, and a wrong label looks like a normal one. Whether the error also follows the
+  input adds little on top. M8's copy rates (77% against 52%) were about which held-out
+  inputs a student gets wrong; they don't make training labels harder to flag. The plan's
+  aside that AG News might do better was also refuted at the precision bar: there the
+  teacher's flags never reach precision 0.7 beyond the first 0.4% of labels, though its
+  AUROC (0.711) is a little higher than Banking77's.
+- **The flags are still informative where the errors are dense.** Flagging the lowest 20% of
+  Banking77's teacher labels is 76.5% precise against a 43% base rate, and catches 306 of the
+  868 wrong labels (the cap is 400). On AG News it is 49.0% precise against 24%. On the caught
+  errors, the student's own top class is gold 35% (Banking77) and 53% (AG News) of the time,
+  so relabelling with the student would fix about one caught error in three or two, and break
+  the rest.
+- **Dropping the flagged 20% helps on Banking77 and not on AG News (the hypothesis, under
+  +0.03, held on AG News and was borderline on Banking77).** Read the paired lines, which
+  compare students from the same invocation. On Banking77, filtered minus unfiltered is
+  +0.033 [0.002, 0.065] and filtered minus a random 20% drop is +0.053 [0.025, 0.084]. On AG
+  News they are -0.025 [-0.060, 0.009] and -0.016 [-0.046, 0.014]. The confusion-pair control
+  agrees: +0.002 on Banking77 and -0.038 on AG News against its committed reference. On AG
+  News the flag removes 196 of the 476 wrong labels but also 204 right ones, and that does not
+  beat the data it costs.
+- **A single-seed retrain is noisier than its interval says.** The unfiltered student
+  retrained here, with the same seed and labels as the committed `eval-noise` student,
+  predicts the same label on 426 of 496 (Banking77) and 450 of 477 (AG News) held-out inputs.
+  On AG News it scores 0.697 against the reference's 0.655 (+0.042 [0.017, 0.068]), outside
+  the paired interval, which counts only which test inputs were drawn and not training
+  randomness. M9 already found students that do not reproduce across CPUs. This is the same
+  machine type, and the likely cause (not tested) is thread scheduling while the two flag
+  processes shared the CPU. So the "minus the unfiltered reference" column is confounded by
+  that drift, the same-invocation lines above are the comparisons to read, and differences of
+  a few hundredths on AG News sit inside training noise (`eval-noise`'s teacher seeds span
+  0.655-0.688 there, against 0.501-0.509 on Banking77).
+- **So, is the student a third option to gold labels or a better teacher?** Partly. It can
+  rank its teacher's mistakes better than chance (AUROC about 0.7), and on a 77-class task
+  where 43% of labels are wrong, dropping its most suspect 20% buys about 0.03-0.05 kappa
+  with gold. But it cannot see the errors that matter most, the teacher's systematic
+  confusions, and on AG News it buys nothing. It is a triage list for a human reviewer, not a
+  replacement for gold.
 
 ### Label-count frontier: AG News and Banking77 (M3)
 
@@ -709,6 +847,33 @@ Findings:
 | banking77 | gold | ModernBERT-base | 496 | 0.842 | 1.24 | 0.062 -> 0.043 | 0.070 -> 0.054 | 80.8% | 70.0% |
 | banking77 | qwen2.5:3b | ModernBERT-base | 496 | 0.687 | 1.60 | 0.160 -> 0.079 | 0.165 -> 0.091 | 13.7% | n/a |
 
+The cascade on a fallible teacher, scored against gold (the threshold is the one served, rule `exact`, chosen for agreement with the teacher; the cascade answers with the student above it and the teacher below):
+
+| Dataset | Teacher | Target | Coverage | Answered: student vs teacher | Answered: student vs gold | Answered: teacher vs gold | Student minus teacher (paired) | Cascade vs gold | Teacher alone vs gold | Cascade minus teacher |
+|---|---|---|---|---|---|---|---|---|---|---|
+| ag_news | qwen2.5:3b | 0.9 | 82.4% (393) | 0.931 | 0.772 [0.724, 0.820] | 0.776 [0.730, 0.823] | -0.004 [-0.033, 0.021] | 0.716 [0.669, 0.764] | 0.719 [0.672, 0.764] | -0.003 [-0.025, 0.019] |
+| ag_news | qwen2.5:3b | 0.95 | 68.8% (328) | 0.978 | 0.864 [0.819, 0.907] | 0.860 [0.810, 0.903] | +0.004 [-0.014, 0.026] | 0.721 [0.674, 0.768] | 0.719 [0.672, 0.764] | +0.003 [-0.008, 0.014] |
+| banking77 | qwen2.5:3b | 0.9 | 13.7% (68) | 0.969 | 0.725 [0.616, 0.827] | 0.710 [0.589, 0.814] | +0.015 [-0.000, 0.046] | 0.546 [0.503, 0.590] | 0.544 [0.501, 0.586] | +0.002 [-0.000, 0.006] |
+| banking77 | qwen2.5:3b | 0.95 | no threshold | | | | | | 0.544 [0.501, 0.586] | |
+
+The same comparison at fixed coverage (the most confident inputs), and how well the student's confidence finds the inputs the teacher got wrong:
+
+| Dataset | Coverage | Inputs | Student vs gold | Teacher vs gold | Student minus teacher (paired) |
+|---|---|---|---|---|---|
+| ag_news | 90.0% | 429 | 0.760 [0.711, 0.807] | 0.751 [0.704, 0.795] | +0.009 [-0.022, 0.038] |
+| ag_news | 70.0% | 334 | 0.858 [0.811, 0.901] | 0.850 [0.802, 0.893] | +0.008 [-0.009, 0.030] |
+| ag_news | 50.0% | 238 | 0.939 [0.900, 0.973] | 0.933 [0.890, 0.972] | +0.007 [0.000, 0.022] |
+| ag_news | 30.0% | 143 | 0.927 [0.852, 0.985] | 0.927 [0.852, 0.985] | +0.000 [0.000, 0.000] |
+| banking77 | 90.0% | 446 | 0.572 [0.520, 0.617] | 0.556 [0.508, 0.601] | +0.016 [-0.018, 0.050] |
+| banking77 | 70.0% | 347 | 0.628 [0.575, 0.677] | 0.619 [0.565, 0.671] | +0.009 [-0.027, 0.047] |
+| banking77 | 50.0% | 248 | 0.692 [0.637, 0.748] | 0.684 [0.625, 0.741] | +0.008 [-0.029, 0.045] |
+| banking77 | 30.0% | 149 | 0.752 [0.677, 0.820] | 0.718 [0.640, 0.785] | +0.034 [-0.000, 0.075] |
+
+| Dataset | Teacher wrong (held-out) | AUROC, max softmax | AUROC, probability of the teacher's label |
+|---|---|---|---|
+| ag_news | 101 (21%) | 0.799 [0.753, 0.845] | 0.812 [0.764, 0.857] |
+| banking77 | 223 (45%) | 0.668 [0.621, 0.718] | 0.736 [0.689, 0.782] |
+
 #### ag_news, teacher `gold`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-ag_news-gold/` (`report.json`, `meta.json`, `logits.npz`)
@@ -764,7 +929,7 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 #### ag_news, teacher `qwen2.5:3b`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-ag_news-qwen2.5-3b/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` at `52dd15a`; student run `20261022-000137-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 66 s; spent $0.00
+- Command: `python -m eval.calibration ag_news --logits eval/results/calibration-ag_news-qwen2.5-3b/logits.npz` at `c388f6d`; student run `20261022-000137-n2000`; 200 random splits into 238 inputs to fit on and 239 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 74 s; spent $0.00
 - Fitted temperature over the splits: 0.99 [0.87, 1.10]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
@@ -882,7 +1047,7 @@ The teacher here is the dataset's gold labels (no API key in this run): this mea
 #### banking77, teacher `qwen2.5:3b`: does the threshold hold on inputs it was not chosen on?
 
 - Raw output: `eval/results/calibration-banking77-qwen2.5-3b/` (`report.json`, `meta.json`, `logits.npz`)
-- Command: `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` at `52dd15a`; student run `20261022-004245-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 51 s; spent $0.00
+- Command: `python -m eval.calibration banking77 --logits eval/results/calibration-banking77-qwen2.5-3b/logits.npz` at `c388f6d`; student run `20261022-004245-n2000`; 200 random splits into 248 inputs to fit on and 248 to test on; at least 30 answered inputs; 1000 bootstrap resamples; wall 46 s; spent $0.00
 - Fitted temperature over the splits: 1.61 [1.53, 1.67]
 
 | Target kappa | Threshold rule | Threshold found | Unseen half: kappa reaches target | Unseen half: coverage | Unseen half: kappa on answered | Unseen half: cascade kappa |
@@ -965,8 +1130,23 @@ against gold on 21% of AG News and 45% of Banking77 held-out inputs.
 - **This is consistency with the teacher, not correctness.** Inputs that a confident student
   and a self-consistent teacher agree on can still be wrong in the same way, like AG News's
   `sci_tech` stories labelled `business`. A cascade calibrated against a fallible teacher
-  serves the teacher's systematic errors at full confidence. Telling them apart needs gold
-  labels or a better teacher.
+  serves the teacher's systematic errors at full confidence.
+- **Against gold, the cascade is exactly as good as its teacher (M13, the table at the top of
+  this block).** Joining the two committed `logits.npz` files to the gold labels of the
+  matching `classify-*` report: at the served threshold the student agrees with the teacher at
+  0.969 (Banking77, 13.7% of inputs) and 0.931 (AG News, 82.4%), but with gold at 0.725 and
+  0.772, while the teacher itself scores 0.710 and 0.776 with gold on the same inputs. The
+  paired student-minus-teacher difference is +0.015 [-0.000, 0.046] and -0.004 [-0.033, 0.021].
+  The whole cascade (student above the threshold, teacher below) scores 0.546 and 0.716 with
+  gold against 0.544 and 0.719 for the teacher alone; the paired differences are within 0.003
+  of zero with intervals no wider than [-0.025, 0.019]. At fixed coverages of 90%, 70%, 50%
+  and 30% the gap stays within 0.035 on both datasets, and every interval includes zero or
+  touches it. So the cascade saves teacher calls without adding errors, and does not remove
+  any either: the ceiling it reaches is the teacher's correctness, not 0.9. The student's
+  confidence does see where the teacher is wrong (AUROC 0.668 for max softmax and 0.736 for
+  the probability of the teacher's own label on Banking77; 0.799 and 0.812 on AG News), but
+  the threshold sorts by that confidence, so above it the teacher is also more often right.
+  Whether that signal can clean the training labels is M13's flagging study.
 
 ### Does the interval cover? The bound behind the threshold rule (M10)
 

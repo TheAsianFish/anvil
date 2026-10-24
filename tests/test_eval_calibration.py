@@ -300,3 +300,87 @@ def test_main_from_logits_replays_the_second_labelling(
     assert code == 0
     out = tmp_path / "results" / "calibration-banking77-qwen2.5-3b-smoke" / "report.json"
     assert json.loads(out.read_text(encoding="utf-8"))["ceiling"]["asked"] == 100
+
+
+# --- the fallible-teacher cascade against gold ------------------------------------------------
+
+
+def test_against_gold_scores_the_cascade_and_the_teacher_on_the_same_inputs() -> None:
+    # 200 inputs, 4 labels. The student copies the teacher everywhere; the teacher is wrong on
+    # the 40 inputs where the student is least confident, so the confident half is all correct.
+    n, k = 200, 4
+    rng = np.random.default_rng(0)
+    gold = rng.integers(0, k, size=n).astype(np.int64)
+    teacher = gold.copy()
+    margin = np.linspace(4.0, 0.2, n)  # most confident first
+    teacher[-40:] = (gold[-40:] + 1) % k
+    z = np.zeros((n, k))
+    z[np.arange(n), teacher] = margin
+    p = softmax(z, 1.0).max(axis=1)
+    half = float(np.sort(p)[::-1][n // 2 - 1])
+    out: Any = calibration.against_gold(z, teacher, gold, 1.0, {"0.9": half, "0.95": None}, 200, 0)
+
+    assert out["teacher_wrong"] == 40
+    served = out["served"]
+    assert served["0.95"] is None
+    row = served["0.9"]
+    assert row["n"] == 100
+    assert row["teacher_wrong"] == 0
+    assert row["student_vs_teacher"] == pytest.approx(1.0)
+    assert row["student_vs_gold"]["kappa"] == pytest.approx(1.0)
+    assert row["teacher_vs_gold"]["kappa"] == pytest.approx(1.0)
+    # The student is the teacher on the answered inputs, so the cascade is the teacher alone.
+    assert row["cascade_vs_gold"]["kappa"] == pytest.approx(out["teacher_vs_gold"]["kappa"])
+    assert row["cascade_minus_teacher"] == {"estimate": 0.0, "low": 0.0, "high": 0.0}
+    assert [r["level"] for r in out["by_level"]] == list(calibration.GOLD_LEVELS)
+    assert out["by_level"][0]["n"] == 180
+    # Confidence falls exactly where the teacher goes wrong: a perfect detector either way.
+    auc = out["teacher_error_auroc"]
+    assert auc["max_softmax"]["auroc"] == pytest.approx(1.0)
+    assert auc["teacher_label_probability"]["auroc"] == pytest.approx(1.0)
+
+
+def test_against_gold_answers_with_the_student_above_the_threshold_and_the_teacher_below() -> None:
+    # The teacher is wrong on the first 20 inputs (the most confident) and the last 40; the
+    # student is right everywhere. Above the threshold the cascade takes the student's answer
+    # and fixes the first 20; below it keeps the teacher's errors.
+    n, k = 200, 4
+    gold = (np.arange(n) % k).astype(np.int64)
+    teacher = gold.copy()
+    teacher[:20] = (gold[:20] + 1) % k
+    teacher[-40:] = (gold[-40:] + 1) % k
+    z = np.zeros((n, k))
+    z[np.arange(n), gold] = np.linspace(4.0, 0.2, n)
+    p = softmax(z, 1.0).max(axis=1)
+    half = float(np.sort(p)[::-1][n // 2 - 1])
+    out: Any = calibration.against_gold(z, teacher, gold, 1.0, {"0.9": half}, 200, 0)
+
+    row = out["served"]["0.9"]
+    assert row["n"] == 100
+    assert row["teacher_wrong"] == 20
+    assert row["student_vs_gold"]["kappa"] == pytest.approx(1.0)
+    assert row["student_minus_teacher"]["estimate"] > 0
+    cascade = np.where(np.arange(n) < 100, gold, teacher)
+    assert row["cascade_vs_gold"]["kappa"] == pytest.approx(calibration._kappa(gold, cascade, k))
+    assert row["cascade_minus_teacher"]["estimate"] == pytest.approx(
+        calibration._kappa(gold, cascade, k) - calibration._kappa(gold, teacher, k)
+    )
+    assert row["cascade_minus_teacher"]["low"] > 0
+
+
+def test_gold_codes_follow_the_classify_report(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from anvil.errors import ConfigError
+
+    monkeypatch.setattr(calibration, "RESULTS_DIR", tmp_path)
+    folder = tmp_path / "classify-toy-qwen2.5-3b"
+    folder.mkdir()
+    predictions = {"input_id": ["x", "y", "z"], "gold": ["b", "a", "b"]}
+    (folder / "report.json").write_text(json.dumps({"predictions": predictions}), "utf-8")
+    codes = calibration.gold_codes("toy", "qwen2.5:3b", ["z", "x", "y"], ["a", "b"])
+    assert codes is not None
+    assert codes.tolist() == [1, 1, 0]
+    with pytest.raises(ConfigError, match="no gold label"):
+        calibration.gold_codes("toy", "qwen2.5:3b", ["w"], ["a", "b"])
+    assert calibration.gold_codes("other", "qwen2.5:3b", ["x"], ["a", "b"]) is None

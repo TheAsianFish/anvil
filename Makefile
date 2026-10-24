@@ -1,5 +1,5 @@
 .PHONY: help sync check fmt lint typecheck test test-live record demo wheel-check docker spike-onnx \
-	eval-classify eval-extract eval-extract-cascade eval-generate eval-select eval-frontier eval-calibration eval-export eval-noise eval-shift eval-coverage bench \
+	eval-classify eval-extract eval-extract-cascade eval-generate eval-select eval-frontier eval-calibration eval-export eval-noise eval-flag eval-shift eval-coverage bench \
 	results clean
 
 UV ?= uv
@@ -79,6 +79,10 @@ eval-export: ## M5 ONNX fp32/int8 parity and the int8 layer probe on the M2 stud
 
 eval-noise: ## M8 control: MiniLM on gold, on the local teacher's labels and on matched synthetic noise (3 seeds), then RESULTS.md
 	$(RUN) --group eval python -m eval.noise
+	$(RUN) python -m eval.render
+
+eval-flag: ## M13 can the student flag its teacher's mistakes? Out-of-fold MiniLM on the M8 labels (about 3 h of CPU), then RESULTS.md
+	$(RUN) --group eval python -m eval.flag
 	$(RUN) python -m eval.render
 
 eval-shift: ## M9 the served Banking77 bundle on its test split, CLINC150 out-of-scope and AG News (TEACHER=gold|auto|...; exports the bundle if missing), then RESULTS.md
